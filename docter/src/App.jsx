@@ -1,129 +1,101 @@
 import React, { useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, Link, useNavigate } from 'react-router-dom';
 
+// Auth & Layout
 import Login from './pages/Login';
+import Header from './components/Header';
+import Footer from './components/Footer';
+import LanguageSelector from './components/LanguageSelector';
+
+// Patient Pages
 import Dashboard from './pages/patient/Dashboard';
 import Doctors from './pages/patient/Doctors';
 import Appointments from './pages/patient/Appointments';
 import MedicalRecordsPage from './pages/patient/MedicalRecordsPage';
-import Feedback from './pages/patient/Feedback'; 
-import DoctorFeedbackDashboard from './pages/Docter/DoctorFeedbackDashboard'; 
+import Feedback from './pages/patient/Feedback';
 import PatientPrescriptions from './pages/patient/PatientPrescriptions';
-
-import AdminDashboard from './pages/Admin/AdminDashboard';
-import AdminManagement from './pages/Admin/AdminManagement';
-import AdminPortal from './pages/Admin/AdminPortal';
-
 import BookAppointment from './pages/patient/BookAppointment';
 
-import DoctorAvailability from './pages/Docter/DoctorAvailability';
-import BillingPayment from './pages/Docter/BillingPayment';
-import DoctorBilling from './pages/Docter/DoctorBilling'; // ✅ இதை import பண்ணவும்
-
-import DoctorPortal from './pages/Docter/DoctorPortal';
-import DoctorSchedule from './pages/Docter/DoctorSchedule';
-import PrescriptionManager from './pages/Docter/PrescriptionManager';
-import VideoConsultation from './pages/Docter/VideoConsultation';
-import Profile from './pages/Profile';
-
+// Patient Features
 import AIDoctorRecommendation from './pages/patient/features/AIDoctorRecommendation';
 import AIMedicalRecords from './pages/patient/features/AIMedicalRecords';
-
 import EmergencySOS from './pages/patient/features/EmergencySOS';
 import MedicineDelivery from './pages/patient/features/MedicineDelivery';
 import HealthInsurance from './pages/patient/features/HealthInsurance';
 import HealthMonitor from './pages/patient/features/HealthMonitor';
-import AIHealthAssistant from './pages/patient/features/AIHealthAssistant'; 
+import AIHealthAssistant from './pages/patient/features/AIHealthAssistant';
 import MentalHealth from './pages/patient/features/MentalHealth';
 import FamilyHealth from './pages/patient/features/FamilyHealth';
 import Nutrition from './pages/patient/features/Nutrition';
 
+// Doctor Pages
+import Home from './pages/Docter/Home';
+import DocAppointments from './pages/Docter/DocAppiments';
+import PatientMedicalRecords from './pages/Docter/DocMedicalrecords';
+import DoctorSchedule from './pages/Docter/DoctorSchedule';
+import PrescriptionManager from './pages/Docter/PrescriptionManager';
+import DoctorFeedbackDashboard from './pages/Docter/DoctorFeedbackDashboard';
+
+// Admin Pages
+import AdminDashboard from './pages/Admin/AdminDashboard';
+import AdminManagement from './pages/Admin/AdminManagement';
+import AdminPortal from './pages/Admin/AdminPortal';
+import AdminSidebar from './pages/Admin/AdminSidebar';
+import AdminLayout from './pages/Admin/AdminLayout';
+import Patients from './pages/Admin/patients';
+import AdminAppointments from './pages/Admin/AdminAppointments';
+import AdminMedicalRecords from './pages/Admin/AdminMedicalRecords';
+import AdminSettings from './pages/Admin/AdminSettings';
+import AdminNotifications from './pages/Admin/AdminNotifications'; // ✅ NEW: Admin Notifications
+
+// Components
 import ChatSystem from './components/ChatSystem';
+import Profile from './pages/Profile';
 
-import Header from './components/Header';
-import Footer from './components/Footer';
-import LanguageSelector from './components/LanguageSelector';
-import DarkModeToggle from './components/DarkModeToggle';
-
+// Icons
 import { 
   FaQuestionCircle, FaUsers, FaComment, FaRobot, 
   FaVideo, FaAmbulance, FaPills, FaShieldAlt, 
-  FaHeartbeat, FaBrain, FaHeart, FaAppleAlt
+  FaHeartbeat, FaBrain, FaHeart, FaAppleAlt,
+  FaCog, FaBell
 } from 'react-icons/fa';
 
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [userType, setUserType] = useState('patient');
-  const [userData, setUserData] = useState({
-    name: 'Alex Johnson',
-    email: 'alex@example.com',
-    userId: 'PAT001'
-  });
+  const [userData, setUserData] = useState({});
   const [darkMode, setDarkMode] = useState(false);
 
   const handleLogin = (type, userInfo = {}) => {
     setIsAuthenticated(true);
     setUserType(type);
     
-    // Set default user data based on type
-    let defaultData = {};
-    switch(type) {
-      case 'patient':
-        defaultData = {
-          name: 'Alex Johnson',
-          email: 'alex@example.com',
-          userId: 'PAT001',
-          avatarColor: 'bg-blue-500',
-          bloodGroup: 'O+',
-          allergies: ['Penicillin'],
-          emergencyContact: '+91 9876543210'
-        };
-        break;
-      case 'doctor':
-        defaultData = {
-          name: 'Dr. Sarah Johnson',
-          email: 'sarah.johnson@healthai.com',
-          userId: 'DOC001',
-          specialization: 'General Physician',
-          avatarColor: 'bg-teal-500',
-          licenseNumber: 'MED123456',
-          hospital: 'City General Hospital'
-        };
-        break;
-      case 'admin':
-        defaultData = {
-          name: 'Admin User',
-          email: 'admin@healthai.com',
-          userId: 'ADM001',
-          avatarColor: 'bg-purple-500',
-          role: 'System Administrator'
-        };
-        break;
-      default:
-        defaultData = {
-          name: 'User',
-          email: 'user@example.com',
-          userId: 'USR001',
-          avatarColor: 'bg-gray-500'
-        };
+    // Only use provided user info, no default data
+    setUserData(userInfo);
+
+    // Create welcome notification for admin if userInfo exists
+    if (type === 'admin' && userInfo.name) {
+      const notifications = JSON.parse(localStorage.getItem('admin_notifications') || '[]');
+      const welcomeNotif = {
+        id: `NOT-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        title: 'Welcome to Admin Panel',
+        message: `Welcome back, ${userInfo.name}! You have full system access.`,
+        type: 'system',
+        priority: 'normal',
+        recipientType: 'admin',
+        timestamp: new Date().toISOString(),
+        read: false,
+        icon: 'bell'
+      };
+      localStorage.setItem('admin_notifications', JSON.stringify([welcomeNotif, ...notifications]));
+      window.dispatchEvent(new Event('notificationUpdate'));
     }
-    
-    // Merge with provided user info
-    setUserData({
-      ...defaultData,
-      ...userInfo
-    });
   };
 
   const handleLogout = () => {
     setIsAuthenticated(false);
     setUserType('patient');
-    setUserData({
-      name: 'Alex Johnson',
-      email: 'alex@example.com',
-      userId: 'PAT001',
-      avatarColor: 'bg-blue-500'
-    });
+    setUserData({});
   };
 
   const toggleDarkMode = () => {
@@ -152,10 +124,22 @@ function App() {
     );
   };
 
+  // Admin Route Wrapper Component
+  const AdminRoute = ({ children }) => {
+    if (!isAuthenticated || userType !== 'admin') {
+      return <Navigate to="/" />;
+    }
+    return (
+      <AdminLayout userType={userType} userData={userData} darkMode={darkMode}>
+        {children}
+      </AdminLayout>
+    );
+  };
+
   return (
     <Router>
       <div className={`min-h-screen flex flex-col ${darkMode ? 'dark bg-gray-900' : 'bg-gray-50'}`}>
-        {isAuthenticated && (
+        {isAuthenticated && userType !== 'admin' && (
           <Header 
             onLogout={handleLogout} 
             userType={userType} 
@@ -165,7 +149,7 @@ function App() {
           />
         )}
         
-        {/* Patient Quick Access Bar */}
+        {/* Patient Quick Access Bar - Only show for patients */}
         {isAuthenticated && userType === 'patient' && (
           <div className={`${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} border-b`}>
             <div className="max-w-8xl mx-auto px-4 py-1">
@@ -260,21 +244,11 @@ function App() {
               element={
                 isAuthenticated ? 
                 <Navigate to={
-                  userType === 'admin' ? '/admin' : 
-                  userType === 'doctor' ? '/doctor-portal' : 
+                  userType === 'admin' ? '/admin/dashboard' : 
+                  userType === 'doctor' ? '/doctor' :
                   '/home'
                 } /> : 
                 <Login onLogin={handleLogin} />
-              } 
-            />
-            
-            {/* Doctor Billing Route */}
-            <Route 
-              path="/doctor-billing" 
-              element={
-                isAuthenticated && userType === 'doctor' ? 
-                <DoctorBilling userType={userType} userData={userData} darkMode={darkMode} /> : 
-                <Navigate to="/" />
               } 
             />
             
@@ -323,18 +297,23 @@ function App() {
               path="/book-appointment/:doctorId" 
               element={
                 isAuthenticated && userType === 'patient' ? 
-                <BookAppointment userType={userType} userData={userData} darkMode={darkMode} /> : 
+                <BookAppointment 
+                  userType={userType} 
+                  userData={userData} 
+                  darkMode={darkMode} 
+                /> : 
                 <Navigate to="/" />
               } 
             />
             <Route 
-                path="/my-prescriptions" 
-               element={
+              path="/my-prescriptions" 
+              element={
                 isAuthenticated && userType === 'patient' ? 
-               <PatientPrescriptions userType={userType} userData={userData} darkMode={darkMode} /> : 
-             <Navigate to="/" />
-             } 
-/>
+                <PatientPrescriptions userType={userType} userData={userData} darkMode={darkMode} /> : 
+                <Navigate to="/" />
+              } 
+            />
+            
             {/* Chat System Route */}
             <Route 
               path="/chat-system" 
@@ -429,35 +408,36 @@ function App() {
               } 
             />
             
-            {/* Video Consultation */}
-            <Route 
-              path="/video-consultation/:appointmentId" 
-              element={
-                isAuthenticated ? 
-                <VideoConsultation userType={userType} userData={userData} darkMode={darkMode} /> : 
-                <Navigate to="/" />
-              } 
-            />
-            
-            {/* Billing & Payments */}
-            <Route 
-              path="/billing-payment" 
-              element={
-                isAuthenticated && (userType === 'patient' || userType === 'admin') ? 
-                <BillingPayment userType={userType} userData={userData} darkMode={darkMode} /> : 
-                <Navigate to="/" />
-              } 
-            />
-            
             {/* Doctor Routes */}
             <Route 
-              path="/doctor-portal" 
+              path="/doctor" 
               element={
                 isAuthenticated && userType === 'doctor' ? 
-                <DoctorPortal userType={userType} userData={userData} darkMode={darkMode} /> : 
+                <Home userType={userType} userData={userData} darkMode={darkMode} /> : 
                 <Navigate to="/" />
               } 
             />
+            
+            {/* Doctor Appointments Route */}
+            <Route 
+              path="/doctor/appointments" 
+              element={
+                isAuthenticated && userType === 'doctor' ? 
+                <DocAppointments userType={userType} userData={userData} darkMode={darkMode} /> : 
+                <Navigate to="/" />
+              } 
+            />
+            
+            {/* Doctor Patient Medical Records Route */}
+            <Route 
+              path="/doctor/patient-records" 
+              element={
+                isAuthenticated && userType === 'doctor' ? 
+                <PatientMedicalRecords userType={userType} userData={userData} darkMode={darkMode} /> : 
+                <Navigate to="/" />
+              } 
+            />
+            
             <Route 
               path="/doctor-schedule" 
               element={
@@ -466,14 +446,7 @@ function App() {
                 <Navigate to="/" />
               } 
             />
-            <Route 
-              path="/doctor-availability" 
-              element={
-                isAuthenticated && userType === 'doctor' ? 
-                <DoctorAvailability userType={userType} userData={userData} darkMode={darkMode} /> : 
-                <Navigate to="/" />
-              } 
-            />
+           
             <Route 
               path="/doctor-feedback-dashboard" 
               element={
@@ -493,28 +466,108 @@ function App() {
               } 
             />
             
-            {/* Admin Routes */}
+            {/* ============= ADMIN ROUTES WITH SIDEBAR ============= */}
+            
+            {/* Admin Dashboard */}
             <Route 
-              path="/admin" 
+              path="/admin/dashboard" 
               element={
-                isAuthenticated && userType === 'admin' ? 
-                <AdminDashboard userType={userType} userData={userData} darkMode={darkMode} /> : 
-                <Navigate to="/" />
+                <AdminRoute>
+                  <AdminDashboard userType={userType} userData={userData} darkMode={darkMode} />
+                </AdminRoute>
               } 
             />
+            
+            {/* Doctor Management */}
             <Route 
-              path="/admin-management" 
+              path="/admin/doctors" 
               element={
-                isAuthenticated && userType === 'admin' ? 
-                <AdminManagement userType={userType} userData={userData} darkMode={darkMode} /> : 
-                <Navigate to="/" />
+                <AdminRoute>
+                  <AdminManagement userType={userType} userData={userData} darkMode={darkMode} />
+                </AdminRoute>
               } 
             />
+            
+            {/* Patient List */}
+            <Route 
+              path="/admin/patients" 
+              element={
+                <AdminRoute>
+                  <Patients userType={userType} userData={userData} darkMode={darkMode} />
+                </AdminRoute>
+              } 
+            />
+            
+            {/* All Appointments */}
+            <Route 
+              path="/admin/appointments" 
+              element={
+                <AdminRoute>
+                  <AdminAppointments userType={userType} userData={userData} darkMode={darkMode} />
+                </AdminRoute>
+              } 
+            />
+            
+            {/* Medical Logs - Medical Records */}
+            <Route 
+              path="/admin/logs" 
+              element={
+                <AdminRoute>
+                  <AdminMedicalRecords userType={userType} userData={userData} darkMode={darkMode} />
+                </AdminRoute>
+              } 
+            />
+            
+            {/* ✅ ADMIN NOTIFICATIONS - Fully Integrated */}
+            <Route 
+              path="/admin/notifications" 
+              element={
+                <AdminRoute>
+                  <AdminNotifications userType={userType} userData={userData} darkMode={darkMode} />
+                </AdminRoute>
+              } 
+            />
+            
+            {/* ✅ SYSTEM SETTINGS */}
+            <Route 
+              path="/admin/settings" 
+              element={
+                <AdminRoute>
+                  <AdminSettings 
+                    userData={userData} 
+                    darkMode={darkMode} 
+                    onToggleDarkMode={toggleDarkMode}
+                  />
+                </AdminRoute>
+              } 
+            />
+            
+            {/* Admin Portal (Legacy) */}
             <Route 
               path="/admin-portal" 
               element={
                 isAuthenticated && userType === 'admin' ? 
                 <AdminPortal userType={userType} userData={userData} darkMode={darkMode} /> : 
+                <Navigate to="/" />
+              } 
+            />
+            
+            {/* Redirect /admin to /admin/dashboard */}
+            <Route 
+              path="/admin" 
+              element={
+                isAuthenticated && userType === 'admin' ? 
+                <Navigate to="/admin/dashboard" /> : 
+                <Navigate to="/" />
+              } 
+            />
+            
+            {/* Keep old admin management route for backward compatibility */}
+            <Route 
+              path="/admin-management" 
+              element={
+                isAuthenticated && userType === 'admin' ? 
+                <Navigate to="/admin/doctors" /> : 
                 <Navigate to="/" />
               } 
             />
@@ -533,91 +586,92 @@ function App() {
             <Route 
               path="/settings" 
               element={
-                isAuthenticated ? 
-                <div className={`max-w-7xl mx-auto px-4 py-8 ${darkMode ? 'text-gray-100' : ''}`}>
-                  <h1 className="text-3xl font-bold">Settings</h1>
-                  <p className="opacity-80">System Settings</p>
-                  <div className={`mt-6 rounded-2xl shadow-lg p-6 ${darkMode ? 'bg-gray-800' : 'bg-white'}`}>
-                    <div className="space-y-6">
-                      <div>
-                        <h3 className="text-lg font-bold mb-4">System Preferences</h3>
-                        <div className="space-y-4">
-                          <div className="flex justify-between items-center">
-                            <div>
-                              <div className="font-medium">Dark Mode</div>
-                              <div className="text-sm opacity-80">Switch to dark theme</div>
+                isAuthenticated ? (
+                  <div className={`max-w-7xl mx-auto px-4 py-8 ${darkMode ? 'text-gray-100' : ''}`}>
+                    <h1 className="text-3xl font-bold">Settings</h1>
+                    <p className="opacity-80">System Settings</p>
+                    <div className={`mt-6 rounded-2xl shadow-lg p-6 ${darkMode ? 'bg-gray-800' : 'bg-white'}`}>
+                      <div className="space-y-6">
+                        <div>
+                          <h3 className="text-lg font-bold mb-4">System Preferences</h3>
+                          <div className="space-y-4">
+                            <div className="flex justify-between items-center">
+                              <div>
+                                <div className="font-medium">Dark Mode</div>
+                                <div className="text-sm opacity-80">Switch to dark theme</div>
+                              </div>
+                              <button
+                                onClick={toggleDarkMode}
+                                className={`px-4 py-2 rounded-lg ${darkMode ? 'bg-teal-600 text-white' : 'bg-gray-200 text-gray-800'}`}
+                              >
+                                {darkMode ? 'Dark' : 'Light'}
+                              </button>
                             </div>
-                            <button
-                              onClick={toggleDarkMode}
-                              className={`px-4 py-2 rounded-lg ${darkMode ? 'bg-teal-600 text-white' : 'bg-gray-200 text-gray-800'}`}
-                            >
-                              {darkMode ? 'Dark' : 'Light'}
+                            <div className="flex justify-between items-center">
+                              <div>
+                                <div className="font-medium">Chat Notifications</div>
+                                <div className="text-sm opacity-80">Receive chat message alerts</div>
+                              </div>
+                              <label className="relative inline-flex items-center cursor-pointer">
+                                <input type="checkbox" defaultChecked className="sr-only peer" />
+                                <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-teal-600"></div>
+                              </label>
+                            </div>
+                            <div className="flex justify-between items-center">
+                              <div>
+                                <div className="font-medium">Email Notifications</div>
+                                <div className="text-sm opacity-80">Receive email updates</div>
+                              </div>
+                              <label className="relative inline-flex items-center cursor-pointer">
+                                <input type="checkbox" defaultChecked className="sr-only peer" />
+                                <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-teal-600"></div>
+                              </label>
+                            </div>
+                            <div className="flex justify-between items-center">
+                              <div>
+                                <div className="font-medium">Appointment Reminders</div>
+                                <div className="text-sm opacity-80">Get reminders before appointments</div>
+                              </div>
+                              <label className="relative inline-flex items-center cursor-pointer">
+                                <input type="checkbox" defaultChecked className="sr-only peer" />
+                                <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-teal-600"></div>
+                              </label>
+                            </div>
+                          </div>
+                        </div>
+                        
+                        {/* Language Selection */}
+                        <div>
+                          <h3 className="text-lg font-bold mb-4">Language</h3>
+                          <LanguageSelector darkMode={darkMode} />
+                        </div>
+                        
+                        {/* Security Settings */}
+                        <div>
+                          <h3 className="text-lg font-bold mb-4">Security</h3>
+                          <div className="space-y-4">
+                            <button className={`w-full text-left p-4 rounded-lg hover:opacity-90 ${darkMode ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-100 hover:bg-gray-200'}`}>
+                              <div className="font-medium">Change Password</div>
+                              <div className="text-sm opacity-80">Update your account password</div>
+                            </button>
+                            <button className={`w-full text-left p-4 rounded-lg hover:opacity-90 ${darkMode ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-100 hover:bg-gray-200'}`}>
+                              <div className="font-medium">Two-Factor Authentication</div>
+                              <div className="text-sm opacity-80">Add an extra layer of security</div>
+                            </button>
+                            <button className="w-full text-left p-4 rounded-lg hover:opacity-90 bg-red-900/30 hover:bg-red-800/40 text-red-300">
+                              <div className="font-medium">Delete Account</div>
+                              <div className="text-sm opacity-80">Permanently delete your account</div>
                             </button>
                           </div>
-                          <div className="flex justify-between items-center">
-                            <div>
-                              <div className="font-medium">Chat Notifications</div>
-                              <div className="text-sm opacity-80">Receive chat message alerts</div>
-                            </div>
-                            <label className="relative inline-flex items-center cursor-pointer">
-                              <input type="checkbox" defaultChecked className="sr-only peer" />
-                              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-teal-600"></div>
-                            </label>
-                          </div>
-                          <div className="flex justify-between items-center">
-                            <div>
-                              <div className="font-medium">Email Notifications</div>
-                              <div className="text-sm opacity-80">Receive email updates</div>
-                            </div>
-                            <label className="relative inline-flex items-center cursor-pointer">
-                              <input type="checkbox" defaultChecked className="sr-only peer" />
-                              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-teal-600"></div>
-                            </label>
-                          </div>
-                          <div className="flex justify-between items-center">
-                            <div>
-                              <div className="font-medium">Appointment Reminders</div>
-                              <div className="text-sm opacity-80">Get reminders before appointments</div>
-                            </div>
-                            <label className="relative inline-flex items-center cursor-pointer">
-                              <input type="checkbox" defaultChecked className="sr-only peer" />
-                              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-teal-600"></div>
-                            </label>
-                          </div>
                         </div>
+                        
+                        <button className="px-6 py-3 bg-teal-600 text-white rounded-lg font-medium hover:bg-teal-700">
+                          Save Settings
+                        </button>
                       </div>
-                      
-                      {/* Language Selection */}
-                      <div>
-                        <h3 className="text-lg font-bold mb-4">Language</h3>
-                        <LanguageSelector darkMode={darkMode} />
-                      </div>
-                      
-                      {/* Security Settings */}
-                      <div>
-                        <h3 className="text-lg font-bold mb-4">Security</h3>
-                        <div className="space-y-4">
-                          <button className={`w-full text-left p-4 rounded-lg hover:opacity-90 ${darkMode ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-100 hover:bg-gray-200'}`}>
-                            <div className="font-medium">Change Password</div>
-                            <div className="text-sm opacity-80">Update your account password</div>
-                          </button>
-                          <button className={`w-full text-left p-4 rounded-lg hover:opacity-90 ${darkMode ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-100 hover:bg-gray-200'}`}>
-                            <div className="font-medium">Two-Factor Authentication</div>
-                            <div className="text-sm opacity-80">Add an extra layer of security</div>
-                          </button>
-                          <button className="w-full text-left p-4 rounded-lg hover:opacity-90 bg-red-900/30 hover:bg-red-800/40 text-red-300">
-                            <div className="font-medium">Delete Account</div>
-                            <div className="text-sm opacity-80">Permanently delete your account</div>
-                          </button>
-                        </div>
-                      </div>
-                      
-                      <button className="px-6 py-3 bg-teal-600 text-white rounded-lg font-medium hover:bg-teal-700">
-                        Save Settings
-                      </button>
                     </div>
                   </div>
-                </div> : 
+                ) : 
                 <Navigate to="/" />
               } 
             />
@@ -741,15 +795,15 @@ function App() {
             />
           </Routes>
         </main>
-        {isAuthenticated && <Footer darkMode={darkMode} />}
         
-        {/* Voice Assistant Button */}
-        {isAuthenticated && (
+        {isAuthenticated && userType !== 'admin' && <Footer darkMode={darkMode} />}
+        
+        {/* Voice Assistant Button - Hide for admin */}
+        {isAuthenticated && userType !== 'admin' && (
           <button
             className="fixed bottom-6 right-6 w-14 h-14 bg-gradient-to-r from-teal-500 to-teal-600 rounded-full shadow-lg flex items-center justify-center text-white hover:scale-110 transition-transform"
             title="Voice Assistant"
             onClick={() => {
-              // Voice assistant implementation
               if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
                 alert('Voice assistant activated. Say "book appointment", "emergency", "my prescriptions", or "open chat"');
               } else {
@@ -767,19 +821,32 @@ function App() {
         {!isAuthenticated && (
           <div className="fixed top-4 right-4 flex space-x-2">
             <button 
-              onClick={() => handleLogin('patient', { name: 'Patient User' })}
+              onClick={() => handleLogin('patient', { 
+                name: 'Patient User', 
+                userId: 'PAT001',
+                email: 'patient@example.com' 
+              })}
               className="px-4 py-2 bg-teal-600 text-white rounded-lg text-sm"
             >
               Quick Patient
             </button>
             <button 
-              onClick={() => handleLogin('doctor', { name: 'Dr. Sarah Johnson' })}
+              onClick={() => handleLogin('doctor', { 
+                name: 'Dr. Sarah Johnson', 
+                userId: 'DOC001',
+                email: 'sarah.johnson@healthai.com',
+                specialization: 'General Physician'
+              })}
               className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm"
             >
               Quick Doctor
             </button>
             <button 
-              onClick={() => handleLogin('admin', { name: 'Admin User' })}
+              onClick={() => handleLogin('admin', { 
+                name: 'Admin User', 
+                userId: 'ADM001',
+                email: 'admin@healthai.com' 
+              })}
               className="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm"
             >
               Quick Admin

@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  FileText, Calendar, User, Search, Filter, 
-  Download, Eye, Plus, X, Activity, Pill, 
-  Beaker, ChevronRight, Stethoscope, Share2, 
-  Thermometer, Clock, ShieldCheck, Upload,
-  Camera, File, Image, XCircle, CheckCircle
+  FileText, Search, Plus, X, Stethoscope, 
+  ChevronRight, Upload, Users, RefreshCw, 
+  Filter, Calendar, Activity, Thermometer, Droplets,
+  Clipboard, HeartPulse, Building2, User, Download,
+  Eye, File, Image, FileIcon, Trash2, ZoomIn
 } from 'lucide-react';
 
 const MedicalRecordsPage = () => {
+  // --- STATES ---
   const [selectedRecord, setSelectedRecord] = useState(null);
   const [filter, setFilter] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
@@ -17,604 +18,654 @@ const MedicalRecordsPage = () => {
   const [recordType, setRecordType] = useState('');
   const [recordDate, setRecordDate] = useState('');
   const [recordNotes, setRecordNotes] = useState('');
-  const [uploadProgress, setUploadProgress] = useState(0);
   const [isUploading, setIsUploading] = useState(false);
-  
-  // Load records from localStorage
-  const [medicalRecords, setMedicalRecords] = useState(() => {
-    const saved = localStorage.getItem('user_medical_records');
-    return saved ? JSON.parse(saved) : [
-      {
-        id: 1,
-        date: '2024-11-15',
-        doctor: 'Dr. Sarah Johnson',
-        specialty: 'General Physician',
-        type: 'Checkup',
-        diagnosis: 'Viral Fever',
-        prescription: ['Paracetamol 500mg', 'Vitamin C', 'Rest for 3 days'],
-        notes: 'Patient had high temperature (102°F). Recommended blood test if fever persists.',
-        labResults: 'None',
-        status: 'Normal',
-        hospital: 'City General Hospital',
-        uploadedBy: 'doctor'
-      },
-      {
-        id: 2,
-        date: '2024-10-20',
-        doctor: 'Dr. Kasun Perera',
-        specialty: 'Cardiologist',
-        type: 'Lab Report',
-        diagnosis: 'High Cholesterol',
-        prescription: ['Atorvastatin 10mg', 'Diet Control'],
-        notes: 'Lipid profile shows slightly elevated LDL levels.',
-        labResults: 'Lipid Profile - Abnormal',
-        status: 'Attention',
-        hospital: 'Asiri Surgical',
-        uploadedBy: 'doctor'
-      }
-    ];
-  });
+  const [showOPDetails, setShowOPDetails] = useState(false);
+  const [showViewModal, setShowViewModal] = useState(false);
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [currentUser, setCurrentUser] = useState(null);
+  const [medicalRecords, setMedicalRecords] = useState([]);
 
-  // Save to localStorage whenever records change
+  // OP Details States
+  const [opDoctor, setOpDoctor] = useState('');
+  const [opDept, setOpDept] = useState('');
+  const [visitType, setVisitType] = useState('');
+  const [bp, setBp] = useState('');
+  const [heartRate, setHeartRate] = useState('');
+  const [temp, setTemp] = useState('');
+  const [oxygen, setOxygen] = useState('');
+
+  // Get current user and load medical records
   useEffect(() => {
-    localStorage.setItem('user_medical_records', JSON.stringify(medicalRecords));
-    // Also sync to doctor's view
-    localStorage.setItem('doctor_medical_records', JSON.stringify(medicalRecords));
-  }, [medicalRecords]);
-
-  // --- Stats Calculation ---
-  const stats = {
-    total: medicalRecords.length,
-    prescriptions: medicalRecords.filter(r => r.prescription.length > 0).length,
-    labs: medicalRecords.filter(r => r.type === 'Lab Report').length,
-    conditions: new Set(medicalRecords.map(r => r.diagnosis)).size,
-    uploadedByUser: medicalRecords.filter(r => r.uploadedBy === 'user').length
-  };
-
-  // --- Filtering ---
-  const filteredRecords = medicalRecords.filter(record => {
-    const matchesFilter = filter === 'all' || record.type.toLowerCase().includes(filter.toLowerCase());
-    const matchesSearch = record.diagnosis.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                          record.doctor.toLowerCase().includes(searchTerm.toLowerCase());
-    return matchesFilter && matchesSearch;
-  });
-
-  const openDetails = (record) => {
-    setSelectedRecord(record);
-    setShowModal(true);
-  };
-
-  const handleFileUpload = (e) => {
-    const files = Array.from(e.target.files);
-    const newFiles = files.map(file => ({
-      file,
-      preview: file.type.startsWith('image/') ? URL.createObjectURL(file) : null,
-      name: file.name,
-      size: (file.size / 1024 / 1024).toFixed(2), // MB
-      type: file.type
-    }));
-    setUploadFiles(prev => [...prev, ...newFiles]);
-  };
-
-  const removeFile = (index) => {
-    const newFiles = [...uploadFiles];
-    if (newFiles[index].preview) {
-      URL.revokeObjectURL(newFiles[index].preview);
+    const user = JSON.parse(localStorage.getItem('currentUser') || '{}');
+    setCurrentUser(user);
+    
+    // Load medical records for current user
+    const userId = user?.userId || user?.id;
+    if (userId) {
+      const saved = localStorage.getItem(`medical_records_${userId}`);
+      // Only set records if they exist, otherwise keep empty array
+      setMedicalRecords(saved ? JSON.parse(saved) : []);
+    } else {
+      setMedicalRecords([]);
     }
-    newFiles.splice(index, 1);
-    setUploadFiles(newFiles);
+  }, []);
+
+  // Save medical records
+  const saveMedicalRecords = (records) => {
+    const user = JSON.parse(localStorage.getItem('currentUser') || '{}');
+    const userId = user?.userId || user?.id;
+    
+    if (userId) {
+      localStorage.setItem(`medical_records_${userId}`, JSON.stringify(records));
+      setMedicalRecords(records);
+    }
+  };
+
+  // Convert file to base64 for storage
+  const fileToBase64 = (file) => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = error => reject(error);
+    });
   };
 
   const handleUploadSubmit = async () => {
     if (!recordDate || !recordType || uploadFiles.length === 0) {
-      alert('Please fill all required fields and select at least one file');
+      alert('Please fill required fields and select files');
+      return;
+    }
+
+    if (!currentUser) {
+      alert('Please login to upload records');
       return;
     }
 
     setIsUploading(true);
-    setUploadProgress(0);
 
-    // Simulate upload progress
-    const interval = setInterval(() => {
-      setUploadProgress(prev => {
-        if (prev >= 100) {
-          clearInterval(interval);
-          return 100;
-        }
-        return prev + 10;
-      });
-    }, 200);
+    try {
+      // Convert files to base64 for storage
+      const filesData = await Promise.all(
+        uploadFiles.map(async (file) => ({
+          id: Date.now() + Math.random(),
+          name: file.name,
+          type: file.type,
+          size: file.size,
+          data: await fileToBase64(file),
+          fileType: file.type.startsWith('image/') ? 'image' : 'pdf'
+        }))
+      );
 
-    // Simulate API call
-    setTimeout(() => {
-      clearInterval(interval);
-      
-      // Create new record
       const newRecord = {
         id: Date.now(),
         date: recordDate,
-        doctor: 'Self-uploaded',
-        specialty: 'General',
+        doctor: opDoctor || 'Self-uploaded',
         type: recordType,
-        diagnosis: recordType === 'Lab Report' ? 'Lab Results' : 'Health Report',
-        prescription: [],
+        diagnosis: recordType === 'Lab Report' ? 'Lab Results' : 
+                   recordType === 'X-Ray' ? 'X-Ray Report' :
+                   recordType === 'MRI' ? 'MRI Scan' :
+                   recordType === 'CT Scan' ? 'CT Scan Report' :
+                   recordType === 'Prescription' ? 'Prescription' : 'Health Report',
         notes: recordNotes,
-        labResults: recordType === 'Lab Report' ? 'Pending Analysis' : 'N/A',
-        status: 'Pending Review',
-        hospital: 'Self Document',
-        uploadedBy: 'user',
-        files: uploadFiles.map(f => ({
-          name: f.name,
-          type: f.type,
-          size: f.size,
-          uploadedAt: new Date().toISOString()
-        }))
+        opDetails: showOPDetails ? { 
+          opDoctor, 
+          opDept, 
+          visitType, 
+          bp, 
+          heartRate, 
+          temp, 
+          oxygen 
+        } : null,
+        uploadedBy: currentUser?.name || 'User',
+        uploadedById: currentUser?.userId || currentUser?.id,
+        uploadedAt: new Date().toISOString(),
+        files: filesData
       };
 
-      // Add to records
-      setMedicalRecords(prev => [newRecord, ...prev]);
-      
+      const updatedRecords = [newRecord, ...medicalRecords];
+      saveMedicalRecords(updatedRecords);
+
       // Reset form
+      setShowUploadModal(false);
       setUploadFiles([]);
       setRecordType('');
       setRecordDate('');
       setRecordNotes('');
-      setUploadProgress(0);
-      setIsUploading(false);
-      setShowUploadModal(false);
-      
-      alert('Medical records uploaded successfully!');
-    }, 2000);
-  };
+      setOpDoctor('');
+      setOpDept('');
+      setVisitType('');
+      setBp('');
+      setHeartRate('');
+      setTemp('');
+      setOxygen('');
+      setShowOPDetails(false);
 
-  // --- Helper for Badge Colors ---
-  const getTypeColor = (type) => {
-    switch(type) {
-      case 'Checkup': return 'bg-emerald-100 text-emerald-700 border-emerald-200';
-      case 'Lab Report': return 'bg-blue-100 text-blue-700 border-blue-200';
-      case 'Prescription': return 'bg-amber-100 text-amber-700 border-amber-200';
-      case 'X-Ray': return 'bg-purple-100 text-purple-700 border-purple-200';
-      case 'Scan Report': return 'bg-indigo-100 text-indigo-700 border-indigo-200';
-      default: return 'bg-slate-100 text-slate-600 border-slate-200';
+      alert('✅ Medical record uploaded successfully!');
+    } catch (error) {
+      console.error('Upload error:', error);
+      alert('Error uploading file. Please try again.');
+    } finally {
+      setIsUploading(false);
     }
   };
 
-  const getUploadedByColor = (by) => {
-    return by === 'user' 
-      ? 'bg-blue-100 text-blue-700 border-blue-200' 
-      : 'bg-emerald-100 text-emerald-700 border-emerald-200';
+  const handleViewFile = (record, file) => {
+    setSelectedRecord(record);
+    setSelectedFile(file);
+    setShowViewModal(true);
   };
 
+  const handleDeleteRecord = (recordId) => {
+    if (window.confirm('Are you sure you want to delete this record?')) {
+      const updatedRecords = medicalRecords.filter(r => r.id !== recordId);
+      saveMedicalRecords(updatedRecords);
+      alert('Record deleted successfully');
+    }
+  };
+
+  const handleDownloadFile = (file) => {
+    // Create download link
+    const link = document.createElement('a');
+    link.href = file.data;
+    link.download = file.name;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // Filter records based on search and filter
+  const filteredRecords = medicalRecords.filter(record => {
+    const matchesSearch = searchTerm === '' || 
+      record.diagnosis?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      record.doctor?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      record.type?.toLowerCase().includes(searchTerm.toLowerCase());
+    
+    const matchesFilter = filter === 'all' || record.type === filter;
+    
+    return matchesSearch && matchesFilter;
+  });
+
+  const recordTypes = [
+    'all',
+    'Lab Report',
+    'X-Ray',
+    'MRI',
+    'CT Scan',
+    'Prescription',
+    'Checkup'
+  ];
+
   return (
-    <div className="min-h-screen bg-slate-50/50 p-6 pb-24 font-sans text-slate-800">
+    <div className="min-h-screen bg-[#f8fafc] font-['Plus_Jakarta_Sans'] pb-24">
       
-      {/* --- Main Container --- */}
-      <div className="max-w-7xl mx-auto">
-        
-        {/* Header */}
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
-          <div>
-            <h1 className="text-3xl font-bold text-slate-900 tracking-tight">Medical Records</h1>
-            <p className="text-slate-500 mt-1">Access your health history and reports</p>
-          </div>
-          <button 
-            onClick={() => setShowUploadModal(true)}
-            className="flex items-center gap-2 bg-gradient-to-r from-emerald-600 to-teal-600 text-white px-5 py-2.5 rounded-xl font-bold shadow-lg shadow-emerald-200 hover:scale-105 transition-transform"
-          >
-            <Upload size={18} /> Upload New Record
-          </button>
-        </div>
-
-        {/* Stats Grid */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 lg:gap-6 mb-8">
-          {[
-            { label: 'Total Records', val: stats.total, color: 'bg-indigo-50 text-indigo-600', icon: FileText },
-            { label: 'Prescriptions', val: stats.prescriptions, color: 'bg-emerald-50 text-emerald-600', icon: Pill },
-            { label: 'Lab Reports', val: stats.labs, color: 'bg-blue-50 text-blue-600', icon: Beaker },
-            { label: 'User Uploads', val: stats.uploadedByUser, color: 'bg-cyan-50 text-cyan-600', icon: Upload }
-          ].map((stat, idx) => (
-            <div key={idx} className="bg-white p-5 rounded-2xl border border-slate-100 shadow-[0_2px_15px_rgb(0,0,0,0.02)] flex items-center justify-between group hover:shadow-md transition-all">
-              <div>
-                <span className="text-3xl font-bold text-slate-800">{stat.val}</span>
-                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mt-1">{stat.label}</p>
-              </div>
-              <div className={`p-3 rounded-xl ${stat.color} bg-opacity-50`}>
-                <stat.icon size={24} />
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {/* --- Controls Bar --- */}
-        <div className="bg-white p-2 rounded-2xl shadow-sm border border-slate-100 mb-8 flex flex-col md:flex-row justify-between items-center gap-4">
+      {/* Header - Navy Dark Theme */}
+      <section className="bg-[#0f172a] pt-24 pb-44 px-6 lg:px-20 relative rounded-b-[4rem]">
+        <div className="max-w-7xl mx-auto relative z-10">
+          <h1 className="text-5xl font-black text-white mb-2">Medical <span className="text-teal-400">Vault</span></h1>
+          <p className="text-slate-400 text-lg mb-6">Store and view all your medical records securely</p>
           
-          {/* Tabs */}
-          <div className="flex bg-slate-100/50 p-1 rounded-xl w-full md:w-auto overflow-x-auto">
-            {['all', 'Checkup', 'Prescription', 'Lab Report', 'X-Ray', 'Scan Report'].map(item => (
+          {currentUser && (
+            <div className="mb-4 text-sm text-teal-400">
+              Logged in as: {currentUser.name} (ID: {currentUser.userId || currentUser.id})
+            </div>
+          )}
+          
+          <div className="flex flex-col lg:flex-row gap-4 items-center mt-10">
+            <div className="relative bg-white/5 backdrop-blur-xl border border-white/10 rounded-[2rem] p-2 flex flex-1 w-full">
+              <Search className="text-teal-400 ml-4" size={22} />
+              <input 
+                type="text" 
+                placeholder="Search diagnosis or doctor..." 
+                className="w-full bg-transparent border-none outline-none text-white px-4 py-3"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
+              <button 
+                onClick={() => {
+                  if (!currentUser) {
+                    alert('Please login to upload records');
+                    return;
+                  }
+                  setShowUploadModal(true);
+                }}
+                className="bg-teal-400 text-[#0f172a] px-8 py-4 rounded-[1.5rem] font-black hover:bg-teal-300 transition-all flex items-center gap-2"
+              >
+                <Upload size={18} /> UPLOAD
+              </button>
+            </div>
+          </div>
+
+          {/* Filter tabs */}
+          <div className="flex gap-2 mt-6 overflow-x-auto pb-2">
+            {recordTypes.map(type => (
               <button
-                key={item}
-                onClick={() => setFilter(item)}
-                className={`px-5 py-2 rounded-lg text-sm font-bold capitalize whitespace-nowrap transition-all ${
-                  filter === item 
-                    ? 'bg-white text-emerald-600 shadow-sm' 
-                    : 'text-slate-500 hover:text-slate-700'
+                key={type}
+                onClick={() => setFilter(type)}
+                className={`px-4 py-2 rounded-full text-xs font-bold uppercase transition-all whitespace-nowrap ${
+                  filter === type 
+                    ? 'bg-teal-400 text-[#0f172a]' 
+                    : 'bg-white/5 text-slate-400 hover:bg-white/10'
                 }`}
               >
-                {item === 'all' ? 'All Records' : item}
+                {type === 'all' ? 'All Records' : type}
               </button>
             ))}
           </div>
-
-          {/* Search */}
-          <div className="relative w-full md:w-96 mr-2">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-            <input 
-              type="text" 
-              placeholder="Search diagnosis, doctor..." 
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-11 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none text-sm transition-all"
-            />
-          </div>
         </div>
+      </section>
 
-        {/* --- Records Grid --- */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredRecords.map(record => (
-            <div 
-              key={record.id} 
-              onClick={() => openDetails(record)}
-              className="bg-white rounded-3xl p-6 shadow-[0_4px_20px_rgb(0,0,0,0.02)] border border-slate-100 hover:border-emerald-300 hover:shadow-lg cursor-pointer transition-all duration-300 group"
-            >
-              <div className="flex justify-between items-start mb-4">
-                <div className="flex items-center gap-3">
-                  <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${getTypeColor(record.type).replace('border', '')}`}>
-                    {record.type === 'Prescription' ? <Pill size={20} /> : 
-                     record.type === 'Lab Report' ? <Beaker size={20} /> : 
-                     record.type === 'X-Ray' ? <Camera size={20} /> :
-                     <Stethoscope size={20} />}
-                  </div>
-                  <div>
-                    <p className="text-xs text-slate-400 font-bold uppercase">{record.date}</p>
-                    <h3 className="font-bold text-slate-900 line-clamp-1">{record.diagnosis}</h3>
-                  </div>
-                </div>
-                <button className="text-slate-300 hover:text-emerald-600 transition-colors">
-                  <ChevronRight size={20} />
-                </button>
-              </div>
-
-              <div className="space-y-3 mb-6">
-                 <div className="flex items-center gap-2 text-sm text-slate-600">
-                   <User size={16} className="text-emerald-500" />
-                   <span className="font-medium">{record.doctor}</span>
-                 </div>
-                 <div className="flex items-center gap-2 text-sm text-slate-600">
-                   <ShieldCheck size={16} className="text-emerald-500" />
-                   <span className="truncate">{record.hospital}</span>
-                 </div>
-                 <div className="flex items-center gap-2">
-                   <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase border ${getUploadedByColor(record.uploadedBy)}`}>
-                     {record.uploadedBy === 'user' ? 'Self Uploaded' : 'Doctor Uploaded'}
-                   </span>
-                   {record.files && (
-                     <span className="text-xs text-slate-500">
-                       {record.files.length} file{record.files.length > 1 ? 's' : ''}
-                     </span>
-                   )}
-                 </div>
-              </div>
-
-              <div className="flex items-center justify-between pt-4 border-t border-slate-100">
-                <span className={`px-3 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider border ${getTypeColor(record.type)}`}>
-                  {record.type}
-                </span>
-                <span className="text-xs font-bold text-slate-400 flex items-center gap-1 group-hover:text-emerald-600 transition-colors">
-                  View Details
-                </span>
-              </div>
-            </div>
-          ))}
-        </div>
-
-      </div>
-
-      {/* --- Details Modal --- */}
-      {showModal && selectedRecord && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-[2rem] max-w-2xl w-full shadow-2xl animate-in zoom-in duration-200 overflow-hidden flex flex-col max-h-[90vh]">
-            
-            {/* Modal Header */}
-            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-              <div>
-                <h2 className="text-xl font-bold text-slate-900">{selectedRecord.diagnosis}</h2>
-                <p className="text-sm text-emerald-600 font-medium">{selectedRecord.type} • {selectedRecord.date}</p>
-                <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase mt-1 ${getUploadedByColor(selectedRecord.uploadedBy)}`}>
-                  {selectedRecord.uploadedBy === 'user' ? 'Self Uploaded' : 'Doctor Uploaded'}
-                </span>
-              </div>
+      {/* Content Area */}
+      <main className="max-w-7xl mx-auto px-6 lg:px-20 -mt-24 relative z-20">
+        {filteredRecords.length === 0 ? (
+          <div className="bg-white rounded-[3rem] p-16 text-center border border-slate-100 shadow-xl">
+            <FileText className="mx-auto text-slate-300 mb-4" size={64} />
+            <h3 className="text-2xl font-black text-slate-800 mb-2">No Records Found</h3>
+            <p className="text-slate-400 mb-6">
+              {searchTerm ? 'Try different search terms' : 'Upload your first medical record to get started'}
+            </p>
+            {!searchTerm && (
               <button 
-                onClick={() => setShowModal(false)}
-                className="p-2 bg-white hover:bg-slate-100 rounded-full text-slate-400 hover:text-rose-500 transition-colors"
+                onClick={() => {
+                  if (!currentUser) {
+                    alert('Please login to upload records');
+                    return;
+                  }
+                  setShowUploadModal(true);
+                }}
+                className="bg-teal-400 text-[#0f172a] px-8 py-4 rounded-[1.5rem] font-black hover:bg-teal-300 transition-all inline-flex items-center gap-2"
               >
-                <X size={20} />
+                <Upload size={18} /> UPLOAD FIRST RECORD
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {filteredRecords.map((record) => (
+              <div key={record.id} className="bg-white rounded-[3rem] p-8 border border-slate-100 hover:border-teal-400 transition-all shadow-xl shadow-slate-200/40 group">
+                <div className="flex justify-between items-start mb-6">
+                  <div className="w-14 h-14 bg-slate-50 rounded-[1.5rem] flex items-center justify-center group-hover:bg-teal-50 transition-colors">
+                    {record.type === 'X-Ray' || record.type === 'MRI' || record.type === 'CT Scan' ? (
+                      <Image className="text-teal-600" size={28} />
+                    ) : (
+                      <FileText className="text-teal-600" size={28} />
+                    )}
+                  </div>
+                  <span className="text-[10px] font-black px-3 py-1.5 bg-slate-100 rounded-full text-slate-500 uppercase">
+                    {record.date}
+                  </span>
+                </div>
+                
+                <h3 className="text-xl font-black text-[#0f172a] mb-2">{record.diagnosis}</h3>
+                <p className="text-slate-400 font-bold text-sm mb-4 flex items-center gap-2">
+                  <User size={14}/> {record.doctor}
+                </p>
+                
+                {/* File preview chips */}
+                {record.files && record.files.length > 0 && (
+                  <div className="mb-4 flex flex-wrap gap-2">
+                    {record.files.map((file, idx) => (
+                      <button
+                        key={idx}
+                        onClick={() => handleViewFile(record, file)}
+                        className="flex items-center gap-1 bg-slate-50 hover:bg-teal-50 px-2 py-1 rounded-lg text-[8px] font-bold text-slate-600 hover:text-teal-600 transition-colors"
+                      >
+                        {file.fileType === 'image' ? <Image size={10} /> : <FileIcon size={10} />}
+                        <span className="truncate max-w-[80px]">{file.name}</span>
+                        <Eye size={10} />
+                      </button>
+                    ))}
+                  </div>
+                )}
+                
+                <div className="pt-6 border-t border-dashed border-slate-100 flex justify-between items-center text-[10px] font-black text-teal-600 tracking-widest uppercase">
+                  <span>{record.type}</span>
+                  <button 
+                    onClick={() => handleDeleteRecord(record.id)}
+                    className="text-rose-500 hover:text-rose-600 transition-colors"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </main>
+
+      {/* --- UPLOAD MODAL - SCROLLABLE DARK UI --- */}
+      {showUploadModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-[#0f172a]/95 backdrop-blur-sm" onClick={() => setShowUploadModal(false)}></div>
+          
+          <div className="bg-[#0f172a] w-full max-w-2xl rounded-[2.5rem] border border-teal-400/30 shadow-2xl relative overflow-hidden flex flex-col max-h-[90vh]">
+            
+            <div className="p-8 border-b border-white/5 flex justify-between items-center">
+              <div>
+                <h2 className="text-2xl font-black text-white">Upload Medical Record</h2>
+                <p className="text-teal-400 text-sm font-bold">Add document details to your vault</p>
+              </div>
+              <button onClick={() => setShowUploadModal(false)} className="text-white hover:text-teal-400 transition-colors">
+                <X size={24} />
               </button>
             </div>
 
-            {/* Modal Body */}
-            <div className="p-6 overflow-y-auto space-y-6">
-              
-              {/* Doctor Info */}
-              <div className="flex items-center gap-4 bg-emerald-50 p-4 rounded-2xl border border-emerald-100">
-                 <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center text-emerald-600 shadow-sm">
-                   <User size={24} />
-                 </div>
-                 <div>
-                   <p className="text-xs font-bold text-emerald-800 uppercase">Consulting Doctor</p>
-                   <p className="font-bold text-slate-900">{selectedRecord.doctor}</p>
-                   <p className="text-xs text-slate-500">{selectedRecord.specialty} • {selectedRecord.hospital}</p>
-                 </div>
-              </div>
-
-              {/* Grid Details */}
+            <div className="p-8 overflow-y-auto space-y-6 custom-scrollbar flex-1">
               <div className="grid grid-cols-2 gap-4">
-                <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100">
-                  <p className="text-xs font-bold text-slate-400 uppercase mb-1">Status</p>
-                  <p className="font-bold text-slate-800 flex items-center gap-2">
-                    <Activity size={16} className="text-emerald-500" /> {selectedRecord.status}
-                  </p>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-white/50 uppercase ml-1">Record Type *</label>
+                  <select 
+                    value={recordType}
+                    onChange={(e) => setRecordType(e.target.value)}
+                    className="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-4 text-white font-bold outline-none focus:border-teal-400 appearance-none"
+                  >
+                    <option value="" className="bg-[#0f172a]">Select type</option>
+                    <option value="Lab Report" className="bg-[#0f172a]">🧪 Lab Report</option>
+                    <option value="X-Ray" className="bg-[#0f172a]">🦴 X-Ray</option>
+                    <option value="MRI" className="bg-[#0f172a]">🧠 MRI Scan</option>
+                    <option value="CT Scan" className="bg-[#0f172a]">📊 CT Scan</option>
+                    <option value="Prescription" className="bg-[#0f172a]">📝 Prescription</option>
+                    <option value="Checkup" className="bg-[#0f172a]">🏥 General Checkup</option>
+                  </select>
                 </div>
-                <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100">
-                  <p className="text-xs font-bold text-slate-400 uppercase mb-1">Lab Results</p>
-                  <p className="font-bold text-slate-800">{selectedRecord.labResults}</p>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-white/50 uppercase ml-1">Record Date *</label>
+                  <input 
+                    type="date" 
+                    value={recordDate}
+                    onChange={(e) => setRecordDate(e.target.value)}
+                    className="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-4 text-white font-bold outline-none focus:border-teal-400" 
+                  />
                 </div>
               </div>
 
-              {/* Files Section */}
-              {selectedRecord.files && selectedRecord.files.length > 0 && (
-                <div>
-                  <h3 className="text-sm font-bold text-slate-900 mb-3 flex items-center gap-2">
-                    <File size={18} className="text-emerald-600" /> Uploaded Files
-                  </h3>
-                  <div className="grid grid-cols-2 gap-2">
-                    {selectedRecord.files.map((file, idx) => (
-                      <div key={idx} className="bg-slate-100 p-3 rounded-lg border border-slate-200">
-                        <div className="flex items-center gap-2">
-                          <FileText size={14} className="text-emerald-600" />
-                          <div className="flex-1">
-                            <p className="text-xs font-medium text-slate-800 truncate">{file.name}</p>
-                            <p className="text-[10px] text-slate-500">{file.size} MB • {new Date(file.uploadedAt).toLocaleDateString()}</p>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
+              {/* OP DETAILS - WITH DOCTOR, DEPT, VISIT TYPE & VITALS */}
+              <div className="bg-white/5 rounded-[2rem] border border-white/5 overflow-hidden">
+                <div 
+                  className="p-6 flex items-center justify-between cursor-pointer hover:bg-white/5 transition-all"
+                  onClick={() => setShowOPDetails(!showOPDetails)}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-teal-400/10 rounded-xl flex items-center justify-center text-teal-400">
+                      <Users size={20} />
+                    </div>
+                    <div>
+                      <span className="text-sm font-black text-white uppercase tracking-wider block">OP / Consultation Details</span>
+                      <span className="text-[10px] text-teal-400/60 font-bold uppercase">Doctor, Dept & Vitals</span>
+                    </div>
                   </div>
+                  <button className={`px-4 py-2 rounded-xl text-[10px] font-black transition-all ${showOPDetails ? 'bg-rose-500/10 text-rose-500' : 'bg-teal-400 text-[#0f172a]'}`}>
+                    {showOPDetails ? 'REMOVE' : '+ ADD DETAILS'}
+                  </button>
                 </div>
-              )}
 
-              {/* Prescription */}
-              <div>
-                <h3 className="text-sm font-bold text-slate-900 mb-3 flex items-center gap-2">
-                  <Pill size={18} className="text-emerald-600" /> Prescriptions
-                </h3>
-                <div className="flex flex-wrap gap-2">
-                  {selectedRecord.prescription.length > 0 ? (
-                    selectedRecord.prescription.map((med, idx) => (
-                      <span key={idx} className="bg-slate-100 text-slate-700 px-3 py-1.5 rounded-lg text-xs font-semibold border border-slate-200">
-                        {med}
-                      </span>
-                    ))
-                  ) : (
-                    <span className="text-sm text-slate-400 italic">No medicines prescribed.</span>
+                {showOPDetails && (
+                  <div className="p-6 pt-0 space-y-5 border-t border-white/5 mt-2 animate-in fade-in slide-in-from-top-2 duration-300">
+                    {/* Doctor Info Row */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6">
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-black text-teal-400 uppercase flex items-center gap-1">
+                          <User size={10}/> Doctor Name
+                        </label>
+                        <input 
+                          type="text" 
+                          value={opDoctor} 
+                          onChange={(e)=>setOpDoctor(e.target.value)} 
+                          placeholder="Dr. Name" 
+                          className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white text-xs font-bold outline-none focus:border-teal-400" 
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-black text-teal-400 uppercase flex items-center gap-1">
+                          <Building2 size={10}/> Department
+                        </label>
+                        <input 
+                          type="text" 
+                          value={opDept} 
+                          onChange={(e)=>setOpDept(e.target.value)} 
+                          placeholder="Cardio/General" 
+                          className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white text-xs font-bold outline-none focus:border-teal-400" 
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-black text-teal-400 uppercase flex items-center gap-1">
+                          <Clipboard size={10}/> Visit Type
+                        </label>
+                        <select 
+                          value={visitType} 
+                          onChange={(e)=>setVisitType(e.target.value)} 
+                          className="w-full bg-[#1a2235] border border-white/10 rounded-xl px-4 py-3 text-white text-xs font-bold outline-none focus:border-teal-400 appearance-none"
+                        >
+                          <option value="">Select Type</option>
+                          <option value="OP">OP Consultation</option>
+                          <option value="Emergency">Emergency</option>
+                          <option value="Follow-up">Follow-up</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* Vitals Row */}
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-black text-teal-400 uppercase flex items-center gap-1">
+                          <Activity size={10}/> BP
+                        </label>
+                        <input 
+                          type="text" 
+                          value={bp} 
+                          onChange={(e)=>setBp(e.target.value)} 
+                          placeholder="120/80" 
+                          className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white text-xs font-bold outline-none" 
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-black text-teal-400 uppercase flex items-center gap-1">
+                          <HeartPulse size={10}/> Heart Rate
+                        </label>
+                        <input 
+                          type="text" 
+                          value={heartRate} 
+                          onChange={(e)=>setHeartRate(e.target.value)} 
+                          placeholder="72" 
+                          className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white text-xs font-bold outline-none" 
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-black text-teal-400 uppercase flex items-center gap-1">
+                          <Thermometer size={10}/> Temp
+                        </label>
+                        <input 
+                          type="text" 
+                          value={temp} 
+                          onChange={(e)=>setTemp(e.target.value)} 
+                          placeholder="98.6" 
+                          className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white text-xs font-bold outline-none" 
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-black text-teal-400 uppercase flex items-center gap-1">
+                          <Droplets size={10}/> Oxygen
+                        </label>
+                        <input 
+                          type="text" 
+                          value={oxygen} 
+                          onChange={(e)=>setOxygen(e.target.value)} 
+                          placeholder="98%" 
+                          className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white text-xs font-bold outline-none" 
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Notes Field */}
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-white/50 uppercase ml-1">Notes (Optional)</label>
+                <textarea
+                  value={recordNotes}
+                  onChange={(e) => setRecordNotes(e.target.value)}
+                  placeholder="Add any additional notes..."
+                  className="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-4 text-white font-bold outline-none focus:border-teal-400"
+                  rows="3"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-white/50 uppercase ml-1">Upload Files *</label>
+                <div className="border-2 border-dashed border-white/10 rounded-[2.5rem] p-10 flex flex-col items-center justify-center hover:border-teal-400/50 hover:bg-teal-400/5 transition-all relative group">
+                  <Upload size={32} className="text-teal-400 mb-2 group-hover:scale-110 transition-transform" />
+                  <p className="text-white font-black text-xs text-center">
+                    Drop your reports or <span className="text-teal-400 underline">browse</span>
+                  </p>
+                  <p className="text-slate-500 text-[8px] font-bold mt-1">
+                    Supports: Images (JPG, PNG) and PDF files
+                  </p>
+                  <input 
+                    type="file" 
+                    multiple 
+                    accept=".jpg,.jpeg,.png,.gif,.bmp,.pdf"
+                    className="absolute inset-0 opacity-0 cursor-pointer"
+                    onChange={(e) => setUploadFiles(Array.from(e.target.files))}
+                  />
+                  {uploadFiles.length > 0 && (
+                    <div className="mt-4 flex flex-wrap gap-2 justify-center max-h-24 overflow-y-auto">
+                      {uploadFiles.map((f, i) => (
+                        <span key={i} className="bg-teal-400/10 text-teal-400 px-3 py-1 rounded-lg text-[9px] font-black">
+                          {f.name} ({(f.size / 1024).toFixed(1)} KB)
+                        </span>
+                      ))}
+                    </div>
                   )}
                 </div>
               </div>
-
-              {/* Notes */}
-              <div className="bg-amber-50 p-4 rounded-2xl border border-amber-100">
-                <h3 className="text-xs font-bold text-amber-800 uppercase mb-1 flex items-center gap-2">
-                  <FileText size={14} /> Notes
-                </h3>
-                <p className="text-sm text-amber-900/80 leading-relaxed">
-                  "{selectedRecord.notes}"
-                </p>
-              </div>
-
             </div>
 
-            {/* Modal Footer */}
-            <div className="p-4 border-t border-slate-100 bg-slate-50/50 flex gap-3">
-              <button className="flex-1 flex items-center justify-center gap-2 bg-white border border-slate-200 text-slate-700 py-3 rounded-xl font-bold text-sm hover:bg-slate-50 transition-colors">
-                <Download size={18} /> Download Report
-              </button>
-              <button className="flex-1 flex items-center justify-center gap-2 bg-emerald-600 text-white py-3 rounded-xl font-bold text-sm shadow-lg shadow-emerald-200 hover:bg-emerald-700 transition-colors">
-                <Share2 size={18} /> Share Record
-              </button>
-            </div>
-
-          </div>
-        </div>
-      )}
-
-      {/* --- Upload Modal --- */}
-      {showUploadModal && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-[2rem] max-w-md w-full shadow-2xl animate-in zoom-in duration-200 overflow-hidden">
-            
-            {/* Modal Header */}
-            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-              <div>
-                <h2 className="text-xl font-bold text-slate-900">Upload Medical Record</h2>
-                <p className="text-sm text-slate-500">Add new medical documents to your records</p>
-              </div>
+            <div className="p-8 border-t border-white/5 bg-slate-900/50 flex gap-4">
               <button 
-                onClick={() => setShowUploadModal(false)}
-                className="p-2 bg-white hover:bg-slate-100 rounded-full text-slate-400 hover:text-rose-500 transition-colors"
-                disabled={isUploading}
+                onClick={() => setShowUploadModal(false)} 
+                className="flex-1 py-4 bg-white/5 text-white rounded-2xl font-black text-sm hover:bg-white/10 transition-all"
               >
-                <X size={20} />
-              </button>
-            </div>
-
-            {/* Modal Body */}
-            <div className="p-6 space-y-6">
-              
-              {/* Record Type */}
-              <div>
-                <label className="block text-sm font-bold text-slate-700 mb-2">
-                  Record Type <span className="text-red-500">*</span>
-                </label>
-                <select 
-                  value={recordType}
-                  onChange={(e) => setRecordType(e.target.value)}
-                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none text-sm"
-                  disabled={isUploading}
-                >
-                  <option value="">Select type</option>
-                  <option value="Lab Report">Lab Report</option>
-                  <option value="Prescription">Prescription</option>
-                  <option value="X-Ray">X-Ray Report</option>
-                  <option value="Scan Report">Scan Report (MRI/CT)</option>
-                  <option value="Checkup">Checkup Report</option>
-                  <option value="Other">Other</option>
-                </select>
-              </div>
-
-              {/* Date */}
-              <div>
-                <label className="block text-sm font-bold text-slate-700 mb-2">
-                  Record Date <span className="text-red-500">*</span>
-                </label>
-                <input 
-                  type="date" 
-                  value={recordDate}
-                  onChange={(e) => setRecordDate(e.target.value)}
-                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none text-sm"
-                  disabled={isUploading}
-                />
-              </div>
-
-              {/* File Upload */}
-              <div>
-                <label className="block text-sm font-bold text-slate-700 mb-2">
-                  Upload Files <span className="text-red-500">*</span>
-                  <span className="text-xs font-normal text-slate-500 ml-2">(PDF, JPG, PNG up to 10MB)</span>
-                </label>
-                
-                {/* File Drop Zone */}
-                <div 
-                  className={`border-2 border-dashed border-slate-300 rounded-2xl p-6 text-center transition-all ${isUploading ? 'opacity-50' : 'hover:border-emerald-400 cursor-pointer'}`}
-                  onClick={() => !isUploading && document.getElementById('fileInput').click()}
-                >
-                  <input 
-                    type="file" 
-                    id="fileInput"
-                    multiple
-                    accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
-                    onChange={handleFileUpload}
-                    className="hidden"
-                    disabled={isUploading}
-                  />
-                  <Upload size={36} className="mx-auto text-slate-400 mb-3" />
-                  <p className="text-slate-600 font-medium">Drop files here or click to upload</p>
-                  <p className="text-xs text-slate-500 mt-1">PDF, Images, Documents (Max 10MB each)</p>
-                </div>
-
-                {/* File List */}
-                {uploadFiles.length > 0 && (
-                  <div className="mt-4 space-y-2">
-                    <p className="text-sm font-medium text-slate-700">Selected Files ({uploadFiles.length})</p>
-                    {uploadFiles.map((file, index) => (
-                      <div key={index} className="flex items-center justify-between bg-slate-100 p-3 rounded-lg">
-                        <div className="flex items-center gap-3">
-                          {file.preview ? (
-                            <img src={file.preview} alt="preview" className="w-10 h-10 object-cover rounded" />
-                          ) : (
-                            <File className="text-emerald-600" size={20} />
-                          )}
-                          <div>
-                            <p className="text-sm font-medium text-slate-800 truncate max-w-[200px]">{file.name}</p>
-                            <p className="text-xs text-slate-500">{file.size} MB</p>
-                          </div>
-                        </div>
-                        <button 
-                          onClick={() => !isUploading && removeFile(index)}
-                          className="p-1 hover:bg-slate-200 rounded-full text-slate-500 hover:text-rose-500"
-                          disabled={isUploading}
-                        >
-                          <XCircle size={18} />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* Notes */}
-              <div>
-                <label className="block text-sm font-bold text-slate-700 mb-2">
-                  Additional Notes
-                </label>
-                <textarea 
-                  value={recordNotes}
-                  onChange={(e) => setRecordNotes(e.target.value)}
-                  placeholder="Any additional information about these records..."
-                  rows="3"
-                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none text-sm resize-none"
-                  disabled={isUploading}
-                />
-              </div>
-
-              {/* Upload Progress */}
-              {isUploading && (
-                <div className="space-y-2">
-                  <div className="flex justify-between text-sm">
-                    <span className="font-medium text-slate-700">Uploading...</span>
-                    <span className="font-bold text-emerald-600">{uploadProgress}%</span>
-                  </div>
-                  <div className="w-full bg-slate-200 rounded-full h-2">
-                    <div 
-                      className="bg-emerald-600 h-2 rounded-full transition-all duration-300"
-                      style={{ width: `${uploadProgress}%` }}
-                    ></div>
-                  </div>
-                </div>
-              )}
-
-            </div>
-
-            {/* Modal Footer */}
-            <div className="p-4 border-t border-slate-100 bg-slate-50/50 flex gap-3">
-              <button 
-                onClick={() => !isUploading && setShowUploadModal(false)}
-                className="flex-1 px-4 py-3 bg-white border border-slate-300 text-slate-700 rounded-xl font-bold text-sm hover:bg-slate-50 transition-colors"
-                disabled={isUploading}
-              >
-                Cancel
+                CANCEL
               </button>
               <button 
                 onClick={handleUploadSubmit}
-                disabled={isUploading || !recordDate || !recordType || uploadFiles.length === 0}
-                className="flex-1 px-4 py-3 bg-gradient-to-r from-emerald-600 to-teal-600 text-white rounded-xl font-bold text-sm shadow-lg shadow-emerald-200 hover:opacity-90 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                disabled={isUploading}
+                className="flex-1 py-4 bg-teal-400 text-[#0f172a] rounded-2xl font-black text-sm hover:bg-teal-300 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
               >
-                {isUploading ? (
-                  <>
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                    Uploading...
-                  </>
-                ) : (
-                  <>
-                    <Upload size={18} />
-                    Upload Records
-                  </>
-                )}
+                {isUploading ? <RefreshCw className="animate-spin" size={18} /> : <Upload size={18} />}
+                {isUploading ? 'UPLOADING...' : 'SAVE RECORDS'}
               </button>
             </div>
-
           </div>
         </div>
       )}
 
+      {/* --- VIEW FILE MODAL --- */}
+      {showViewModal && selectedFile && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-[#0f172a]/95 backdrop-blur-sm" onClick={() => setShowViewModal(false)}></div>
+          
+          <div className="bg-[#0f172a] w-full max-w-4xl rounded-[2.5rem] border border-teal-400/30 shadow-2xl relative overflow-hidden flex flex-col max-h-[90vh]">
+            
+            <div className="p-6 border-b border-white/5 flex justify-between items-center">
+              <div className="flex items-center gap-3">
+                {selectedFile.fileType === 'image' ? (
+                  <Image className="text-teal-400" size={24} />
+                ) : (
+                  <FileText className="text-teal-400" size={24} />
+                )}
+                <div>
+                  <h2 className="text-xl font-black text-white">{selectedFile.name}</h2>
+                  <p className="text-teal-400 text-xs">
+                    {(selectedFile.size / 1024).toFixed(1)} KB • {selectedRecord?.date}
+                  </p>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <button 
+                  onClick={() => handleDownloadFile(selectedFile)}
+                  className="p-3 bg-teal-400/10 text-teal-400 rounded-xl hover:bg-teal-400/20 transition-colors"
+                >
+                  <Download size={20} />
+                </button>
+                <button 
+                  onClick={() => setShowViewModal(false)} 
+                  className="p-3 bg-white/5 text-white rounded-xl hover:bg-white/10 transition-colors"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+            </div>
+
+            <div className="p-6 overflow-y-auto flex-1 bg-[#1a1f2e]">
+              {selectedFile.fileType === 'image' ? (
+                <div className="flex justify-center">
+                  <img 
+                    src={selectedFile.data} 
+                    alt={selectedFile.name}
+                    className="max-w-full max-h-[70vh] object-contain rounded-xl"
+                  />
+                </div>
+              ) : (
+                <div className="bg-white/5 rounded-2xl p-8 text-center">
+                  <FileText size={64} className="mx-auto text-teal-400 mb-4" />
+                  <p className="text-white font-bold mb-4">PDF Document</p>
+                  <button
+                    onClick={() => handleDownloadFile(selectedFile)}
+                    className="bg-teal-400 text-[#0f172a] px-6 py-3 rounded-xl font-black hover:bg-teal-300 transition-all inline-flex items-center gap-2"
+                  >
+                    <Download size={18} /> Download to View
+                  </button>
+                  <p className="text-slate-400 text-xs mt-4">
+                    PDF viewing is not available in browser. Please download to view.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Record details footer */}
+            {selectedRecord && (
+              <div className="p-6 border-t border-white/5 bg-slate-900/50">
+                <div className="grid grid-cols-2 gap-4 text-xs">
+                  <div>
+                    <p className="text-slate-400 font-bold">Doctor</p>
+                    <p className="text-white font-black">{selectedRecord.doctor}</p>
+                  </div>
+                  <div>
+                    <p className="text-slate-400 font-bold">Type</p>
+                    <p className="text-white font-black">{selectedRecord.type}</p>
+                  </div>
+                  {selectedRecord.notes && (
+                    <div className="col-span-2">
+                      <p className="text-slate-400 font-bold">Notes</p>
+                      <p className="text-white">{selectedRecord.notes}</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Custom Scrollbar Styles */}
+      <style jsx>{`
+        .custom-scrollbar::-webkit-scrollbar {
+          width: 6px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+          background: rgba(255, 255, 255, 0.05);
+          border-radius: 10px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+          background: rgba(45, 212, 191, 0.3);
+          border-radius: 10px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+          background: rgba(45, 212, 191, 0.5);
+        }
+      `}</style>
     </div>
   );
 };

@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
 import { 
-  FaStar, FaSmile, FaFrown, FaMeh, FaPaperPlane,
-  FaThumbsUp, FaComment, FaHeart, FaCheckCircle, FaLightbulb, FaBug
+  FaStar, FaPaperPlane, FaComment, FaHeart, 
+  FaCheckCircle, FaLightbulb, FaBug, FaRocket
 } from 'react-icons/fa';
-import { motion, AnimatePresence } from 'framer-motion'; // Animation-kaga (Optional)
+import { motion, AnimatePresence } from 'framer-motion';
 
 const Feedback = () => {
   const [rating, setRating] = useState(0);
@@ -13,181 +13,156 @@ const Feedback = () => {
   const [hoverRating, setHoverRating] = useState(0);
 
   const feedbackTypes = [
-    { id: 'general', label: 'General', icon: <FaComment />, color: 'from-blue-400 to-blue-600' },
-    { id: 'suggestion', label: 'Idea', icon: <FaLightbulb />, color: 'from-amber-400 to-yellow-600' },
+    { id: 'general', label: 'General', icon: <FaComment />, color: 'from-cyan-400 to-blue-500' },
+    { id: 'suggestion', label: 'Idea', icon: <FaLightbulb />, color: 'from-yellow-400 to-orange-500' },
     { id: 'bug', label: 'Bug', icon: <FaBug />, color: 'from-rose-400 to-red-600' },
-    { id: 'compliment', label: 'Love it', icon: <FaHeart />, color: 'from-pink-400 to-fuchsia-600' }
+    { id: 'compliment', label: 'Love it', icon: <FaHeart />, color: 'from-pink-400 to-rose-600' }
   ];
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (rating === 0 || !feedbackType || !message.trim()) return;
-
+    if (rating === 0 || !feedbackType || !message) {
+      alert("Please fill all fields!");
+      return;
+    }
     setSubmitted(true);
-    setTimeout(() => {
-      setSubmitted(false);
-      setRating(0);
-      setFeedbackType('');
-      setMessage('');
-    }, 4000);
   };
 
   return (
-    <div className="min-h-screen bg-[#f8fafc] text-slate-900 font-sans selection:bg-teal-100 p-6">
-      {/* Background Decorative Elements */}
-      <div className="fixed top-0 left-0 w-full h-full overflow-hidden -z-10">
-        <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] rounded-full bg-teal-100/50 blur-[120px]" />
-        <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] rounded-full bg-blue-100/50 blur-[120px]" />
-      </div>
-
-      <div className="max-w-5xl mx-auto">
-        <header className="text-center mb-12">
-          <span className="px-4 py-1.5 bg-teal-100 text-teal-700 rounded-full text-sm font-bold tracking-wide uppercase">Feedback Loop</span>
-          <h1 className="text-5xl font-extrabold mt-4 tracking-tight text-slate-900">How are we doing?</h1>
-          <p className="text-slate-500 mt-4 text-lg">Help us shape the future of HealthAI.</p>
-        </header>
-
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-teal-50 pt-28 pb-20 px-4">
+      <div className="max-w-4xl mx-auto">
+        
         <AnimatePresence mode="wait">
-          {submitted ? (
-            <div className="max-w-xl mx-auto bg-white border border-slate-100 shadow-2xl rounded-[2rem] p-12 text-center">
-              <div className="w-20 h-20 bg-teal-100 text-teal-600 rounded-2xl flex items-center justify-center mx-auto mb-6">
-                <FaCheckCircle size={40} />
-              </div>
-              <h2 className="text-3xl font-bold mb-2">You're Awesome!</h2>
-              <p className="text-slate-500">Your feedback has been beamed to our team. We'll get on it right away.</p>
-              <button 
-                onClick={() => setSubmitted(false)}
-                className="mt-8 text-teal-600 font-semibold hover:underline"
-              >
-                Send more feedback
-              </button>
-            </div>
-          ) : (
-            <div className="grid lg:grid-cols-12 gap-8 items-start">
-              
-              {/* Left: Interactive Section */}
-              <div className="lg:col-span-7 space-y-6">
-                <section className="bg-white border border-slate-100 shadow-sm rounded-[2rem] p-8">
-                  <h3 className="text-xl font-bold mb-6 flex items-center gap-2">
-                    <span className="w-8 h-8 bg-slate-100 rounded-lg flex items-center justify-center text-sm">1</span>
-                    Rate your experience
-                  </h3>
-                  
-                  <div className="flex flex-col items-center py-4">
-                    <div className="flex gap-3 mb-4">
-                      {[1, 2, 3, 4, 5].map((star) => (
-                        <button
-                          key={star}
-                          onMouseEnter={() => setHoverRating(star)}
-                          onMouseLeave={() => setHoverRating(0)}
-                          onClick={() => setRating(star)}
-                          className="relative transition-all duration-200 transform hover:scale-110 active:scale-95"
-                        >
-                          <FaStar 
-                            className={`text-5xl transition-colors duration-300 ${
-                              star <= (hoverRating || rating) ? 'text-amber-400 drop-shadow-[0_0_8px_rgba(251,191,36,0.4)]' : 'text-slate-200'
-                            }`}
-                          />
-                        </button>
-                      ))}
-                    </div>
-                    <p className="font-medium text-slate-400 h-6">
-                      {rating === 1 && "Poor ☹️"}
-                      {rating === 2 && "Could be better 😕"}
-                      {rating === 3 && "It's okay 😐"}
-                      {rating === 4 && "Great! 🙂"}
-                      {rating === 5 && "Excellent! 🤩"}
+          {!submitted ? (
+            <motion.div 
+              key="feedback-form"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              className="bg-white rounded-[3rem] shadow-2xl shadow-slate-200/60 overflow-hidden border border-white"
+            >
+              <div className="grid md:grid-cols-2">
+                
+                {/* Left Side: Visual Content */}
+                <div className="bg-[#0f172a] p-12 flex flex-col justify-center relative overflow-hidden text-white">
+                  <div className="absolute top-0 right-0 w-64 h-64 bg-teal-500/20 rounded-full blur-3xl -mr-32 -mt-32"></div>
+                  <div className="relative z-10">
+                    <h2 className="text-4xl font-black mb-6 leading-tight">
+                      Share Your <br/>
+                      <span className="text-teal-400">Experience!</span>
+                    </h2>
+                    <p className="text-slate-400 font-medium mb-8">
+                      Ungaloda feedback engalukku romba mukkiyam. App-ai innum sirappa matha help pannunga!
                     </p>
-                  </div>
-                </section>
-
-                <section className="bg-white border border-slate-100 shadow-sm rounded-[2rem] p-8">
-                  <h3 className="text-xl font-bold mb-6 flex items-center gap-2">
-                    <span className="w-8 h-8 bg-slate-100 rounded-lg flex items-center justify-center text-sm">2</span>
-                    What's on your mind?
-                  </h3>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                    {feedbackTypes.map((type) => (
-                      <button
-                        key={type.id}
-                        onClick={() => setFeedbackType(type.id)}
-                        className={`group relative p-4 rounded-2xl border-2 transition-all duration-300 flex flex-col items-center gap-3 ${
-                          feedbackType === type.id 
-                          ? 'border-slate-900 bg-slate-900 text-white scale-105 shadow-xl' 
-                          : 'border-slate-50 bg-slate-50 hover:border-slate-200 text-slate-600'
-                        }`}
-                      >
-                        <div className={`text-2xl transition-transform group-hover:rotate-12 ${feedbackType === type.id ? 'text-white' : 'text-slate-400'}`}>
-                          {type.icon}
+                    
+                    <div className="space-y-4">
+                      <div className="flex items-center gap-4 bg-white/5 p-4 rounded-2xl border border-white/10">
+                        <div className="w-10 h-10 bg-teal-500/20 rounded-xl flex items-center justify-center text-teal-400">
+                          <FaRocket />
                         </div>
-                        <span className="text-xs font-bold uppercase tracking-wider">{type.label}</span>
-                      </button>
-                    ))}
+                        <p className="text-sm font-bold">Fast Response</p>
+                      </div>
+                    </div>
                   </div>
-                </section>
-              </div>
+                </div>
 
-              {/* Right: Text Input Section */}
-              <div className="lg:col-span-5">
-                <div className="bg-white border border-slate-100 shadow-xl rounded-[2rem] p-8 sticky top-8">
-                  <h3 className="text-xl font-bold mb-6 flex items-center gap-2">
-                    <span className="w-8 h-8 bg-slate-100 rounded-lg flex items-center justify-center text-sm">3</span>
-                    The details
-                  </h3>
-                  
-                  <form onSubmit={handleSubmit} className="space-y-5">
+                {/* Right Side: Form */}
+                <div className="p-8 md:p-12">
+                  <form onSubmit={handleSubmit} className="space-y-8">
+                    
+                    {/* Feedback Type Selection */}
+                    <div>
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-4">Feedback Category</p>
+                      <div className="grid grid-cols-2 gap-3">
+                        {feedbackTypes.map((type) => (
+                          <button
+                            key={type.id}
+                            type="button"
+                            onClick={() => setFeedbackType(type.id)}
+                            className={`p-4 rounded-2xl border-2 transition-all flex items-center gap-3 font-bold text-sm ${
+                              feedbackType === type.id 
+                                ? `bg-gradient-to-r ${type.color} text-white border-transparent shadow-lg` 
+                                : 'border-slate-100 text-slate-500 hover:border-teal-200'
+                            }`}
+                          >
+                            {type.icon} {type.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Star Rating */}
+                    <div className="text-center bg-slate-50 p-6 rounded-[2rem]">
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-4">Rate your journey</p>
+                      <div className="flex justify-center gap-2">
+                        {[1, 2, 3, 4, 5].map((star) => (
+                          <button
+                            key={star}
+                            type="button"
+                            onMouseEnter={() => setHoverRating(star)}
+                            onMouseLeave={() => setHoverRating(0)}
+                            onClick={() => setRating(star)}
+                            className="transition-transform active:scale-90"
+                          >
+                            <FaStar 
+                              size={32} 
+                              className={`transition-colors duration-200 ${
+                                star <= (hoverRating || rating) ? 'text-yellow-400 drop-shadow-md' : 'text-slate-200'
+                              }`}
+                            />
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Message Box */}
                     <div className="relative">
                       <textarea
+                        rows="4"
+                        placeholder="Write your thoughts here..."
+                        className="w-full bg-slate-50 border-2 border-slate-100 rounded-[2rem] p-6 outline-none focus:border-teal-400 transition-all font-medium text-slate-700"
                         value={message}
                         onChange={(e) => setMessage(e.target.value)}
-                        placeholder="Tell us what happened..."
-                        rows="6"
-                        className="w-full bg-slate-50 border-none rounded-2xl p-5 focus:ring-2 focus:ring-teal-500/20 outline-none text-slate-700 placeholder:text-slate-400 transition-all resize-none"
-                      />
-                    </div>
-
-                    <div className="space-y-3">
-                      <input
-                        type="email"
-                        placeholder="Email address (Optional)"
-                        className="w-full bg-slate-50 border-none rounded-xl p-4 focus:ring-2 focus:ring-teal-500/20 outline-none text-slate-700"
-                      />
+                      ></textarea>
                     </div>
 
                     <button
                       type="submit"
-                      disabled={!rating || !feedbackType || !message.trim()}
-                      className="w-full py-4 bg-teal-600 hover:bg-teal-700 disabled:bg-slate-200 text-white rounded-2xl font-bold text-lg shadow-lg shadow-teal-200 transition-all flex items-center justify-center gap-3 hover:-translate-y-1 active:translate-y-0"
+                      className="w-full py-5 bg-[#0f172a] hover:bg-teal-500 text-white hover:text-[#0f172a] rounded-[2rem] font-black text-sm transition-all shadow-xl flex items-center justify-center gap-3 group"
                     >
-                      <FaPaperPlane className="text-sm" />
-                      Send Feedback
+                      SEND FEEDBACK
+                      <FaPaperPlane className="group-hover:translate-x-1 group-hover:-translate-y-1 transition-transform" />
                     </button>
-
-                    <p className="text-[11px] text-slate-400 text-center leading-relaxed">
-                      By submitting, you agree to our <span className="underline cursor-pointer">Terms of Service</span>. <br/> Your data is safe with us.
-                    </p>
                   </form>
                 </div>
-              </div>
 
-            </div>
+              </div>
+            </motion.div>
+          ) : (
+            /* Success State */
+            <motion.div 
+              key="success-screen"
+              initial={{ scale: 0.8, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              className="bg-white rounded-[4rem] p-16 text-center shadow-2xl border border-teal-100"
+            >
+              <div className="w-24 h-24 bg-teal-100 text-teal-600 rounded-full flex items-center justify-center mx-auto mb-8 animate-bounce">
+                <FaCheckCircle size={48} />
+              </div>
+              <h2 className="text-4xl font-black text-[#0f172a] mb-4">Thank You!</h2>
+              <p className="text-slate-500 font-bold mb-8 max-w-sm mx-auto leading-relaxed">
+                Unga feedback-ai naanga receive pannittom. Idhu engalukku romba udhaviyaaga irukkum!
+              </p>
+              <button 
+                onClick={() => setSubmitted(false)}
+                className="px-10 py-4 bg-teal-500 text-[#0f172a] rounded-full font-black hover:bg-teal-400 transition-all shadow-lg shadow-teal-200"
+              >
+                GO BACK
+              </button>
+            </motion.div>
           )}
         </AnimatePresence>
 
-        {/* Minimal Footer Stats */}
-        <footer className="mt-20 py-8 border-t border-slate-200 flex flex-col md:flex-row justify-between items-center gap-6 opacity-60 grayscale hover:grayscale-0 transition-all">
-          <div className="flex items-center gap-8">
-            <div>
-              <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Global Rating</p>
-              <p className="text-xl font-black text-slate-800">4.8 / 5.0</p>
-            </div>
-            <div>
-              <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Support Speed</p>
-              <p className="text-xl font-black text-slate-800">&lt; 24 Hours</p>
-            </div>
-          </div>
-          <p className="text-sm font-medium text-slate-500 italic">"Design is not just what it looks like, it's how it works."</p>
-        </footer>
       </div>
     </div>
   );

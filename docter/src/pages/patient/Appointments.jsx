@@ -1,535 +1,570 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  Calendar, Clock, Video, MapPin, Search, Check, 
-  X, ChevronDown, ChevronUp, Stethoscope, AlertCircle, CalendarCheck,
-  MessageSquare, Phone, User, Shield, Download
+  Calendar, Clock, Search, X, Stethoscope, RefreshCw, 
+  PlusCircle, FileText, Paperclip, ExternalLink, 
+  AlertCircle, FilePlus, Lock, ChevronRight, CheckCircle,
+  MapPin, Video, Link as LinkIcon, Trash2, Eye, Download
 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 
 const Appointments = () => {
-  const [filter, setFilter] = useState('all');
-  const [searchTerm, setSearchTerm] = useState('');
-  const [expandedAppointments, setExpandedAppointments] = useState(new Set());
+  const navigate = useNavigate();
   const [appointments, setAppointments] = useState([]);
-  const [selectedAppointment, setSelectedAppointment] = useState(null);
-  const [showCancelModal, setShowCancelModal] = useState(false);
-  const [showRescheduleModal, setShowRescheduleModal] = useState(false);
-  const [rescheduleDate, setRescheduleDate] = useState('');
-  const [rescheduleTime, setRescheduleTime] = useState('');
+  const [medicalRecords, setMedicalRecords] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showAttachModal, setShowAttachModal] = useState(false);
+  const [activeAppointmentId, setActiveAppointmentId] = useState(null);
+  const [showExpiredModal, setShowExpiredModal] = useState(false);
+  const [expiredCount, setExpiredCount] = useState(0);
+  const [currentUser, setCurrentUser] = useState(null);
+  const [showViewModal, setShowViewModal] = useState(false);
+  const [selectedFile, setSelectedFile] = useState(null);
 
-  // Load appointments from localStorage
+  // Helper function to check if date is expired
+  const isExpired = (dateString) => {
+    if (!dateString) return false;
+    
+    const today = new Date();
+    today.setHours(0, 0, 0, 0); // Set to start of day
+    
+    const appointmentDate = new Date(dateString);
+    appointmentDate.setHours(0, 0, 0, 0);
+    
+    return appointmentDate < today;
+  };
+
+  // Helper function to check if date is today
+  const isToday = (dateString) => {
+    if (!dateString) return false;
+    
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    const appointmentDate = new Date(dateString);
+    appointmentDate.setHours(0, 0, 0, 0);
+    
+    return appointmentDate.getTime() === today.getTime();
+  };
+
+  // Helper function to check if date is future
+  const isFuture = (dateString) => {
+    if (!dateString) return false;
+    
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    const appointmentDate = new Date(dateString);
+    appointmentDate.setHours(0, 0, 0, 0);
+    
+    return appointmentDate > today;
+  };
+
   useEffect(() => {
-    const loadAppointments = () => {
-      const saved = localStorage.getItem('appointments');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        // Filter to show only appointments for the current user (patient)
-        const userAppointments = parsed.filter(app => 
-          app.status === 'confirmed' || app.status === 'pending'
-        );
-        setAppointments(userAppointments);
-      }
-    };
-
-    loadAppointments();
-    const interval = setInterval(loadAppointments, 30000); // Refresh every 30 seconds
+    loadData();
+    // Check for expired appointments every minute
+    const interval = setInterval(() => {
+      cleanupExpiredAppointments();
+      loadData();
+    }, 60000); // 1 minute
+    
     return () => clearInterval(interval);
   }, []);
 
-  const filteredAppointments = appointments.filter(app => {
-    const matchesFilter = filter === 'all' || app.status === filter;
-    const matchesSearch = app.doctorName?.toLowerCase().includes(searchTerm.toLowerCase());
-    return matchesFilter && matchesSearch;
-  });
+  const loadData = () => {
+    const user = JSON.parse(localStorage.getItem('currentUser') || '{}');
+    setCurrentUser(user);
+    const patientId = user?.userId || user?.id;
+    
+    // Get all users to ensure correct names
+    const allUsers = JSON.parse(localStorage.getItem('healthai_users') || '[]');
+    
+    const allApps = JSON.parse(localStorage.getItem('appointments') || '[]');
+    
+    // Filter for this patient's appointments
+    let userApps = allApps.filter(app => app.patientId === patientId);
+    
+    // FIXED: Ensure patient names are correct by cross-referencing with users data
+    userApps = userApps.map(app => {
+      const patientUser = allUsers.find(u => u.userId === app.patientId);
+      if (patientUser && patientUser.name && patientUser.name !== app.patientName) {
+        console.log(`Fixing appointment patient name: ${app.patientName} -> ${patientUser.name}`);
+        return { ...app, patientName: patientUser.name };
+      }
+      return app;
+    });
+    
+    // Count expired appointments
+    const expired = userApps.filter(app => isExpired(app.date));
+    setExpiredCount(expired.length);
+    
+    // Show only today and future appointments (not expired)
+    const activeAppointments = userApps.filter(app => !isExpired(app.date));
+    
+    // Sort by date (nearest first)
+    setAppointments(activeAppointments.sort((a, b) => new Date(a.date) - new Date(b.date)));
 
-  const toggleExpand = (id) => {
-    const newSet = new Set(expandedAppointments);
-    if (newSet.has(id)) newSet.delete(id);
-    else newSet.add(id);
-    setExpandedAppointments(newSet);
+    // ✅ FIXED: Get medical records from the correct storage (medical_records_{userId})
+    const records = JSON.parse(localStorage.getItem(`medical_records_${patientId}`) || '[]');
+    setMedicalRecords(records);
+    
+    setLoading(false);
   };
 
-  const getStatusStyle = (status) => {
+  // Auto-delete expired appointments
+  const cleanupExpiredAppointments = () => {
+    const user = JSON.parse(localStorage.getItem('currentUser') || '{}');
+    const patientId = user?.userId || user?.id;
+    
+    const allApps = JSON.parse(localStorage.getItem('appointments') || '[]');
+    
+    // Filter out expired appointments for this patient
+    const updatedApps = allApps.filter(app => {
+      // Keep if not this patient's appointment
+      if (app.patientId !== patientId) return true;
+      // Keep if not expired
+      return !isExpired(app.date);
+    });
+    
+    if (updatedApps.length !== allApps.length) {
+      localStorage.setItem('appointments', JSON.stringify(updatedApps));
+      console.log('🗑️ Auto-deleted expired appointments');
+    }
+  };
+
+  // Manual delete expired
+  const handleDeleteExpired = () => {
+    if (window.confirm(`Delete ${expiredCount} expired appointment(s)?`)) {
+      cleanupExpiredAppointments();
+      loadData();
+      setShowExpiredModal(false);
+    }
+  };
+
+  const handleAttachRecord = (appointmentId, recordId) => {
+    const allApps = JSON.parse(localStorage.getItem('appointments') || '[]');
+    const updatedApps = allApps.map(app => {
+      if (app.id === appointmentId) {
+        const attached = app.attachedRecords || [];
+        if (!attached.includes(recordId)) {
+          return { ...app, attachedRecords: [...attached, recordId] };
+        }
+      }
+      return app;
+    });
+
+    localStorage.setItem('appointments', JSON.stringify(updatedApps));
+    loadData();
+    setShowAttachModal(false);
+  };
+
+  const handleViewFile = (record, file) => {
+    setSelectedFile(file);
+    setShowViewModal(true);
+  };
+
+  const handleDownloadFile = (file) => {
+    const link = document.createElement('a');
+    link.href = file.data;
+    link.download = file.name;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // Get status badge color
+  const getStatusBadge = (status, date) => {
+    if (isToday(date)) {
+      return 'bg-purple-50 text-purple-600 border-purple-100';
+    }
     switch(status) {
-      case 'confirmed': return 'bg-emerald-100 text-emerald-700 border-emerald-200';
-      case 'pending': return 'bg-amber-100 text-amber-700 border-amber-200';
-      case 'cancelled': return 'bg-rose-100 text-rose-700 border-rose-200';
-      default: return 'bg-slate-100 text-slate-600 border-slate-200';
+      case 'confirmed':
+        return 'bg-emerald-50 text-emerald-600 border-emerald-100';
+      case 'pending':
+        return 'bg-amber-50 text-amber-600 border-amber-100';
+      case 'completed':
+        return 'bg-blue-50 text-blue-600 border-blue-100';
+      case 'cancelled':
+        return 'bg-red-50 text-red-600 border-red-100';
+      default:
+        return 'bg-slate-50 text-slate-600 border-slate-100';
     }
   };
 
-  const handleJoinMeeting = (appointment) => {
-    if (appointment.type === 'Video Consultation' && appointment.meetingLink) {
-      window.open(appointment.meetingLink, '_blank');
-    } else if (appointment.type === 'Clinic Visit') {
-      alert(`Please visit ${appointment.location} for your appointment at ${appointment.time}`);
-    } else {
-      alert('No meeting link available for this appointment.');
-    }
-  };
-
-  const handleCancelAppointment = (appointment) => {
-    setSelectedAppointment(appointment);
-    setShowCancelModal(true);
-  };
-
-  const confirmCancel = () => {
-    if (!selectedAppointment) return;
-    
-    // Update appointment status
-    const updatedAppointments = appointments.map(app => 
-      app.id === selectedAppointment.id 
-        ? { ...app, status: 'cancelled', notes: 'Cancelled by patient' }
-        : app
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-[#f8fafc] flex items-center justify-center">
+        <div className="text-center">
+          <RefreshCw className="animate-spin mx-auto mb-4 text-teal-600" size={40} />
+          <p className="text-slate-600">Loading appointments...</p>
+        </div>
+      </div>
     );
-    
-    setAppointments(updatedAppointments);
-    localStorage.setItem('appointments', JSON.stringify(updatedAppointments));
-    
-    // Update doctor's time slot to available
-    const doctorSlots = JSON.parse(localStorage.getItem('doctor_time_slots') || '[]');
-    const updatedSlots = doctorSlots.map(slot => {
-      if (slot.date === selectedAppointment.date && slot.time === selectedAppointment.time) {
-        return { ...slot, status: 'available', patientName: null, patientId: null };
-      }
-      return slot;
-    });
-    localStorage.setItem('doctor_time_slots', JSON.stringify(updatedSlots));
-    
-    setShowCancelModal(false);
-    setSelectedAppointment(null);
-    alert('Appointment cancelled successfully!');
-  };
-
-  const handleReschedule = (appointment) => {
-    setSelectedAppointment(appointment);
-    setRescheduleDate(appointment.date);
-    setRescheduleTime(appointment.time);
-    setShowRescheduleModal(true);
-  };
-
-  const confirmReschedule = () => {
-    if (!selectedAppointment) return;
-    
-    // Update appointment
-    const updatedAppointments = appointments.map(app => 
-      app.id === selectedAppointment.id 
-        ? { 
-            ...app, 
-            date: rescheduleDate, 
-            time: rescheduleTime,
-            notes: (app.notes || '') + ' (Rescheduled)'
-          }
-        : app
-    );
-    
-    setAppointments(updatedAppointments);
-    localStorage.setItem('appointments', JSON.stringify(updatedAppointments));
-    
-    // Update doctor's time slot
-    const doctorSlots = JSON.parse(localStorage.getItem('doctor_time_slots') || '[]');
-    
-    // Make old slot available
-    const updatedSlots1 = doctorSlots.map(slot => {
-      if (slot.date === selectedAppointment.date && slot.time === selectedAppointment.time) {
-        return { ...slot, status: 'available', patientName: null, patientId: null };
-      }
-      return slot;
-    });
-    
-    // Make new slot booked
-    const updatedSlots = updatedSlots1.map(slot => {
-      if (slot.date === rescheduleDate && slot.time === rescheduleTime) {
-        return { ...slot, status: 'booked', patientName: 'Patient', patientId: 'PAT001' };
-      }
-      return slot;
-    });
-    
-    localStorage.setItem('doctor_time_slots', JSON.stringify(updatedSlots));
-    
-    setShowRescheduleModal(false);
-    setSelectedAppointment(null);
-    alert('Appointment rescheduled successfully!');
-  };
-
-  const getUpcomingAppointments = () => {
-    const today = new Date().toISOString().split('T')[0];
-    return appointments
-      .filter(app => app.date >= today && app.status === 'confirmed')
-      .slice(0, 2);
-  };
-
-  const downloadAppointmentDetails = (appointment) => {
-    const data = {
-      AppointmentID: appointment.id,
-      Doctor: appointment.doctorName,
-      Specialty: appointment.doctorSpecialty,
-      Date: appointment.date,
-      Time: appointment.time,
-      Type: appointment.type,
-      Status: appointment.status,
-      Location: appointment.location,
-      Symptoms: appointment.symptoms,
-      Notes: appointment.notes || 'None'
-    };
-    
-    const jsonString = JSON.stringify(data, null, 2);
-    const blob = new Blob([jsonString], { type: 'application/json' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `appointment-${appointment.id}.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    window.URL.revokeObjectURL(url);
-  };
+  }
 
   return (
-    <div className="min-h-screen bg-emerald-50/30 p-6 pb-24">
-      <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-slate-900">My Appointments</h1>
-          <p className="text-slate-500 mt-1">Manage your doctor visits and consultations</p>
+    <div className="min-h-screen bg-[#f8fafc] font-['Plus_Jakarta_Sans'] pb-20">
+      <header className="bg-[#0f172a] pt-16 pb-48 px-6 lg:px-20 relative overflow-hidden">
+        <div className="max-w-7xl mx-auto relative z-10">
+          <h1 className="text-4xl md:text-5xl font-black text-white tracking-tighter text-center md:text-left">
+            Your <span className="text-teal-400">Visits</span>
+          </h1>
+          <p className="text-slate-400 font-bold mt-2 text-center md:text-left">
+            Showing today & future appointments only
+          </p>
+          {currentUser && (
+            <p className="text-teal-400 text-sm mt-2 text-center md:text-left">
+              Patient: {currentUser.name}
+            </p>
+          )}
         </div>
+      </header>
 
-        {/* Upcoming Appointments Banner */}
-        {getUpcomingAppointments().length > 0 && (
-          <div className="mb-8 bg-gradient-to-r from-emerald-500 to-teal-600 rounded-2xl p-6 text-white">
-            <div className="flex justify-between items-center">
+      <main className="max-w-7xl mx-auto px-6 lg:px-20 -mt-32 relative z-20">
+        {/* Expired Alert */}
+        {expiredCount > 0 && (
+          <div className="mb-6 bg-amber-50 border border-amber-200 rounded-[2rem] p-6 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <AlertCircle className="text-amber-600" size={24} />
               <div>
-                <h3 className="text-xl font-bold mb-2">Upcoming Appointments</h3>
-                <p className="text-emerald-100">You have {getUpcomingAppointments().length} confirmed appointment(s)</p>
-              </div>
-              <div className="flex gap-3">
-                {getUpcomingAppointments().map(app => (
-                  <div key={app.id} className="bg-white/20 backdrop-blur-sm p-3 rounded-xl">
-                    <div className="font-bold">{app.doctorName}</div>
-                    <div className="text-sm">{app.date} at {app.time}</div>
-                  </div>
-                ))}
+                <p className="font-black text-amber-800">{expiredCount} expired appointment(s)</p>
+                <p className="text-sm text-amber-600">Past appointments are automatically deleted</p>
               </div>
             </div>
+            <button
+              onClick={() => setShowExpiredModal(true)}
+              className="px-6 py-3 bg-amber-600 text-white rounded-xl font-black text-sm hover:bg-amber-700 transition-all flex items-center gap-2"
+            >
+              <Trash2 size={16} />
+              DELETE NOW
+            </button>
           </div>
         )}
 
-        {/* Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-          <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100">
-            <div className="flex justify-between items-center">
-              <div>
-                <p className="text-3xl font-bold text-slate-900">{appointments.length}</p>
-                <p className="text-sm text-slate-600">Total Appointments</p>
-              </div>
-              <div className="p-3 bg-emerald-100 rounded-xl">
-                <Calendar className="text-emerald-600" size={24} />
-              </div>
-            </div>
-          </div>
-          
-          <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100">
-            <div className="flex justify-between items-center">
-              <div>
-                <p className="text-3xl font-bold text-emerald-600">
-                  {appointments.filter(a => a.status === 'confirmed').length}
-                </p>
-                <p className="text-sm text-slate-600">Confirmed</p>
-              </div>
-              <div className="p-3 bg-green-100 rounded-xl">
-                <Check className="text-green-600" size={24} />
-              </div>
-            </div>
-          </div>
-          
-          <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100">
-            <div className="flex justify-between items-center">
-              <div>
-                <p className="text-3xl font-bold text-amber-600">
-                  {appointments.filter(a => a.status === 'pending').length}
-                </p>
-                <p className="text-sm text-slate-600">Pending</p>
-              </div>
-              <div className="p-3 bg-amber-100 rounded-xl">
-                <AlertCircle className="text-amber-600" size={24} />
-              </div>
-            </div>
-          </div>
-          
-          <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100">
-            <div className="flex justify-between items-center">
-              <div>
-                <p className="text-3xl font-bold text-blue-600">
-                  {appointments.filter(a => a.type === 'Video Consultation').length}
-                </p>
-                <p className="text-sm text-slate-600">Video Consultations</p>
-              </div>
-              <div className="p-3 bg-blue-100 rounded-xl">
-                <Video className="text-blue-600" size={24} />
-              </div>
-            </div>
-          </div>
-        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+          <div className="lg:col-span-8 space-y-6">
+            {appointments.length > 0 ? (
+              appointments.map((app) => {
+                const isTodayApp = isToday(app.date);
+                const isFutureApp = isFuture(app.date);
+                
+                return (
+                  <div 
+                    key={app.id} 
+                    className={`bg-white rounded-[2.5rem] p-8 shadow-xl border hover:border-teal-200 transition-all group ${
+                      isTodayApp ? 'border-purple-300 bg-purple-50/30' : 'border-white'
+                    }`}
+                  >
+                    {/* TODAY Badge */}
+                    {isTodayApp && (
+                      <div className="mb-4">
+                        <span className="px-4 py-2 bg-purple-600 text-white rounded-full text-xs font-black">
+                          TODAY
+                        </span>
+                      </div>
+                    )}
 
-        {/* Filters and Search */}
-        <div className="bg-white p-2 rounded-2xl shadow-sm border border-slate-100 mb-8 flex flex-col md:flex-row justify-between gap-4">
-          <div className="flex bg-slate-100/50 p-1 rounded-xl">
-            {['all', 'confirmed', 'pending'].map(status => (
-              <button 
-                key={status} 
-                onClick={() => setFilter(status)} 
-                className={`px-5 py-2 rounded-lg text-sm font-bold capitalize ${
-                  filter === status ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-500'
-                }`}
-              >
-                {status}
-              </button>
-            ))}
-          </div>
-          <div className="relative md:w-96">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-            <input 
-              type="text" 
-              placeholder="Search doctor..." 
-              className="w-full pl-11 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm" 
-              onChange={(e) => setSearchTerm(e.target.value)} 
-            />
-          </div>
-        </div>
+                    <div className="flex flex-col md:flex-row gap-6">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-4 mb-4">
+                          <div className="w-14 h-14 rounded-2xl bg-slate-100 flex items-center justify-center">
+                            <Stethoscope className="text-teal-600" />
+                          </div>
+                          <div>
+                            <h3 className="text-xl font-black text-[#0f172a]">{app.doctorName}</h3>
+                            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">{app.doctorSpecialization}</p>
+                          </div>
+                        </div>
 
-        {/* Appointments List */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {filteredAppointments.length === 0 ? (
-            <div className="col-span-full text-center py-20 bg-white rounded-3xl border border-dashed border-slate-200">
-              <CalendarCheck size={32} className="text-slate-400 mx-auto mb-4" />
-              <h3 className="text-lg font-bold text-slate-900">No appointments found</h3>
-              <p className="text-slate-500 mt-2">When a doctor confirms your appointment, it will appear here.</p>
-            </div>
-          ) : (
-            filteredAppointments.map(app => (
-              <div key={app.id} className="bg-white rounded-3xl p-6 shadow-sm border border-slate-100 hover:border-emerald-300 transition-all group">
-                <div className="flex justify-between items-start mb-4">
-                  <div className="flex gap-4">
-                    <img src={app.image} alt="" className="w-14 h-14 rounded-2xl object-cover" />
-                    <div>
-                      <h3 className="font-bold text-lg text-slate-900 leading-tight">{app.doctorName}</h3>
-                      <p className="text-sm text-emerald-600 font-semibold">{app.doctorSpecialty}</p>
+                        <div className="flex flex-wrap gap-4 mb-6">
+                          <div className="flex items-center gap-2 text-[10px] font-black text-slate-500 bg-slate-50 px-4 py-2 rounded-xl border border-slate-100">
+                            <Calendar size={14} className="text-teal-500" /> 
+                            {new Date(app.date).toLocaleDateString('en-US', { 
+                              weekday: 'short', 
+                              month: 'short', 
+                              day: 'numeric',
+                              year: 'numeric'
+                            })}
+                          </div>
+                          <div className="flex items-center gap-2 text-[10px] font-black text-slate-500 bg-slate-50 px-4 py-2 rounded-xl border border-slate-100">
+                            <Clock size={14} className="text-teal-500" /> {app.time}
+                          </div>
+                          <div className={`flex items-center gap-2 text-[10px] font-black px-4 py-2 rounded-xl border ${getStatusBadge(app.status, app.date)}`}>
+                            {app.type?.includes('Video') ? <Video size={14} /> : <MapPin size={14} />}
+                            {app.type?.includes('Video') ? (app.videoLink || 'Video Call') : (app.location || 'Clinic Visit')}
+                          </div>
+                        </div>
+
+                        {/* Attached Medical Records - From MedicalRecordsPage */}
+                        {app.attachedRecords && app.attachedRecords.length > 0 && (
+                          <div className="mt-4">
+                            <p className="text-[10px] font-black text-slate-400 uppercase mb-2">Attached Reports</p>
+                            <div className="flex flex-wrap gap-2">
+                              {app.attachedRecords.map(recId => {
+                                const record = medicalRecords.find(r => r.id === recId);
+                                return record ? (
+                                  <div key={recId} className="flex items-center gap-2 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-xl text-[10px] font-bold border border-blue-100">
+                                    {record.type === 'X-Ray' || record.type === 'MRI' || record.type === 'CT Scan' ? (
+                                      <span>🖼️</span>
+                                    ) : (
+                                      <FileText size={12} />
+                                    )}
+                                    <span>{record.diagnosis || record.type}</span>
+                                    {record.files && record.files.length > 0 && (
+                                      <button
+                                        onClick={() => handleViewFile(record, record.files[0])}
+                                        className="ml-1 text-blue-600 hover:text-blue-800"
+                                      >
+                                        <Eye size={10} />
+                                      </button>
+                                    )}
+                                  </div>
+                                ) : null;
+                              })}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex flex-col justify-between items-end">
+                        <div className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase border ${
+                          app.status === 'confirmed' ? 'bg-emerald-50 text-emerald-500 border-emerald-100' : 
+                          app.status === 'pending' ? 'bg-amber-50 text-amber-500 border-amber-100' :
+                          app.status === 'completed' ? 'bg-blue-50 text-blue-500 border-blue-100' :
+                          'bg-slate-50 text-slate-500 border-slate-100'
+                        }`}>
+                          {app.status}
+                        </div>
+                        
+                        <div className="flex gap-2 mt-4">
+                          {app.status === 'confirmed' && app.type?.includes('Video') && app.videoLink && (
+                            <a 
+                              href={app.videoLink.startsWith('http') ? app.videoLink : `https://${app.videoLink}`} 
+                              target="_blank" 
+                              rel="noopener noreferrer" 
+                              className="px-4 py-3 bg-purple-600 text-white rounded-xl font-black text-xs hover:bg-purple-700 transition-all flex items-center gap-2"
+                            >
+                              <ExternalLink size={14} /> JOIN CALL
+                            </a>
+                          )}
+                          <button 
+                            onClick={() => { 
+                              setActiveAppointmentId(app.id); 
+                              setShowAttachModal(true); 
+                            }} 
+                            className="px-4 py-3 bg-teal-50 text-teal-600 rounded-xl font-black text-xs hover:bg-teal-100 transition-all flex items-center gap-2"
+                          >
+                            <Paperclip size={14} /> ATTACH
+                          </button>
+                        </div>
+                      </div>
                     </div>
                   </div>
-                  <span className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase border ${getStatusStyle(app.status)}`}>
-                    {app.status}
+                );
+              })
+            ) : (
+              <div className="bg-white rounded-[2.5rem] p-20 text-center border-2 border-dashed border-slate-200">
+                <Calendar className="mx-auto text-slate-200 mb-4" size={48} />
+                <p className="text-slate-400 font-bold text-lg">No upcoming appointments</p>
+                <p className="text-slate-400 text-sm mt-2">Book an appointment with our specialists</p>
+                <button
+                  onClick={() => navigate('/doctors')}
+                  className="mt-6 px-8 py-4 bg-teal-600 text-white rounded-xl font-black text-sm hover:bg-teal-700 transition-all"
+                >
+                  FIND DOCTORS
+                </button>
+              </div>
+            )}
+          </div>
+
+          <div className="lg:col-span-4">
+            <div className="bg-[#0f172a] rounded-[2.5rem] p-8 shadow-xl text-white sticky top-6">
+              <h4 className="text-xl font-black mb-4">Summary</h4>
+              
+              {/* Stats */}
+              <div className="space-y-4 mb-8">
+                <div className="flex justify-between items-center p-4 bg-white/5 rounded-xl">
+                  <span className="text-slate-300">Total Upcoming</span>
+                  <span className="text-2xl font-black text-teal-400">{appointments.length}</span>
+                </div>
+                
+                <div className="flex justify-between items-center p-4 bg-white/5 rounded-xl">
+                  <span className="text-slate-300">Today</span>
+                  <span className="text-2xl font-black text-purple-400">
+                    {appointments.filter(a => isToday(a.date)).length}
+                  </span>
+                </div>
+                
+                <div className="flex justify-between items-center p-4 bg-white/5 rounded-xl">
+                  <span className="text-slate-300">This Week</span>
+                  <span className="text-2xl font-black text-blue-400">
+                    {appointments.filter(a => {
+                      const date = new Date(a.date);
+                      const today = new Date();
+                      const weekLater = new Date(today);
+                      weekLater.setDate(today.getDate() + 7);
+                      return date <= weekLater;
+                    }).length}
                   </span>
                 </div>
 
-                <div className="bg-slate-50/80 rounded-2xl p-4 grid grid-cols-2 gap-3 text-sm border border-slate-100">
-                  <div className="flex items-center gap-2 text-slate-600">
-                    <Calendar size={16} /> 
-                    <span className="font-bold">{app.date}</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-slate-600">
-                    <Clock size={16} /> 
-                    <span>{app.time}</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-slate-600 col-span-2">
-                    <MapPin size={16} /> 
-                    <span className="truncate">{app.location}</span>
-                  </div>
+                <div className="flex justify-between items-center p-4 bg-white/5 rounded-xl">
+                  <span className="text-slate-300">Total Records</span>
+                  <span className="text-2xl font-black text-amber-400">{medicalRecords.length}</span>
                 </div>
 
-                <div className="mt-5 flex items-center justify-between">
-                  <button 
-                    onClick={() => toggleExpand(app.id)} 
-                    className="text-xs font-bold text-slate-400 flex items-center gap-1"
-                  >
-                    Details {expandedAppointments.has(app.id) ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                  </button>
-                  <div className="flex gap-2">
-                    {app.status === 'confirmed' && (
-                      <button 
-                        onClick={() => handleJoinMeeting(app)}
-                        className="bg-emerald-600 text-white px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2"
-                      >
-                        <Video size={14} />
-                        {app.type === 'Video Consultation' ? 'Join Meeting' : 'View Details'}
-                      </button>
-                    )}
-                    <button
-                      onClick={() => downloadAppointmentDetails(app)}
-                      className="p-2 text-slate-600 hover:bg-slate-100 rounded-lg"
-                      title="Download Details"
-                    >
-                      <Download size={14} />
-                    </button>
-                  </div>
-                </div>
-
-                {expandedAppointments.has(app.id) && (
-                  <div className="mt-4 pt-4 border-t border-dashed border-slate-200 animate-in fade-in">
-                    <div className="space-y-3">
-                      <div className="flex items-start gap-2">
-                        <Stethoscope size={16} className="text-emerald-500 mt-0.5 flex-shrink-0" />
-                        <div>
-                          <p className="text-xs font-bold text-slate-400 uppercase">Symptoms</p>
-                          <p className="text-sm font-medium text-slate-700">{app.symptoms}</p>
-                        </div>
-                      </div>
-                      
-                      {app.notes && (
-                        <div className="flex items-start gap-2">
-                          <AlertCircle size={16} className="text-amber-500 mt-0.5 flex-shrink-0" />
-                          <div>
-                            <p className="text-xs font-bold text-slate-400 uppercase">Doctor Notes</p>
-                            <p className="text-sm font-medium text-slate-700">{app.notes}</p>
-                          </div>
-                        </div>
-                      )}
-                      
-                      <div className="flex items-start gap-2">
-                        <User size={16} className="text-blue-500 mt-0.5 flex-shrink-0" />
-                        <div>
-                          <p className="text-xs font-bold text-slate-400 uppercase">Appointment Type</p>
-                          <p className="text-sm font-medium text-slate-700">{app.type}</p>
-                        </div>
-                      </div>
-
-                      {/* Action Buttons */}
-                      <div className="flex gap-2 pt-3">
-                        {app.status === 'confirmed' && (
-                          <>
-                            <button
-                              onClick={() => handleReschedule(app)}
-                              className="flex-1 px-3 py-2 bg-amber-600 text-white rounded-lg text-sm font-medium hover:bg-amber-700"
-                            >
-                              Reschedule
-                            </button>
-                            <button
-                              onClick={() => handleCancelAppointment(app)}
-                              className="flex-1 px-3 py-2 bg-rose-600 text-white rounded-lg text-sm font-medium hover:bg-rose-700"
-                            >
-                              Cancel
-                            </button>
-                          </>
-                        )}
-                        {app.status === 'pending' && (
-                          <button
-                            onClick={() => handleCancelAppointment(app)}
-                            className="flex-1 px-3 py-2 bg-rose-600 text-white rounded-lg text-sm font-medium hover:bg-rose-700"
-                          >
-                            Cancel Request
-                          </button>
-                        )}
-                      </div>
-                    </div>
+                {currentUser && (
+                  <div className="flex justify-between items-center p-4 bg-white/5 rounded-xl">
+                    <span className="text-slate-300">Patient ID</span>
+                    <span className="text-sm font-black text-amber-400">{currentUser.userId || currentUser.id}</span>
                   </div>
                 )}
               </div>
-            ))
-          )}
-        </div>
-      </div>
 
-      {/* Cancel Modal */}
-      {showCancelModal && selectedAppointment && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full animate-in zoom-in">
-            <div className="p-6">
-              <div className="flex justify-between items-center mb-6">
-                <h3 className="text-xl font-bold text-slate-900">Cancel Appointment</h3>
-                <button 
-                  onClick={() => setShowCancelModal(false)}
-                  className="p-2 hover:bg-slate-100 rounded-full text-slate-400 hover:text-rose-500"
-                >
-                  <X size={20} />
-                </button>
-              </div>
-              
-              <div className="mb-6">
-                <p className="text-slate-700 mb-4">
-                  Are you sure you want to cancel your appointment with <span className="font-bold">{selectedAppointment.doctorName}</span>?
-                </p>
-                <div className="bg-rose-50 p-4 rounded-xl border border-rose-100">
-                  <p className="text-sm font-bold text-rose-800 mb-1">Appointment Details</p>
-                  <p className="text-sm text-rose-700">
-                    {selectedAppointment.date} at {selectedAppointment.time}<br />
-                    {selectedAppointment.type} • {selectedAppointment.location}
-                  </p>
+              <button 
+                onClick={() => navigate('/medical-records')} 
+                className="w-full py-4 bg-teal-500 text-[#0f172a] rounded-2xl font-black text-xs hover:bg-teal-400 transition-all"
+              >
+                VIEW MEDICAL VAULT ({medicalRecords.length})
+              </button>
+
+              <button
+                onClick={() => {
+                  if (expiredCount > 0) {
+                    setShowExpiredModal(true);
+                  } else {
+                    alert('No expired appointments to clean up');
+                  }
+                }}
+                className="w-full mt-3 py-3 bg-white/5 text-white rounded-2xl font-black text-xs hover:bg-white/10 transition-all flex items-center justify-center gap-2"
+              >
+                <Trash2 size={14} />
+                CLEAN EXPIRED ({expiredCount})
+              </button>
+            </div>
+          </div>
+        </div>
+      </main>
+
+      {/* Attach Record Modal */}
+      {showAttachModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-[2.5rem] max-w-lg w-full p-8 shadow-2xl">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-2xl font-black text-[#0f172a]">Select Report</h2>
+              <button onClick={() => setShowAttachModal(false)} className="text-slate-400 hover:text-slate-600">
+                <X size={24} />
+              </button>
+            </div>
+            <div className="space-y-3 max-h-96 overflow-y-auto pr-2">
+              {medicalRecords.length > 0 ? (
+                medicalRecords.map(record => (
+                  <div 
+                    key={record.id} 
+                    onClick={() => handleAttachRecord(activeAppointmentId, record.id)} 
+                    className="p-4 border border-slate-100 rounded-2xl hover:bg-teal-50 cursor-pointer flex items-center justify-between transition-all"
+                  >
+                    <div>
+                      <h4 className="font-bold text-slate-900">{record.diagnosis || record.type}</h4>
+                      <p className="text-[10px] text-slate-400 uppercase font-black">{record.date}</p>
+                      {record.files && (
+                        <p className="text-[8px] text-teal-600 mt-1">
+                          {record.files.length} file(s)
+                        </p>
+                      )}
+                    </div>
+                    <PlusCircle size={20} className="text-teal-500" />
+                  </div>
+                ))
+              ) : (
+                <div className="text-center py-8">
+                  <FileText className="mx-auto text-slate-300 mb-3" size={40} />
+                  <p className="text-slate-400 text-sm">No records found in vault.</p>
+                  <button
+                    onClick={() => {
+                      setShowAttachModal(false);
+                      navigate('/medical-records');
+                    }}
+                    className="mt-4 text-teal-600 font-bold text-sm hover:underline"
+                  >
+                    Upload Records
+                  </button>
                 </div>
-              </div>
-              
-              <div className="flex gap-3">
-                <button
-                  onClick={() => setShowCancelModal(false)}
-                  className="flex-1 px-4 py-3 bg-slate-100 text-slate-700 rounded-xl font-bold hover:bg-slate-200"
-                >
-                  Keep Appointment
-                </button>
-                <button
-                  onClick={confirmCancel}
-                  className="flex-1 px-4 py-3 bg-rose-600 text-white rounded-xl font-bold hover:bg-rose-700"
-                >
-                  Confirm Cancellation
-                </button>
-              </div>
+              )}
             </div>
           </div>
         </div>
       )}
 
-      {/* Reschedule Modal */}
-      {showRescheduleModal && selectedAppointment && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full animate-in zoom-in">
-            <div className="p-6">
-              <div className="flex justify-between items-center mb-6">
-                <h3 className="text-xl font-bold text-slate-900">Reschedule Appointment</h3>
-                <button 
-                  onClick={() => setShowRescheduleModal(false)}
-                  className="p-2 hover:bg-slate-100 rounded-full text-slate-400 hover:text-rose-500"
-                >
-                  <X size={20} />
-                </button>
+      {/* Delete Expired Confirmation Modal */}
+      {showExpiredModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-[2.5rem] max-w-md w-full p-8 shadow-2xl">
+            <div className="text-center mb-6">
+              <div className="w-20 h-20 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <Trash2 className="text-amber-600" size={32} />
               </div>
-              
-              <div className="space-y-4 mb-6">
-                <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-2">
-                    New Date
-                  </label>
-                  <input
-                    type="date"
-                    value={rescheduleDate}
-                    onChange={(e) => setRescheduleDate(e.target.value)}
-                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none"
-                    min={new Date().toISOString().split('T')[0]}
+              <h2 className="text-2xl font-black text-[#0f172a]">Delete Expired?</h2>
+              <p className="text-slate-500 mt-2">
+                You have <span className="font-black text-amber-600">{expiredCount}</span> expired appointment(s).
+                These will be permanently removed.
+              </p>
+            </div>
+            
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowExpiredModal(false)}
+                className="flex-1 py-4 bg-slate-100 text-slate-700 rounded-xl font-black text-sm hover:bg-slate-200 transition-all"
+              >
+                CANCEL
+              </button>
+              <button
+                onClick={handleDeleteExpired}
+                className="flex-1 py-4 bg-amber-600 text-white rounded-xl font-black text-sm hover:bg-amber-700 transition-all"
+              >
+                DELETE ALL
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* View File Modal */}
+      {showViewModal && selectedFile && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+          <div className="bg-white rounded-[2.5rem] max-w-4xl w-full p-8 shadow-2xl max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-6">
+              <div>
+                <h2 className="text-2xl font-black text-[#0f172a]">{selectedFile.name}</h2>
+                <p className="text-slate-400 text-sm">
+                  {(selectedFile.size / 1024).toFixed(1)} KB
+                </p>
+              </div>
+              <button onClick={() => setShowViewModal(false)} className="text-slate-400 hover:text-slate-600">
+                <X size={24} />
+              </button>
+            </div>
+            
+            <div className="bg-slate-50 rounded-2xl p-8">
+              {selectedFile.fileType === 'image' ? (
+                <div className="flex justify-center">
+                  <img 
+                    src={selectedFile.data} 
+                    alt={selectedFile.name}
+                    className="max-w-full max-h-[60vh] object-contain rounded-xl"
                   />
                 </div>
-                
-                <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-2">
-                    New Time
-                  </label>
-                  <input
-                    type="time"
-                    value={rescheduleTime}
-                    onChange={(e) => setRescheduleTime(e.target.value)}
-                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none"
-                  />
+              ) : (
+                <div className="text-center py-12">
+                  <FileText size={64} className="mx-auto text-slate-400 mb-4" />
+                  <p className="text-slate-600 mb-4">PDF Document</p>
+                  <button
+                    onClick={() => handleDownloadFile(selectedFile)}
+                    className="bg-teal-600 text-white px-6 py-3 rounded-xl font-black hover:bg-teal-700 transition-all inline-flex items-center gap-2"
+                  >
+                    <Download size={18} /> DOWNLOAD PDF
+                  </button>
                 </div>
-              </div>
-              
-              <div className="flex gap-3">
-                <button
-                  onClick={() => setShowRescheduleModal(false)}
-                  className="flex-1 px-4 py-3 bg-slate-100 text-slate-700 rounded-xl font-bold hover:bg-slate-200"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={confirmReschedule}
-                  className="flex-1 px-4 py-3 bg-emerald-600 text-white rounded-xl font-bold hover:bg-emerald-700"
-                >
-                  Reschedule
-                </button>
-              </div>
+              )}
             </div>
           </div>
         </div>
