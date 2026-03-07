@@ -1,14 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   Search, MapPin, Star, Clock, Video, Shield, 
   Stethoscope, Hospital, ChevronRight, Languages, Globe
 } from 'lucide-react';
 
-const Doctors = () => {
+const Doctors = ({ doctorsData = [] }) => {
   const [searchTerm, setSearchTerm] = useState("");
   const [activeFilter, setActiveFilter] = useState("All");
-  const [doctorsData, setDoctorsData] = useState([]);
   const navigate = useNavigate();
 
   const filters = [
@@ -17,22 +16,13 @@ const Doctors = () => {
     "Neurologist", "Orthopedic", "Psychiatrist", "Gynecologist", "Oncologist"
   ];
 
-  useEffect(() => {
-    loadDoctors();
-  }, []);
-
-  const loadDoctors = () => {
-    const savedDoctors = JSON.parse(localStorage.getItem('healthai_doctors') || '[]');
-    setDoctorsData(savedDoctors);
-  };
-
   const filteredDoctors = doctorsData.filter((doctor) => {
     const matchesSearch = searchTerm === "" || 
       doctor.name?.toLowerCase().includes(searchTerm.toLowerCase()) || 
       doctor.specialization?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       doctor.location?.toLowerCase().includes(searchTerm.toLowerCase());
     
-    let matchesFilter = activeFilter === "All" || doctor.specialization?.toLowerCase().includes(activeFilter.toLowerCase());
+    const matchesFilter = activeFilter === "All" || doctor.specialization?.toLowerCase().includes(activeFilter.toLowerCase());
     return matchesSearch && matchesFilter;
   });
 
