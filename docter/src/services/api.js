@@ -1,4 +1,3 @@
-// services/api.js
 import axios from 'axios';
 
 // API Base URL
@@ -51,16 +50,6 @@ axiosInstance.interceptors.response.use(
         localStorage.removeItem('user');
         window.location.href = '/login';
       }
-      
-      // Handle 404 Not Found
-      if (error.response.status === 404) {
-        console.log('Resource not found');
-      }
-      
-      // Handle 500 Server Error
-      if (error.response.status === 500) {
-        console.log('Server error - please try again later');
-      }
     } else if (error.request) {
       // Request made but no response
       console.error('❌ No response from server:', error.request);
@@ -96,7 +85,7 @@ const doctorAPI = {
     }
   },
 
-  // GET doctors with pagination and search
+  // GET doctors with pagination and search - FIXED
   getPaginatedDoctors: async (page = 1, limit = 10, search = '') => {
     try {
       const params = new URLSearchParams({
@@ -106,12 +95,46 @@ const doctorAPI = {
       });
       
       const response = await axiosInstance.get(`/doctors/paginated?${params}`);
-      return {
-        success: true,
-        data: response.data,
-        message: 'Doctors fetched successfully'
-      };
+      
+      // Check if response.data has the expected structure
+      if (response.data && response.data.success) {
+        return {
+          success: true,
+          data: {
+            doctors: response.data.doctors || [],
+            total: response.data.total || 0,
+            page: response.data.page || page,
+            limit: response.data.limit || limit,
+            totalPages: response.data.totalPages || 1,
+            stats: response.data.stats || {
+              active: 0,
+              videoAvailable: 0,
+              avgRating: 0
+            }
+          },
+          message: 'Doctors fetched successfully'
+        };
+      } else {
+        // Handle case where response structure is different
+        return {
+          success: true,
+          data: {
+            doctors: response.data.doctors || response.data || [],
+            total: response.data.total || (response.data.doctors ? response.data.doctors.length : 0),
+            page: page,
+            limit: limit,
+            totalPages: Math.ceil((response.data.total || 1) / limit) || 1,
+            stats: response.data.stats || {
+              active: 0,
+              videoAvailable: 0,
+              avgRating: 0
+            }
+          },
+          message: 'Doctors fetched successfully'
+        };
+      }
     } catch (error) {
+      console.error('Error fetching paginated doctors:', error);
       return {
         success: false,
         message: error.response?.data?.message || 'Failed to fetch doctors',
@@ -138,7 +161,7 @@ const doctorAPI = {
     }
   },
 
-  // CREATE new doctor - FIXED VERSION
+  // CREATE new doctor - FIXED
   createDoctor: async (doctorData) => {
     try {
       console.log('📤 Sending doctor data to server:', doctorData);
@@ -147,13 +170,31 @@ const doctorAPI = {
       
       console.log('📥 Server response:', response.data);
       
-      return {
-        success: true,
-        data: response.data,
-        message: 'Doctor created successfully',
-        doctorId: response.data.doctorId,
-        doctor: response.data.doctor || response.data // Return the doctor object
-      };
+      // Handle different response structures
+      if (response.data) {
+        // If response already has success property
+        if (response.data.success) {
+          return {
+            success: true,
+            data: response.data,
+            message: response.data.message || 'Doctor created successfully',
+            doctorId: response.data.doctorId || response.data.doctor?.doctorId,
+            doctor: response.data.doctor || response.data
+          };
+        } else {
+          // If response doesn't have success property but has data
+          return {
+            success: true,
+            data: response.data,
+            message: 'Doctor created successfully',
+            doctorId: response.data.doctorId || response.data.doctor?.doctorId,
+            doctor: response.data.doctor || response.data
+          };
+        }
+      }
+      
+      throw new Error('Invalid response from server');
+      
     } catch (error) {
       console.error('❌ Create doctor error:', error.response?.data || error.message);
       
@@ -234,7 +275,7 @@ const doctorAPI = {
           'Content-Type': 'multipart/form-data',
         },
         onUploadProgress: (progressEvent) => {
-          if (onUploadProgress) {
+          if (onUploadProgress && progressEvent.total) {
             const percentCompleted = Math.round(
               (progressEvent.loaded * 100) / progressEvent.total
             );
@@ -243,13 +284,21 @@ const doctorAPI = {
         },
       });
       
+      if (response.data && response.data.success) {
+        return {
+          success: true,
+          data: response.data,
+          message: 'Image uploaded successfully',
+          imageUrl: response.data.imageUrl
+        };
+      }
+      
       return {
-        success: true,
-        data: response.data,
-        message: 'Image uploaded successfully',
-        imageUrl: response.data.imageUrl
+        success: false,
+        message: 'Failed to upload image',
       };
     } catch (error) {
+      console.error('Upload error:', error);
       return {
         success: false,
         message: error.response?.data?.message || 'Failed to upload image',
@@ -283,11 +332,20 @@ const doctorAPI = {
         email, 
         excludeId 
       });
+      
+      if (response.data && response.data.success) {
+        return {
+          success: true,
+          exists: response.data.exists,
+          data: response.data,
+          message: response.data.message
+        };
+      }
+      
       return {
         success: true,
-        exists: response.data.exists,
-        data: response.data,
-        message: response.data.message
+        exists: false,
+        message: 'Email is available'
       };
     } catch (error) {
       return {
@@ -302,11 +360,12 @@ const doctorAPI = {
   getStats: async () => {
     try {
       const response = await axiosInstance.get('/doctors/paginated?page=1&limit=1');
+      
       if (response.data && response.data.success) {
         return {
           success: true,
           data: {
-            total: response.data.total,
+            total: response.data.total || 0,
             active: response.data.stats?.active || 0,
             avgRating: response.data.stats?.avgRating || 0,
             videoAvailable: response.data.stats?.videoAvailable || 0
@@ -314,8 +373,30 @@ const doctorAPI = {
           message: 'Stats fetched successfully'
         };
       }
+      
+      // Fallback to getAllDoctors if paginated endpoint doesn't return stats
+      const allDoctors = await doctorAPI.getAllDoctors();
+      if (allDoctors.success && allDoctors.data) {
+        const doctors = allDoctors.data.doctors || allDoctors.data || [];
+        const activeCount = doctors.filter(d => d.status === 'active').length;
+        const videoCount = doctors.filter(d => d.isVideoAvailable).length;
+        const avgRating = doctors.reduce((sum, d) => sum + (d.rating || 0), 0) / (doctors.length || 1);
+        
+        return {
+          success: true,
+          data: {
+            total: doctors.length,
+            active: activeCount,
+            avgRating: avgRating.toFixed(1),
+            videoAvailable: videoCount
+          },
+          message: 'Stats fetched successfully'
+        };
+      }
+      
       throw new Error('Failed to fetch stats');
     } catch (error) {
+      console.error('Error fetching stats:', error);
       return {
         success: false,
         message: error.response?.data?.message || 'Failed to fetch stats',
@@ -734,24 +815,26 @@ const getErrorField = (message) => {
 
 // Format doctor data for API
 export const formatDoctorData = (doctorData) => {
-  // Ensure all required fields are present
+  console.log('📦 Formatting doctor data:', doctorData);
+  
+  // Ensure all required fields are present and properly formatted
   const formatted = {
-    name: doctorData.name?.trim(),
-    email: doctorData.email?.toLowerCase().trim(),
+    name: doctorData.name?.trim() || '',
+    email: doctorData.email?.toLowerCase().trim() || '',
     password: doctorData.password || 'doctor123',
-    phone: doctorData.phone?.trim(),
-    specialization: doctorData.specialization,
-    qualifications: doctorData.qualifications?.trim(),
-    experience: doctorData.experience?.trim(),
-    license: doctorData.license?.trim(),
-    hospital: doctorData.hospital?.trim(),
+    phone: doctorData.phone?.trim() || '',
+    specialization: doctorData.specialization || '',
+    qualifications: doctorData.qualifications?.trim() || '',
+    experience: doctorData.experience?.trim() || '',
+    license: doctorData.license?.trim() || '',
+    hospital: doctorData.hospital?.trim() || '',
     location: doctorData.location || 'Colombo',
-    fees: doctorData.fees?.trim(),
+    fees: doctorData.fees?.trim() || '',
     consultationTime: doctorData.consultationTime || '30 mins',
     availability: doctorData.availability || 'Mon-Fri: 9AM-6PM',
-    languages: doctorData.languages || ['English', 'Sinhala'],
-    isVideoAvailable: doctorData.isVideoAvailable ?? true,
-    isVerified: doctorData.isVerified ?? true,
+    languages: Array.isArray(doctorData.languages) ? doctorData.languages : ['English', 'Sinhala'],
+    isVideoAvailable: doctorData.isVideoAvailable !== undefined ? doctorData.isVideoAvailable : true,
+    isVerified: doctorData.isVerified !== undefined ? doctorData.isVerified : true,
     rating: parseFloat(doctorData.rating) || 4.5,
     reviewCount: parseInt(doctorData.reviewCount) || 0,
     status: doctorData.status || 'active',
@@ -762,12 +845,14 @@ export const formatDoctorData = (doctorData) => {
     avatarColor: doctorData.avatarColor || 'from-teal-500 to-teal-600'
   };
   
-  // Remove undefined or empty fields
+  // Remove undefined fields
   Object.keys(formatted).forEach(key => {
-    if (formatted[key] === undefined || formatted[key] === null || formatted[key] === '') {
+    if (formatted[key] === undefined || formatted[key] === null) {
       delete formatted[key];
     }
   });
+  
+  console.log('📦 Formatted data ready for API:', formatted);
   
   return formatted;
 };
@@ -807,6 +892,7 @@ export const formatAppointmentData = (appointmentData) => {
 export const validateDoctorForm = (data) => {
   const errors = {};
   
+  // Required fields validation
   if (!data.name?.trim()) errors.name = 'Name is required';
   if (!data.email?.trim()) errors.email = 'Email is required';
   else if (!/\S+@\S+\.\S+/.test(data.email)) errors.email = 'Email is invalid';
@@ -819,6 +905,16 @@ export const validateDoctorForm = (data) => {
   if (!data.hospital?.trim()) errors.hospital = 'Hospital name is required';
   if (!data.location) errors.location = 'Location is required';
   if (!data.fees?.trim()) errors.fees = 'Consultation fee is required';
+  
+  // Validate fees format
+  if (data.fees?.trim() && !/^[0-9,]+$/.test(data.fees.replace('LKR', '').trim())) {
+    errors.fees = 'Please enter a valid fee amount';
+  }
+  
+  // Validate phone number
+  if (data.phone?.trim() && !/^[0-9+\-\s]+$/.test(data.phone)) {
+    errors.phone = 'Please enter a valid phone number';
+  }
   
   return {
     isValid: Object.keys(errors).length === 0,

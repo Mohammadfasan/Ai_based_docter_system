@@ -1,11 +1,10 @@
-// models/Doctor.js
 import mongoose from 'mongoose';
 
 const doctorSchema = new mongoose.Schema({
   doctorId: {
     type: String,
     unique: true,
-    sparse: true
+    sparse: true // Allows nulls to exist without clashing, though we generate IDs
   },
   name: {
     type: String,
@@ -93,21 +92,19 @@ const doctorSchema = new mongoose.Schema({
   password: {
     type: String,
     required: [true, 'Password is required'],
-    minlength: 6,
-    select: false
+    minlength: 6
   },
   avatarColor: { type: String, default: 'from-teal-500 to-teal-600' },
-  nextAvailable: { type: String, default: 'Not set' },
+  nextAvailable: { type: String, default: 'Today' },
   distance: { type: String, default: '2.5 km' }
 }, {
   timestamps: true
 });
 
+// Generate doctor ID helper function
 function generateDoctorId(name, email) {
   if (!name) return 'DOC-0000-XXX';
-  const getInitials = (fullName) => {
-    return fullName.split(' ').map(n => n.charAt(0).toUpperCase()).join('').slice(0, 3).padEnd(3, 'X');
-  };
+  const getInitials = (fullName) => fullName.split(' ').map(n => n.charAt(0).toUpperCase()).join('').slice(0, 3).padEnd(3, 'X');
   const generateHash = (email) => {
     if (!email) return Math.random().toString(36).substring(2, 6).toUpperCase();
     const emailStr = email.toLowerCase();
@@ -121,68 +118,38 @@ function generateDoctorId(name, email) {
   return `DOC-${generateHash(email)}-${getInitials(name)}`;
 }
 
-// ✅ FIXED: Removed 'next' parameter for async middleware
+// ✅ FIXED: Removed next parameter and next() calls for async middleware
 doctorSchema.pre('save', async function() {
   try {
-    console.log('📝 Pre-save middleware running for doctor:', this.name || 'New Doctor');
-    
+    console.log('📝 Pre-save middleware running for:', this.name);
     if (!this.doctorId) {
       let isUnique = false;
       let attempts = 0;
-      let generatedId;
-      
       while (!isUnique && attempts < 5) {
-        const emailWithAttempt = attempts === 0 ? this.email : `${this.email}+${attempts}`;
-        generatedId = generateDoctorId(this.name, emailWithAttempt);
-        const existingDoctor = await mongoose.model('Doctor').findOne({ doctorId: generatedId });
-        if (!existingDoctor) {
+        const generatedId = generateDoctorId(this.name, attempts === 0 ? this.email : `${this.email}${attempts}`);
+        const existing = await mongoose.model('Doctor').findOne({ doctorId: generatedId }).select('_id');
+        if (!existing) {
           isUnique = true;
           this.doctorId = generatedId;
         }
         attempts++;
       }
-      
-      if (!isUnique) {
-        const timestamp = Date.now().toString().slice(-4);
-        const initials = this.name ? this.name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0,3) : 'DOC';
-        this.doctorId = `DOC-${timestamp}-${initials}`;
-      }
     }
-    console.log('✅ Doctor ID generated:', this.doctorId);
+    console.log('✅ Doctor ID ready:', this.doctorId);
   } catch (error) {
-    console.error('❌ Error in pre-save middleware:', error);
-    throw error; // Throwing error will stop the save process
+    console.error('❌ Pre-save error:', error);
+    throw error;
   }
 });
-
-doctorSchema.statics.isEmailTaken = async function(email, excludeDoctorId) {
-  const doctor = await this.findOne({ email: email.toLowerCase(), _id: { $ne: excludeDoctorId } });
-  return !!doctor;
-};
-
-doctorSchema.statics.isLicenseTaken = async function(license, excludeDoctorId) {
-  const doctor = await this.findOne({ license: license, _id: { $ne: excludeDoctorId } });
-  return !!doctor;
-};
-
-doctorSchema.virtual('formattedDoctorId').get(function() {
-  return this.doctorId || generateDoctorId(this.name, this.email);
-});
-
-doctorSchema.methods.toJSON = function() {
-  const doctor = this.toObject();
-  delete doctor.password;
-  delete doctor.__v;
-  return doctor;
-};
 
 // Indexes
 doctorSchema.index({ email: 1 }, { unique: true });
 doctorSchema.index({ doctorId: 1 }, { unique: true, sparse: true });
 doctorSchema.index({ license: 1 }, { unique: true, sparse: true });
-doctorSchema.index({ specialization: 1 });
-doctorSchema.index({ status: 1 });
 
 const Doctor = mongoose.model('Doctor', doctorSchema);
+
+// Temporary cleanup for your specific "id_1" error
+Doctor.collection.dropIndex('id_1').catch(() => {});
 
 export default Doctor;

@@ -1,7 +1,5 @@
-// routes/doctors.js
 import express from "express";
 import Doctor from "../models/Doctor.js";
-import bcrypt from "bcryptjs";
 import multer from "multer";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -49,7 +47,7 @@ const upload = multer({
 // ============================================
 router.get('/', async (req, res) => {
   try {
-    const doctors = await Doctor.find().select('-password').sort({ createdAt: -1 });
+    const doctors = await Doctor.find().sort({ createdAt: -1 });
     res.json({
       success: true,
       count: doctors.length,
@@ -90,7 +88,6 @@ router.get('/paginated', async (req, res) => {
     
     const total = await Doctor.countDocuments(query);
     const doctors = await Doctor.find(query)
-      .select('-password')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit);
@@ -135,7 +132,7 @@ router.get('/:id', async (req, res) => {
         { doctorId: req.params.id },
         { _id: req.params.id }
       ]
-    }).select('-password');
+    });
     
     if (!doctor) {
       return res.status(404).json({
@@ -159,12 +156,23 @@ router.get('/:id', async (req, res) => {
 });
 
 // ============================================
-// ✅ CREATE new doctor
+// ✅ CREATE new doctor - NO PASSWORD HASHING (PLAIN TEXT)
 // ============================================
 router.post('/', async (req, res) => {
   try {
     console.log('📝 Creating new doctor:', req.body.name);
     console.log('📦 Received data:', JSON.stringify(req.body, null, 2));
+    
+    // Validate required fields
+    const requiredFields = ['name', 'email', 'phone', 'specialization', 'qualifications', 'experience', 'license', 'hospital', 'fees'];
+    for (const field of requiredFields) {
+      if (!req.body[field]) {
+        return res.status(400).json({
+          success: false,
+          message: `${field} is required`
+        });
+      }
+    }
     
     // Check if email already exists
     const emailExists = await Doctor.findOne({ email: req.body.email.toLowerCase() });
@@ -186,15 +194,14 @@ router.post('/', async (req, res) => {
       }
     }
     
-    // Hash password
-    const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(req.body.password || 'doctor123', salt);
+    // ⚠️ IMPORTANT: NO PASSWORD HASHING - Plain text save pannu
+    const plainPassword = req.body.password || 'doctor123';
     
-    // Prepare doctor data - ensure all fields are properly set
+    // Prepare doctor data
     const doctorData = {
       name: req.body.name,
       email: req.body.email.toLowerCase(),
-      password: hashedPassword,
+      password: plainPassword,  // 🔴 PLAIN TEXT PASSWORD - NO HASH
       phone: req.body.phone,
       specialization: req.body.specialization,
       qualifications: req.body.qualifications,
@@ -218,7 +225,8 @@ router.post('/', async (req, res) => {
       avatarColor: req.body.avatarColor || 'from-teal-500 to-teal-600'
     };
     
-    console.log('📦 Saving doctor data:', JSON.stringify(doctorData, null, 2));
+    console.log('📦 Saving doctor data...');
+    console.log('🔐 Password (plain text):', plainPassword); // Check panna
     
     // Create doctor
     const doctor = new Doctor(doctorData);
@@ -227,14 +235,11 @@ router.post('/', async (req, res) => {
     console.log(`✅ New doctor created with ID: ${doctor.doctorId}`);
     console.log(`✅ Doctor saved in database with _id: ${doctor._id}`);
     
-    // Return success response with doctor data (without password)
-    const doctorResponse = doctor.toJSON();
-    
     res.status(201).json({
       success: true,
       message: 'Doctor created successfully',
       doctorId: doctor.doctorId,
-      doctor: doctorResponse
+      doctor: doctor
     });
     
   } catch (error) {
@@ -274,7 +279,7 @@ router.post('/', async (req, res) => {
 });
 
 // ============================================
-// ✅ UPDATE doctor
+// ✅ UPDATE doctor - NO PASSWORD HASHING
 // ============================================
 router.put('/:id', async (req, res) => {
   try {
@@ -320,25 +325,19 @@ router.put('/:id', async (req, res) => {
       }
     }
     
-    // Update fields
+    // Update fields (including password - plain text)
     Object.keys(req.body).forEach(key => {
-      if (key !== 'password' && key !== 'doctorId' && key !== '_id') {
+      if (key !== 'doctorId' && key !== '_id') {
         doctor[key] = req.body[key];
       }
     });
-    
-    // Update password if provided
-    if (req.body.password) {
-      const salt = await bcrypt.genSalt(10);
-      doctor.password = await bcrypt.hash(req.body.password, salt);
-    }
     
     await doctor.save();
     
     res.json({
       success: true,
       message: 'Doctor updated successfully',
-      doctor: doctor.toJSON()
+      doctor: doctor
     });
     
   } catch (error) {
@@ -405,17 +404,25 @@ router.post('/upload', upload.single('image'), async (req, res) => {
       });
     }
     
-    const imageUrl = `${req.protocol}://${req.get('host')}/uploads/doctors/${req.file.filename}`;
+    // Construct the image URL
+    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    const imageUrl = `${baseUrl}/uploads/doctors/${req.file.filename}`;
     
-    console.log('✅ Image uploaded:', imageUrl);
+    console.log('✅ Image uploaded successfully:', imageUrl);
+    console.log('📁 File details:', {
+      filename: req.file.filename,
+      size: req.file.size,
+      mimetype: req.file.mimetype
+    });
     
     res.json({
       success: true,
       message: 'Image uploaded successfully',
-      imageUrl: imageUrl
+      imageUrl: imageUrl,
+      filename: req.file.filename
     });
   } catch (error) {
-    console.error('Error uploading image:', error);
+    console.error('❌ Error uploading image:', error);
     res.status(500).json({
       success: false,
       message: 'Error uploading image',
@@ -438,7 +445,7 @@ router.get('/search', async (req, res) => {
         { hospital: { $regex: searchQuery, $options: 'i' } },
         { doctorId: { $regex: searchQuery, $options: 'i' } }
       ]
-    }).select('-password');
+    });
     
     res.json({
       success: true,

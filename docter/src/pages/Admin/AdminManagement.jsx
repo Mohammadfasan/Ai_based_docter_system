@@ -89,7 +89,7 @@ const AdminManagement = () => {
     setTimeout(() => setNotification({ show: false, message: '', type: '' }), 3000);
   };
 
-  // ✅ Load doctors with pagination and search - FIXED to accept parameters
+  // ✅ Load doctors with pagination and search - FIXED
   const loadDoctors = useCallback(async (page = currentPage, search = searchTerm) => {
     try {
       setLoading(true);
@@ -97,6 +97,7 @@ const AdminManagement = () => {
       const result = await doctorAPI.getPaginatedDoctors(page, itemsPerPage, search);
       
       if (result.success) {
+        // Access data through result.data (fixed structure)
         setDoctors(result.data.doctors || []);
         setTotalPages(result.data.totalPages || 1);
         setTotalDoctors(result.data.total || 0);
@@ -117,7 +118,7 @@ const AdminManagement = () => {
       setLoading(false);
       setInitialLoad(false);
     }
-  }, [itemsPerPage]); // Only depend on itemsPerPage
+  }, [currentPage, searchTerm, itemsPerPage]);
 
   // ✅ Debounce search
   useEffect(() => {
@@ -132,9 +133,9 @@ const AdminManagement = () => {
   // Load on mount
   useEffect(() => {
     loadDoctors(1, '');
-  }, []); // Empty dependency array - run once on mount
+  }, []);
 
-  // Load when dependencies change - FIXED
+  // Load when dependencies change
   useEffect(() => {
     if (!initialLoad) {
       loadDoctors(currentPage, searchTerm);
@@ -181,8 +182,15 @@ const AdminManagement = () => {
   const handleImageSelect = (e) => {
     const file = e.target.files[0];
     if (file) {
+      // Check file size (max 5MB)
       if (file.size > 5 * 1024 * 1024) {
         showNotification('Image size should be less than 5MB', 'error');
+        return;
+      }
+      
+      // Check file type
+      if (!file.type.startsWith('image/')) {
+        showNotification('Please select an image file', 'error');
         return;
       }
       
@@ -221,52 +229,54 @@ const AdminManagement = () => {
         return;
       }
       
-      // Upload image if selected
-      let imageUrl = newDoctor.image;
+      // Prepare doctor data FIRST (without image)
+      let doctorData = { ...newDoctor };
+      
+      // Handle image upload if selected
       if (selectedImage) {
-        const uploadResult = await doctorAPI.uploadImage(
-          selectedImage, 
-          (progress) => setUploadProgress(progress)
-        );
-        
-        if (uploadResult.success) {
-          imageUrl = uploadResult.imageUrl;
-        } else {
-          showNotification(uploadResult.message, 'error');
+        try {
+          setUploadProgress(0);
+          const uploadResult = await doctorAPI.uploadImage(
+            selectedImage, 
+            (progress) => setUploadProgress(progress)
+          );
+          
+          if (uploadResult.success) {
+            doctorData.image = uploadResult.imageUrl;
+            console.log('✅ Image uploaded successfully:', uploadResult.imageUrl);
+          } else {
+            showNotification(uploadResult.message, 'error');
+            setModalLoading(false);
+            return;
+          }
+        } catch (uploadError) {
+          console.error('Image upload error:', uploadError);
+          showNotification('Failed to upload image', 'error');
           setModalLoading(false);
           return;
         }
       }
       
-      // Prepare doctor data
-      const doctorData = formatDoctorData({
-        ...newDoctor,
-        image: imageUrl
-      });
+      // Format the complete doctor data
+      const formattedData = formatDoctorData(doctorData);
       
-      console.log('Submitting doctor data:', doctorData);
+      console.log('📤 Submitting formatted doctor data:', formattedData);
       
-      // Create doctor
-      const result = await doctorAPI.createDoctor(doctorData);
+      // Create doctor with all data including image URL
+      const result = await doctorAPI.createDoctor(formattedData);
       
       if (result.success) {
-        // Success message with doctor name
         showNotification(`✅ Doctor ${newDoctor.name} created successfully!`, 'success');
         
         // Reset form and close modal
         resetForm();
         setShowAddModal(false);
         
-        // Go to first page and refresh
+        // Refresh the list
         setCurrentPage(1);
-        
-        // Small delay to ensure state updates
         setTimeout(() => {
           loadDoctors(1, searchTerm);
-        }, 100);
-        
-        // Optional: Scroll to top to see the new doctor
-        window.scrollTo({ top: 0, behavior: 'smooth' });
+        }, 500);
         
       } else {
         // Handle field-specific errors
@@ -313,7 +323,19 @@ const AdminManagement = () => {
     }
   };
 
-  // ✅ Reset form
+  // ✅ Handle edit doctor
+  const handleEditDoctor = (doctor) => {
+    // TODO: Implement edit functionality
+    showNotification('Edit functionality coming soon!', 'info');
+  };
+
+  // ✅ Handle view doctor
+  const handleViewDoctor = (doctor) => {
+    // Open doctor profile in new tab
+    window.open(`/doctors/${doctor._id || doctor.id}`, '_blank');
+  };
+
+  // ✅ Reset form - FIXED
   const resetForm = () => {
     setNewDoctor({
       name: '',
@@ -344,9 +366,13 @@ const AdminManagement = () => {
     setImagePreview(null);
     setFormErrors({});
     setUploadProgress(0);
+    // Clear file input
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
   };
 
-  // Get status color
+  // ✅ Get status color
   const getStatusColor = (status) => {
     const colors = {
       active: 'bg-green-100 text-green-800',
@@ -356,7 +382,7 @@ const AdminManagement = () => {
     return colors[status] || colors.inactive;
   };
 
-  // Format date
+  // ✅ Format date
   const formatDate = (dateString) => {
     if (!dateString) return 'N/A';
     const date = new Date(dateString);
@@ -367,7 +393,7 @@ const AdminManagement = () => {
     });
   };
 
-  // Loading Skeleton
+  // ✅ Loading Skeleton Component
   const LoadingSkeleton = () => (
     <div className="animate-pulse">
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
@@ -395,6 +421,29 @@ const AdminManagement = () => {
     </div>
   );
 
+  // ✅ Stat Card Component
+  const StatCard = ({ icon, value, label, loading }) => (
+    <div className="bg-white rounded-2xl shadow-lg p-6">
+      <div className="flex justify-between items-center">
+        <div>
+          {loading ? (
+            <>
+              <div className="h-8 w-16 bg-gray-200 rounded animate-pulse mb-2"></div>
+              <div className="h-4 w-24 bg-gray-200 rounded animate-pulse"></div>
+            </>
+          ) : (
+            <>
+              <div className="text-2xl font-bold text-gray-900">{value}</div>
+              <div className="text-gray-600">{label}</div>
+            </>
+          )}
+        </div>
+        {icon}
+      </div>
+    </div>
+  );
+
+  // Initial loading state
   if (initialLoad) {
     return (
       <div className="max-w-7xl mx-auto px-4 py-8">
@@ -405,10 +454,12 @@ const AdminManagement = () => {
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
-      {/* Notification */}
+      {/* Notification Toast */}
       {notification.show && (
         <div className={`fixed top-4 right-4 z-50 p-4 rounded-lg shadow-lg flex items-center space-x-2 ${
-          notification.type === 'success' ? 'bg-green-500' : 'bg-red-500'
+          notification.type === 'success' ? 'bg-green-500' : 
+          notification.type === 'error' ? 'bg-red-500' : 
+          'bg-blue-500'
         } text-white animate-slide-in`}>
           {notification.type === 'success' ? (
             <FaCheckCircle className="text-xl" />
@@ -471,7 +522,7 @@ const AdminManagement = () => {
       {/* Doctors Table */}
       <div className="bg-white rounded-2xl shadow-lg overflow-hidden">
         <div className="p-6">
-          {/* Header */}
+          {/* Header with Search and Add Button */}
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
             <div>
               <h2 className="text-xl font-bold text-gray-900">👨‍⚕️ Doctors Management</h2>
@@ -481,7 +532,7 @@ const AdminManagement = () => {
             </div>
             
             <div className="flex flex-col md:flex-row gap-3 w-full md:w-auto">
-              {/* Search */}
+              {/* Search Input */}
               <div className="relative flex-1 md:min-w-[300px]">
                 <FaSearch className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400" />
                 <input
@@ -489,11 +540,11 @@ const AdminManagement = () => {
                   placeholder="Search doctors..."
                   value={searchDebounce}
                   onChange={(e) => setSearchDebounce(e.target.value)}
-                  className="w-full pl-12 pr-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-teal-500"
+                  className="w-full pl-12 pr-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-transparent outline-none"
                 />
               </div>
 
-              {/* Add Button */}
+              {/* Add Doctor Button */}
               <button
                 onClick={() => setShowAddModal(true)}
                 className="flex items-center justify-center space-x-2 px-6 py-3 bg-teal-600 text-white rounded-xl hover:bg-teal-700 transition-colors"
@@ -504,7 +555,7 @@ const AdminManagement = () => {
             </div>
           </div>
 
-          {/* Table */}
+          {/* Table Content */}
           {loading && !initialLoad ? (
             <div className="text-center py-12">
               <FaSpinner className="animate-spin text-4xl text-teal-600 mx-auto mb-4" />
@@ -576,14 +627,14 @@ const AdminManagement = () => {
                           <td className="py-3 px-2">
                             <div className="flex space-x-2">
                               <button
-                                onClick={() => alert('Edit functionality coming soon!')}
+                                onClick={() => handleEditDoctor(doctor)}
                                 className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
                                 title="Edit Doctor"
                               >
                                 <FaEdit size={14} />
                               </button>
                               <button
-                                onClick={() => window.open('/doctors', '_blank')}
+                                onClick={() => handleViewDoctor(doctor)}
                                 className="p-1.5 text-green-600 hover:bg-green-50 rounded-lg transition-colors"
                                 title="View in Patient Portal"
                               >
@@ -634,6 +685,8 @@ const AdminManagement = () => {
                     >
                       <FaChevronLeft size={14} />
                     </button>
+                    
+                    {/* Page Numbers */}
                     {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
                       let pageNum;
                       if (totalPages <= 5) {
@@ -661,6 +714,7 @@ const AdminManagement = () => {
                         </button>
                       );
                     })}
+                    
                     <button
                       onClick={() => handlePageChange(currentPage + 1)}
                       disabled={currentPage === totalPages || loading}
@@ -680,6 +734,7 @@ const AdminManagement = () => {
       {showAddModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+            {/* Modal Header */}
             <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex justify-between items-center">
               <h2 className="text-2xl font-bold text-gray-900">Add New Doctor</h2>
               <button
@@ -693,6 +748,7 @@ const AdminManagement = () => {
               </button>
             </div>
 
+            {/* Modal Form */}
             <form onSubmit={handleAddDoctor} className="p-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {/* Left Column - Form fields */}
@@ -750,7 +806,7 @@ const AdminManagement = () => {
                       name="name"
                       value={newDoctor.name}
                       onChange={handleInputChange}
-                      className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-teal-500 ${
+                      className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent outline-none ${
                         formErrors.name ? 'border-red-500' : 'border-gray-300'
                       }`}
                       placeholder="Dr. John Doe"
@@ -770,7 +826,7 @@ const AdminManagement = () => {
                       name="email"
                       value={newDoctor.email}
                       onChange={handleInputChange}
-                      className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-teal-500 ${
+                      className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent outline-none ${
                         formErrors.email ? 'border-red-500' : 'border-gray-300'
                       }`}
                       placeholder="doctor@example.com"
@@ -790,7 +846,7 @@ const AdminManagement = () => {
                       name="phone"
                       value={newDoctor.phone}
                       onChange={handleInputChange}
-                      className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-teal-500 ${
+                      className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent outline-none ${
                         formErrors.phone ? 'border-red-500' : 'border-gray-300'
                       }`}
                       placeholder="+94 77 123 4567"
@@ -809,7 +865,7 @@ const AdminManagement = () => {
                       name="specialization"
                       value={newDoctor.specialization}
                       onChange={handleInputChange}
-                      className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-teal-500 ${
+                      className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent outline-none ${
                         formErrors.specialization ? 'border-red-500' : 'border-gray-300'
                       }`}
                     >
@@ -833,7 +889,7 @@ const AdminManagement = () => {
                       name="qualifications"
                       value={newDoctor.qualifications}
                       onChange={handleInputChange}
-                      className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-teal-500 ${
+                      className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent outline-none ${
                         formErrors.qualifications ? 'border-red-500' : 'border-gray-300'
                       }`}
                       placeholder="MBBS, MD, FRCP"
@@ -853,7 +909,7 @@ const AdminManagement = () => {
                       name="experience"
                       value={newDoctor.experience}
                       onChange={handleInputChange}
-                      className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-teal-500 ${
+                      className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent outline-none ${
                         formErrors.experience ? 'border-red-500' : 'border-gray-300'
                       }`}
                       placeholder="10+ Years"
@@ -873,7 +929,7 @@ const AdminManagement = () => {
                       name="license"
                       value={newDoctor.license}
                       onChange={handleInputChange}
-                      className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-teal-500 ${
+                      className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent outline-none ${
                         formErrors.license ? 'border-red-500' : 'border-gray-300'
                       }`}
                       placeholder="SLMC-12345"
@@ -896,7 +952,7 @@ const AdminManagement = () => {
                       name="hospital"
                       value={newDoctor.hospital}
                       onChange={handleInputChange}
-                      className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-teal-500 ${
+                      className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent outline-none ${
                         formErrors.hospital ? 'border-red-500' : 'border-gray-300'
                       }`}
                       placeholder="City Hospital"
@@ -915,7 +971,7 @@ const AdminManagement = () => {
                       name="location"
                       value={newDoctor.location}
                       onChange={handleInputChange}
-                      className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-teal-500 ${
+                      className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent outline-none ${
                         formErrors.location ? 'border-red-500' : 'border-gray-300'
                       }`}
                     >
@@ -938,7 +994,7 @@ const AdminManagement = () => {
                       name="fees"
                       value={newDoctor.fees}
                       onChange={handleInputChange}
-                      className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-teal-500 ${
+                      className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent outline-none ${
                         formErrors.fees ? 'border-red-500' : 'border-gray-300'
                       }`}
                       placeholder="LKR 2,500"
@@ -958,7 +1014,7 @@ const AdminManagement = () => {
                       name="consultationTime"
                       value={newDoctor.consultationTime}
                       onChange={handleInputChange}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent outline-none"
                       placeholder="30 mins"
                     />
                   </div>
@@ -968,7 +1024,7 @@ const AdminManagement = () => {
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       Languages
                     </label>
-                    <div className="flex flex-wrap gap-2">
+                    <div className="flex flex-wrap gap-3">
                       {languageOptions.map(lang => (
                         <label key={lang} className="inline-flex items-center">
                           <input
@@ -1021,7 +1077,7 @@ const AdminManagement = () => {
                       name="status"
                       value={newDoctor.status}
                       onChange={handleInputChange}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent outline-none"
                     >
                       <option value="active">Active</option>
                       <option value="inactive">Inactive</option>
@@ -1042,7 +1098,7 @@ const AdminManagement = () => {
                       step="0.1"
                       min="0"
                       max="5"
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent outline-none"
                     />
                   </div>
 
@@ -1056,7 +1112,7 @@ const AdminManagement = () => {
                       value={newDoctor.aiSummary}
                       onChange={handleInputChange}
                       rows="3"
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent outline-none"
                       placeholder="Enter doctor description or AI summary..."
                     />
                   </div>
@@ -1086,7 +1142,7 @@ const AdminManagement = () => {
                 <button
                   type="submit"
                   disabled={modalLoading}
-                  className="px-6 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors flex items-center space-x-2 disabled:opacity-50"
+                  className="px-6 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors flex items-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {modalLoading ? (
                     <>
@@ -1106,7 +1162,7 @@ const AdminManagement = () => {
         </div>
       )}
 
-      {/* Add CSS for animations */}
+      {/* CSS for animations */}
       <style jsx>{`
         @keyframes slideIn {
           from {
@@ -1126,27 +1182,5 @@ const AdminManagement = () => {
     </div>
   );
 };
-
-// Stat Card Component
-const StatCard = ({ icon, value, label, loading }) => (
-  <div className="bg-white rounded-2xl shadow-lg p-6">
-    <div className="flex justify-between items-center">
-      <div>
-        {loading ? (
-          <>
-            <div className="h-8 w-16 bg-gray-200 rounded animate-pulse mb-2"></div>
-            <div className="h-4 w-24 bg-gray-200 rounded animate-pulse"></div>
-          </>
-        ) : (
-          <>
-            <div className="text-2xl font-bold text-gray-900">{value}</div>
-            <div className="text-gray-600">{label}</div>
-          </>
-        )}
-      </div>
-      {icon}
-    </div>
-  </div>
-);
 
 export default AdminManagement;

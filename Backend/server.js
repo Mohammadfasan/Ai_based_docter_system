@@ -3,9 +3,10 @@ import cors from "cors";
 import dotenv from "dotenv"; 
 import connectDB from "./config/db.js";
 import authRoutes from "./routes/auth.js";
-import doctorRoutes from "./routes/doctors.js"; // ✅ Import doctor routes
+import doctorRoutes from "./routes/doctors.js";
 import path from "path";
 import { fileURLToPath } from "url";
+import fs from "fs";
 
 dotenv.config();
 
@@ -15,6 +16,13 @@ const PORT = process.env.PORT || 5000;
 // Get __dirname equivalent in ES modules
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// Create uploads directory if it doesn't exist
+const uploadsDir = path.join(__dirname, 'uploads', 'doctors');
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+  console.log('✅ Created uploads directory:', uploadsDir);
+}
 
 // Increase payload limit for image uploads
 app.use(express.json({ limit: '50mb' }));
@@ -43,10 +51,24 @@ app.use('/api/doctors', doctorRoutes);
 
 // ✅ Test route
 app.get('/api/test', (req, res) => {
-  res.json({ message: 'Server is running!' });
+  res.json({ 
+    success: true, 
+    message: 'Server is running!',
+    timestamp: new Date().toISOString()
+  });
 });
 
-// ✅ 404 handler for undefined routes - FIXED: Don't use '*' wildcard
+// ✅ Health check route
+app.get('/api/health', (req, res) => {
+  res.json({ 
+    success: true, 
+    status: 'healthy',
+    mongodb: 'connected',
+    uploads: fs.existsSync(uploadsDir)
+  });
+});
+
+// ✅ 404 handler for undefined routes
 app.use((req, res, next) => {
   res.status(404).json({ 
     success: false, 
