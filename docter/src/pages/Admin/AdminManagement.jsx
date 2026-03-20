@@ -1,10 +1,9 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, memo } from 'react';
 import { 
-  FaUserMd, FaSearch, FaEdit, FaTrash, FaEye, FaPlus, FaCamera,
-  FaStar, FaHospital, FaTimes, FaSyncAlt, FaChevronLeft, 
-  FaChevronRight, FaSpinner, FaVideo, FaCheckCircle, FaExclamationCircle
+  FaUserMd, FaSearch, FaEdit, FaTrash, FaEye
 } from 'react-icons/fa';
-import { doctorAPI, validateDoctorForm, formatDoctorData } from '../../services/api';
+import { doctorAPI } from '../../services/api';
+import AddDoctorModal from './AddDoctorModal';
 
 const AdminManagement = () => {
   const [loading, setLoading] = useState(true);
@@ -14,40 +13,7 @@ const AdminManagement = () => {
   
   // Modal State
   const [showAddModal, setShowAddModal] = useState(false);
-  const [modalLoading, setModalLoading] = useState(false);
-  const [formErrors, setFormErrors] = useState({});
-  const [uploadProgress, setUploadProgress] = useState(0);
-  const [selectedImage, setSelectedImage] = useState(null);
-  const [imagePreview, setImagePreview] = useState(null);
-  const fileInputRef = useRef(null);
   
-  // Form State for New Doctor
-  const [newDoctor, setNewDoctor] = useState({
-    name: '',
-    email: '',
-    password: 'doctor123',
-    phone: '',
-    specialization: '',
-    qualifications: '',
-    experience: '',
-    license: '',
-    hospital: '',
-    location: 'Colombo',
-    fees: '',
-    consultationTime: '30 mins',
-    availability: 'Mon-Fri: 9AM-6PM',
-    languages: ['English', 'Sinhala'],
-    isVideoAvailable: true,
-    isVerified: true,
-    rating: 4.5,
-    reviewCount: 0,
-    status: 'active',
-    image: '',
-    aiSummary: '',
-    nextAvailable: 'Today',
-    distance: '2.5 km'
-  });
-
   // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
@@ -72,42 +38,28 @@ const AdminManagement = () => {
 
   // Doctors Data
   const [doctors, setDoctors] = useState([]);
-  const [stats, setStats] = useState({
-    totalDoctors: 0,
-    activeDoctors: 0,
-    avgRating: 0,
-    videoAvailable: 0
-  });
 
   // Action States
   const [deleteLoading, setDeleteLoading] = useState(null);
   const [notification, setNotification] = useState({ show: false, message: '', type: '' });
 
   // ✅ Show notification
-  const showNotification = (message, type = 'success') => {
+  const showNotification = useCallback((message, type = 'success') => {
     setNotification({ show: true, message, type });
     setTimeout(() => setNotification({ show: false, message: '', type: '' }), 3000);
-  };
+  }, []);
 
-  // ✅ Load doctors with pagination and search - FIXED
-  const loadDoctors = useCallback(async (page = currentPage, search = searchTerm) => {
+  // ✅ Load doctors
+  const loadDoctors = useCallback(async (page, search) => {
     try {
       setLoading(true);
       
       const result = await doctorAPI.getPaginatedDoctors(page, itemsPerPage, search);
       
       if (result.success) {
-        // Access data through result.data (fixed structure)
         setDoctors(result.data.doctors || []);
         setTotalPages(result.data.totalPages || 1);
         setTotalDoctors(result.data.total || 0);
-        
-        setStats({
-          totalDoctors: result.data.total || 0,
-          activeDoctors: result.data.stats?.active || 0,
-          avgRating: result.data.stats?.avgRating || 0,
-          videoAvailable: result.data.stats?.videoAvailable || 0
-        });
       } else {
         showNotification(result.message, 'error');
       }
@@ -118,184 +70,22 @@ const AdminManagement = () => {
       setLoading(false);
       setInitialLoad(false);
     }
-  }, [currentPage, searchTerm, itemsPerPage]);
-
-  // ✅ Debounce search
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setSearchTerm(searchDebounce);
-      setCurrentPage(1);
-    }, 500);
-
-    return () => clearTimeout(timer);
-  }, [searchDebounce]);
-
-  // Load on mount
-  useEffect(() => {
-    loadDoctors(1, '');
-  }, []);
-
-  // Load when dependencies change
-  useEffect(() => {
-    if (!initialLoad) {
-      loadDoctors(currentPage, searchTerm);
-    }
-  }, [currentPage, searchTerm, loadDoctors]);
+  }, [itemsPerPage, showNotification]);
 
   // ✅ Refresh data
-  const handleRefresh = () => {
+  const handleRefresh = useCallback(() => {
     loadDoctors(currentPage, searchTerm);
-  };
+  }, [currentPage, searchTerm, loadDoctors]);
 
   // ✅ Handle page change
-  const handlePageChange = (newPage) => {
+  const handlePageChange = useCallback((newPage) => {
     if (newPage >= 1 && newPage <= totalPages) {
       setCurrentPage(newPage);
     }
-  };
-
-  // ✅ Handle input change for form
-  const handleInputChange = (e) => {
-    const { name, value, type, checked } = e.target;
-    setNewDoctor(prev => ({
-      ...prev,
-      [name]: type === 'checkbox' ? checked : value
-    }));
-    
-    // Clear error for this field
-    if (formErrors[name]) {
-      setFormErrors(prev => ({ ...prev, [name]: '' }));
-    }
-  };
-
-  // ✅ Handle language selection
-  const handleLanguageChange = (language) => {
-    setNewDoctor(prev => ({
-      ...prev,
-      languages: prev.languages.includes(language)
-        ? prev.languages.filter(l => l !== language)
-        : [...prev.languages, language]
-    }));
-  };
-
-  // ✅ Handle image selection
-  const handleImageSelect = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      // Check file size (max 5MB)
-      if (file.size > 5 * 1024 * 1024) {
-        showNotification('Image size should be less than 5MB', 'error');
-        return;
-      }
-      
-      // Check file type
-      if (!file.type.startsWith('image/')) {
-        showNotification('Please select an image file', 'error');
-        return;
-      }
-      
-      setSelectedImage(file);
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setImagePreview(reader.result);
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  // ✅ Handle add doctor submit - FIXED
-  const handleAddDoctor = async (e) => {
-    e.preventDefault();
-    
-    // Validate form
-    const { isValid, errors } = validateDoctorForm(newDoctor);
-    
-    if (!isValid) {
-      setFormErrors(errors);
-      showNotification('Please fill in all required fields', 'error');
-      return;
-    }
-    
-    setModalLoading(true);
-    
-    try {
-      // Check if email already exists
-      const emailCheck = await doctorAPI.checkEmail(newDoctor.email);
-      
-      if (emailCheck.success && emailCheck.exists) {
-        setFormErrors(prev => ({ ...prev, email: 'Email already exists' }));
-        showNotification('Email already registered', 'error');
-        setModalLoading(false);
-        return;
-      }
-      
-      // Prepare doctor data FIRST (without image)
-      let doctorData = { ...newDoctor };
-      
-      // Handle image upload if selected
-      if (selectedImage) {
-        try {
-          setUploadProgress(0);
-          const uploadResult = await doctorAPI.uploadImage(
-            selectedImage, 
-            (progress) => setUploadProgress(progress)
-          );
-          
-          if (uploadResult.success) {
-            doctorData.image = uploadResult.imageUrl;
-            console.log('✅ Image uploaded successfully:', uploadResult.imageUrl);
-          } else {
-            showNotification(uploadResult.message, 'error');
-            setModalLoading(false);
-            return;
-          }
-        } catch (uploadError) {
-          console.error('Image upload error:', uploadError);
-          showNotification('Failed to upload image', 'error');
-          setModalLoading(false);
-          return;
-        }
-      }
-      
-      // Format the complete doctor data
-      const formattedData = formatDoctorData(doctorData);
-      
-      console.log('📤 Submitting formatted doctor data:', formattedData);
-      
-      // Create doctor with all data including image URL
-      const result = await doctorAPI.createDoctor(formattedData);
-      
-      if (result.success) {
-        showNotification(`✅ Doctor ${newDoctor.name} created successfully!`, 'success');
-        
-        // Reset form and close modal
-        resetForm();
-        setShowAddModal(false);
-        
-        // Refresh the list
-        setCurrentPage(1);
-        setTimeout(() => {
-          loadDoctors(1, searchTerm);
-        }, 500);
-        
-      } else {
-        // Handle field-specific errors
-        if (result.field) {
-          setFormErrors(prev => ({ ...prev, [result.field]: result.message }));
-        }
-        showNotification(`❌ ${result.message}`, 'error');
-      }
-    } catch (error) {
-      console.error('Error creating doctor:', error);
-      showNotification('❌ Failed to create doctor. Please try again.', 'error');
-    } finally {
-      setModalLoading(false);
-      setUploadProgress(0);
-    }
-  };
+  }, [totalPages]);
 
   // ✅ Handle delete doctor
-  const handleDeleteDoctor = async (id, doctorName) => {
+  const handleDeleteDoctor = useCallback(async (id, doctorName) => {
     if (!window.confirm(`Are you sure you want to delete Dr. ${doctorName}?`)) return;
 
     setDeleteLoading(id);
@@ -308,7 +98,7 @@ const AdminManagement = () => {
         
         // If current page becomes empty, go to previous page
         if (doctors.length === 1 && currentPage > 1) {
-          setCurrentPage(currentPage - 1);
+          setCurrentPage(prevPage => prevPage - 1);
         } else {
           loadDoctors(currentPage, searchTerm);
         }
@@ -321,56 +111,47 @@ const AdminManagement = () => {
     } finally {
       setDeleteLoading(null);
     }
-  };
+  }, [doctors.length, currentPage, searchTerm, loadDoctors, showNotification]);
 
   // ✅ Handle edit doctor
-  const handleEditDoctor = (doctor) => {
-    // TODO: Implement edit functionality
+  const handleEditDoctor = useCallback((doctor) => {
     showNotification('Edit functionality coming soon!', 'info');
-  };
+  }, [showNotification]);
 
   // ✅ Handle view doctor
-  const handleViewDoctor = (doctor) => {
-    // Open doctor profile in new tab
+  const handleViewDoctor = useCallback((doctor) => {
     window.open(`/doctors/${doctor._id || doctor.id}`, '_blank');
-  };
+  }, []);
 
-  // ✅ Reset form - FIXED
-  const resetForm = () => {
-    setNewDoctor({
-      name: '',
-      email: '',
-      password: 'doctor123',
-      phone: '',
-      specialization: '',
-      qualifications: '',
-      experience: '',
-      license: '',
-      hospital: '',
-      location: 'Colombo',
-      fees: '',
-      consultationTime: '30 mins',
-      availability: 'Mon-Fri: 9AM-6PM',
-      languages: ['English', 'Sinhala'],
-      isVideoAvailable: true,
-      isVerified: true,
-      rating: 4.5,
-      reviewCount: 0,
-      status: 'active',
-      image: '',
-      aiSummary: '',
-      nextAvailable: 'Today',
-      distance: '2.5 km'
-    });
-    setSelectedImage(null);
-    setImagePreview(null);
-    setFormErrors({});
-    setUploadProgress(0);
-    // Clear file input
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
+  // ✅ Handle modal success
+  const handleModalSuccess = useCallback(() => {
+    setCurrentPage(1);
+    setTimeout(() => {
+      loadDoctors(1, searchTerm);
+    }, 500);
+  }, [searchTerm, loadDoctors]);
+
+  // ✅ Debounce search
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setSearchTerm(searchDebounce);
+      setCurrentPage(1);
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [searchDebounce]);
+
+  // ✅ Load on mount
+  useEffect(() => {
+    loadDoctors(1, '');
+  }, [loadDoctors]);
+
+  // ✅ Load when dependencies change
+  useEffect(() => {
+    if (!initialLoad) {
+      loadDoctors(currentPage, searchTerm);
     }
-  };
+  }, [currentPage, searchTerm, loadDoctors, initialLoad]);
 
   // ✅ Get status color
   const getStatusColor = (status) => {
@@ -393,17 +174,9 @@ const AdminManagement = () => {
     });
   };
 
-  // ✅ Loading Skeleton Component
+  // ✅ Loading Skeleton Component (Updated - removed stat cards)
   const LoadingSkeleton = () => (
     <div className="animate-pulse">
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-        {[1,2,3,4].map(i => (
-          <div key={i} className="bg-white rounded-2xl shadow-lg p-6">
-            <div className="h-8 bg-gray-200 rounded w-20 mb-2"></div>
-            <div className="h-4 bg-gray-200 rounded w-32"></div>
-          </div>
-        ))}
-      </div>
       <div className="bg-white rounded-2xl shadow-lg overflow-hidden p-6">
         <div className="h-10 bg-gray-200 rounded w-48 mb-6"></div>
         <div className="space-y-4">
@@ -421,28 +194,6 @@ const AdminManagement = () => {
     </div>
   );
 
-  // ✅ Stat Card Component
-  const StatCard = ({ icon, value, label, loading }) => (
-    <div className="bg-white rounded-2xl shadow-lg p-6">
-      <div className="flex justify-between items-center">
-        <div>
-          {loading ? (
-            <>
-              <div className="h-8 w-16 bg-gray-200 rounded animate-pulse mb-2"></div>
-              <div className="h-4 w-24 bg-gray-200 rounded animate-pulse"></div>
-            </>
-          ) : (
-            <>
-              <div className="text-2xl font-bold text-gray-900">{value}</div>
-              <div className="text-gray-600">{label}</div>
-            </>
-          )}
-        </div>
-        {icon}
-      </div>
-    </div>
-  );
-
   // Initial loading state
   if (initialLoad) {
     return (
@@ -456,16 +207,11 @@ const AdminManagement = () => {
     <div className="max-w-7xl mx-auto px-4 py-8">
       {/* Notification Toast */}
       {notification.show && (
-        <div className={`fixed top-4 right-4 z-50 p-4 rounded-lg shadow-lg flex items-center space-x-2 ${
+        <div className={`fixed top-4 right-4 z-50 p-4 rounded-lg shadow-lg ${
           notification.type === 'success' ? 'bg-green-500' : 
           notification.type === 'error' ? 'bg-red-500' : 
           'bg-blue-500'
         } text-white animate-slide-in`}>
-          {notification.type === 'success' ? (
-            <FaCheckCircle className="text-xl" />
-          ) : (
-            <FaExclamationCircle className="text-xl" />
-          )}
           <span className="font-medium">{notification.message}</span>
         </div>
       )}
@@ -487,36 +233,8 @@ const AdminManagement = () => {
           className="p-2 text-teal-600 hover:bg-teal-50 rounded-lg transition-colors"
           title="Refresh"
         >
-          <FaSyncAlt className={`text-xl ${loading ? 'animate-spin' : ''}`} />
+          <span>↻</span>
         </button>
-      </div>
-
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-        <StatCard
-          icon={<FaUserMd className="text-teal-600 text-2xl" />}
-          value={stats.totalDoctors}
-          label="Total Doctors"
-          loading={loading}
-        />
-        <StatCard
-          icon={<FaUserMd className="text-green-600 text-2xl" />}
-          value={stats.activeDoctors}
-          label="Active Doctors"
-          loading={loading}
-        />
-        <StatCard
-          icon={<FaStar className="text-yellow-500 text-2xl" />}
-          value={stats.avgRating.toFixed(1)}
-          label="Avg Rating"
-          loading={loading}
-        />
-        <StatCard
-          icon={<FaVideo className="text-blue-600 text-2xl" />}
-          value={stats.videoAvailable}
-          label="Video Available"
-          loading={loading}
-        />
       </div>
 
       {/* Doctors Table */}
@@ -547,10 +265,9 @@ const AdminManagement = () => {
               {/* Add Doctor Button */}
               <button
                 onClick={() => setShowAddModal(true)}
-                className="flex items-center justify-center space-x-2 px-6 py-3 bg-teal-600 text-white rounded-xl hover:bg-teal-700 transition-colors"
+                className="px-6 py-3 bg-teal-600 text-white rounded-xl hover:bg-teal-700 transition-colors"
               >
-                <FaPlus />
-                <span>Add Doctor</span>
+                + Add Doctor
               </button>
             </div>
           </div>
@@ -558,7 +275,7 @@ const AdminManagement = () => {
           {/* Table Content */}
           {loading && !initialLoad ? (
             <div className="text-center py-12">
-              <FaSpinner className="animate-spin text-4xl text-teal-600 mx-auto mb-4" />
+              <div className="animate-spin text-4xl text-teal-600 mx-auto mb-4">↻</div>
               <p className="text-gray-600">Loading doctors...</p>
             </div>
           ) : (
@@ -585,6 +302,7 @@ const AdminManagement = () => {
                           <td className="py-3 px-2">
                             <div className="flex items-center space-x-3">
                               <img 
+                                loading="lazy"
                                 src={doctor.image || `https://ui-avatars.com/api/?name=${doctor.name?.charAt(0)}&background=0D9488&color=fff`}
                                 alt={doctor.name} 
                                 className="w-10 h-10 rounded-full object-cover border-2 border-teal-100"
@@ -605,14 +323,12 @@ const AdminManagement = () => {
                           <td className="py-3 px-2 text-gray-900">{doctor.experience}</td>
                           <td className="py-3 px-2">
                             <div className="flex items-center">
-                              <FaStar className="text-yellow-500 mr-1" size={12} />
                               <span className="font-medium">{doctor.rating}</span>
                             </div>
                           </td>
                           <td className="py-3 px-2 font-medium text-teal-700">{doctor.fees}</td>
                           <td className="py-3 px-2">
-                            <div className="flex items-center">
-                              <FaHospital className="mr-1 text-gray-500" size={12} />
+                            <div>
                               {doctor.hospital}
                             </div>
                           </td>
@@ -647,7 +363,7 @@ const AdminManagement = () => {
                                 disabled={deleteLoading === (doctor._id || doctor.id)}
                               >
                                 {deleteLoading === (doctor._id || doctor.id) ? (
-                                  <FaSpinner className="animate-spin" size={14} />
+                                  <span className="animate-spin">↻</span>
                                 ) : (
                                   <FaTrash size={14} />
                                 )}
@@ -683,7 +399,7 @@ const AdminManagement = () => {
                       disabled={currentPage === 1 || loading}
                       className="px-3 py-1 border rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      <FaChevronLeft size={14} />
+                      ←
                     </button>
                     
                     {/* Page Numbers */}
@@ -720,7 +436,7 @@ const AdminManagement = () => {
                       disabled={currentPage === totalPages || loading}
                       className="px-3 py-1 border rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      <FaChevronRight size={14} />
+                      →
                     </button>
                   </div>
                 </div>
@@ -731,436 +447,14 @@ const AdminManagement = () => {
       </div>
 
       {/* Add Doctor Modal */}
-      {showAddModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 overflow-y-auto">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
-            {/* Modal Header */}
-            <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex justify-between items-center">
-              <h2 className="text-2xl font-bold text-gray-900">Add New Doctor</h2>
-              <button
-                onClick={() => {
-                  setShowAddModal(false);
-                  resetForm();
-                }}
-                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-              >
-                <FaTimes size={20} />
-              </button>
-            </div>
-
-            {/* Modal Form */}
-            <form onSubmit={handleAddDoctor} className="p-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {/* Left Column - Form fields */}
-                <div className="space-y-4">
-                  {/* Profile Image Upload */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Profile Photo
-                    </label>
-                    <div className="flex items-center space-x-4">
-                      <div className="relative">
-                        <div className="w-24 h-24 rounded-full bg-gradient-to-br from-teal-400 to-teal-600 flex items-center justify-center overflow-hidden">
-                          {imagePreview ? (
-                            <img src={imagePreview} alt="Preview" className="w-full h-full object-cover" />
-                          ) : (
-                            <FaUserMd className="text-white text-3xl" />
-                          )}
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => fileInputRef.current?.click()}
-                          className="absolute bottom-0 right-0 p-1.5 bg-white rounded-full shadow-lg hover:bg-gray-50"
-                        >
-                          <FaCamera className="text-teal-600" />
-                        </button>
-                        <input
-                          ref={fileInputRef}
-                          type="file"
-                          accept="image/*"
-                          onChange={handleImageSelect}
-                          className="hidden"
-                        />
-                      </div>
-                      {uploadProgress > 0 && uploadProgress < 100 && (
-                        <div className="flex-1">
-                          <div className="w-full bg-gray-200 rounded-full h-2">
-                            <div
-                              className="bg-teal-600 h-2 rounded-full"
-                              style={{ width: `${uploadProgress}%` }}
-                            ></div>
-                          </div>
-                          <p className="text-xs text-gray-500 mt-1">Uploading: {uploadProgress}%</p>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Name */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Full Name <span className="text-red-500">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      name="name"
-                      value={newDoctor.name}
-                      onChange={handleInputChange}
-                      className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent outline-none ${
-                        formErrors.name ? 'border-red-500' : 'border-gray-300'
-                      }`}
-                      placeholder="Dr. John Doe"
-                    />
-                    {formErrors.name && (
-                      <p className="text-red-500 text-xs mt-1">{formErrors.name}</p>
-                    )}
-                  </div>
-
-                  {/* Email */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Email <span className="text-red-500">*</span>
-                    </label>
-                    <input
-                      type="email"
-                      name="email"
-                      value={newDoctor.email}
-                      onChange={handleInputChange}
-                      className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent outline-none ${
-                        formErrors.email ? 'border-red-500' : 'border-gray-300'
-                      }`}
-                      placeholder="doctor@example.com"
-                    />
-                    {formErrors.email && (
-                      <p className="text-red-500 text-xs mt-1">{formErrors.email}</p>
-                    )}
-                  </div>
-
-                  {/* Phone */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Phone Number <span className="text-red-500">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      name="phone"
-                      value={newDoctor.phone}
-                      onChange={handleInputChange}
-                      className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent outline-none ${
-                        formErrors.phone ? 'border-red-500' : 'border-gray-300'
-                      }`}
-                      placeholder="+94 77 123 4567"
-                    />
-                    {formErrors.phone && (
-                      <p className="text-red-500 text-xs mt-1">{formErrors.phone}</p>
-                    )}
-                  </div>
-
-                  {/* Specialization */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Specialization <span className="text-red-500">*</span>
-                    </label>
-                    <select
-                      name="specialization"
-                      value={newDoctor.specialization}
-                      onChange={handleInputChange}
-                      className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent outline-none ${
-                        formErrors.specialization ? 'border-red-500' : 'border-gray-300'
-                      }`}
-                    >
-                      <option value="">Select Specialization</option>
-                      {specializations.map(spec => (
-                        <option key={spec} value={spec}>{spec}</option>
-                      ))}
-                    </select>
-                    {formErrors.specialization && (
-                      <p className="text-red-500 text-xs mt-1">{formErrors.specialization}</p>
-                    )}
-                  </div>
-
-                  {/* Qualifications */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Qualifications <span className="text-red-500">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      name="qualifications"
-                      value={newDoctor.qualifications}
-                      onChange={handleInputChange}
-                      className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent outline-none ${
-                        formErrors.qualifications ? 'border-red-500' : 'border-gray-300'
-                      }`}
-                      placeholder="MBBS, MD, FRCP"
-                    />
-                    {formErrors.qualifications && (
-                      <p className="text-red-500 text-xs mt-1">{formErrors.qualifications}</p>
-                    )}
-                  </div>
-
-                  {/* Experience */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Experience <span className="text-red-500">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      name="experience"
-                      value={newDoctor.experience}
-                      onChange={handleInputChange}
-                      className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent outline-none ${
-                        formErrors.experience ? 'border-red-500' : 'border-gray-300'
-                      }`}
-                      placeholder="10+ Years"
-                    />
-                    {formErrors.experience && (
-                      <p className="text-red-500 text-xs mt-1">{formErrors.experience}</p>
-                    )}
-                  </div>
-
-                  {/* License Number */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      License Number <span className="text-red-500">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      name="license"
-                      value={newDoctor.license}
-                      onChange={handleInputChange}
-                      className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent outline-none ${
-                        formErrors.license ? 'border-red-500' : 'border-gray-300'
-                      }`}
-                      placeholder="SLMC-12345"
-                    />
-                    {formErrors.license && (
-                      <p className="text-red-500 text-xs mt-1">{formErrors.license}</p>
-                    )}
-                  </div>
-                </div>
-
-                {/* Right Column */}
-                <div className="space-y-4">
-                  {/* Hospital */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Hospital/Clinic <span className="text-red-500">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      name="hospital"
-                      value={newDoctor.hospital}
-                      onChange={handleInputChange}
-                      className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent outline-none ${
-                        formErrors.hospital ? 'border-red-500' : 'border-gray-300'
-                      }`}
-                      placeholder="City Hospital"
-                    />
-                    {formErrors.hospital && (
-                      <p className="text-red-500 text-xs mt-1">{formErrors.hospital}</p>
-                    )}
-                  </div>
-
-                  {/* Location */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Location <span className="text-red-500">*</span>
-                    </label>
-                    <select
-                      name="location"
-                      value={newDoctor.location}
-                      onChange={handleInputChange}
-                      className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent outline-none ${
-                        formErrors.location ? 'border-red-500' : 'border-gray-300'
-                      }`}
-                    >
-                      {locations.map(loc => (
-                        <option key={loc} value={loc}>{loc}</option>
-                      ))}
-                    </select>
-                    {formErrors.location && (
-                      <p className="text-red-500 text-xs mt-1">{formErrors.location}</p>
-                    )}
-                  </div>
-
-                  {/* Consultation Fee */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Consultation Fee <span className="text-red-500">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      name="fees"
-                      value={newDoctor.fees}
-                      onChange={handleInputChange}
-                      className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent outline-none ${
-                        formErrors.fees ? 'border-red-500' : 'border-gray-300'
-                      }`}
-                      placeholder="LKR 2,500"
-                    />
-                    {formErrors.fees && (
-                      <p className="text-red-500 text-xs mt-1">{formErrors.fees}</p>
-                    )}
-                  </div>
-
-                  {/* Consultation Time */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Consultation Time
-                    </label>
-                    <input
-                      type="text"
-                      name="consultationTime"
-                      value={newDoctor.consultationTime}
-                      onChange={handleInputChange}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent outline-none"
-                      placeholder="30 mins"
-                    />
-                  </div>
-
-                  {/* Languages */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Languages
-                    </label>
-                    <div className="flex flex-wrap gap-3">
-                      {languageOptions.map(lang => (
-                        <label key={lang} className="inline-flex items-center">
-                          <input
-                            type="checkbox"
-                            checked={newDoctor.languages.includes(lang)}
-                            onChange={() => handleLanguageChange(lang)}
-                            className="rounded border-gray-300 text-teal-600 focus:ring-teal-500"
-                          />
-                          <span className="ml-1 text-sm text-gray-700">{lang}</span>
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Features */}
-                  <div className="space-y-2">
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Features
-                    </label>
-                    <div className="space-y-2">
-                      <label className="inline-flex items-center">
-                        <input
-                          type="checkbox"
-                          name="isVideoAvailable"
-                          checked={newDoctor.isVideoAvailable}
-                          onChange={handleInputChange}
-                          className="rounded border-gray-300 text-teal-600 focus:ring-teal-500"
-                        />
-                        <span className="ml-2 text-sm text-gray-700">Video Consultation Available</span>
-                      </label>
-                      <label className="inline-flex items-center">
-                        <input
-                          type="checkbox"
-                          name="isVerified"
-                          checked={newDoctor.isVerified}
-                          onChange={handleInputChange}
-                          className="rounded border-gray-300 text-teal-600 focus:ring-teal-500"
-                        />
-                        <span className="ml-2 text-sm text-gray-700">Verified Doctor</span>
-                      </label>
-                    </div>
-                  </div>
-
-                  {/* Status */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Status
-                    </label>
-                    <select
-                      name="status"
-                      value={newDoctor.status}
-                      onChange={handleInputChange}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent outline-none"
-                    >
-                      <option value="active">Active</option>
-                      <option value="inactive">Inactive</option>
-                      <option value="busy">Busy</option>
-                    </select>
-                  </div>
-
-                  {/* Rating */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Initial Rating
-                    </label>
-                    <input
-                      type="number"
-                      name="rating"
-                      value={newDoctor.rating}
-                      onChange={handleInputChange}
-                      step="0.1"
-                      min="0"
-                      max="5"
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent outline-none"
-                    />
-                  </div>
-
-                  {/* AI Summary */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      AI Summary / Description
-                    </label>
-                    <textarea
-                      name="aiSummary"
-                      value={newDoctor.aiSummary}
-                      onChange={handleInputChange}
-                      rows="3"
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent outline-none"
-                      placeholder="Enter doctor description or AI summary..."
-                    />
-                  </div>
-
-                  {/* Default Password Info */}
-                  <div className="bg-blue-50 p-4 rounded-lg">
-                    <p className="text-sm text-blue-700">
-                      Default password will be: <strong>doctor123</strong>
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Form Actions */}
-              <div className="flex justify-end space-x-3 mt-8 pt-4 border-t">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowAddModal(false);
-                    resetForm();
-                  }}
-                  className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors"
-                  disabled={modalLoading}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={modalLoading}
-                  className="px-6 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors flex items-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {modalLoading ? (
-                    <>
-                      <FaSpinner className="animate-spin" />
-                      <span>Creating...</span>
-                    </>
-                  ) : (
-                    <>
-                      <FaCheckCircle />
-                      <span>Create Doctor</span>
-                    </>
-                  )}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      <AddDoctorModal
+        isOpen={showAddModal}
+        onClose={() => {
+          setShowAddModal(false);
+        }}
+        onSuccess={handleModalSuccess}
+        showNotification={showNotification}
+      />
 
       {/* CSS for animations */}
       <style jsx>{`

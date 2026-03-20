@@ -1,40 +1,237 @@
-import React from 'react';
-import { FaUserMd, FaCamera, FaTimes, FaSpinner, FaCheckCircle } from 'react-icons/fa';
+import React, { useState, useRef, useCallback, memo, useMemo } from 'react';
+import { 
+  FaUserMd, FaCamera, FaTimes, FaSpinner, FaCheckCircle
+} from 'react-icons/fa';
+import { doctorAPI, validateDoctorForm, formatDoctorData } from '../../services/api';
 
-const AddDoctorModal = React.memo(({
-  show,
-  onClose,
-  onSubmit,
-  formState,
-  setFormState,
-  modalState,
-  setModalState,
-  specializations,
-  languageOptions,
-  locations,
-  fileInputRef,
-  handleInputChange,
-  handleLanguageChange,
-  handleImageSelect
-}) => {
-  if (!show) return null;
+// Memoized modal component for state isolation
+const AddDoctorModal = memo(({ isOpen, onClose, onSuccess, showNotification }) => {
+  const [modalLoading, setModalLoading] = useState(false);
+  const [formErrors, setFormErrors] = useState({});
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [selectedImage, setSelectedImage] = useState(null);
+  const [imagePreview, setImagePreview] = useState(null);
+  
+  // Ref-based form handling - prevents re-renders on file selection
+  const fileInputRef = useRef(null);
+  
+  // Form State
+  const [newDoctor, setNewDoctor] = useState({
+    name: '',
+    email: '',
+    password: 'doctor123',
+    phone: '',
+    specialization: '',
+    qualifications: '',
+    experience: '',
+    license: '',
+    hospital: '',
+    location: 'Colombo',
+    fees: '',
+    consultationTime: '30 mins',
+    languages: ['English', 'Sinhala'],
+    isVideoAvailable: true,
+    isVerified: true,
+    rating: 4.5,
+    status: 'active',
+    image: '',
+    aiSummary: ''
+  });
+
+  // Memoized lists
+  const specializations = useMemo(() => [
+    'Cardiologist', 'Dermatologist', 'Pediatrician', 'General Physician',
+    'Neurologist', 'Orthopedic', 'Dentist', 'ENT Specialist',
+    'Ophthalmologist', 'Psychiatrist', 'Gynecologist', 'Oncologist'
+  ], []);
+
+  const languageOptions = useMemo(() => ['English', 'Sinhala', 'Tamil'], []);
+  
+  const locations = useMemo(() => [
+    'Colombo', 'Kandy', 'Galle', 'Jaffna', 'Negombo',
+    'Batticaloa', 'Kurunegala', 'Ratnapura', 'Badulla', 'Matara'
+  ], []);
+
+  // Handle input change
+  const handleInputChange = useCallback((e) => {
+    const { name, value, type, checked } = e.target;
+    setNewDoctor(prev => ({
+      ...prev,
+      [name]: type === 'checkbox' ? checked : value
+    }));
+    
+    // Clear error for this field
+    if (formErrors[name]) {
+      setFormErrors(prev => ({ ...prev, [name]: '' }));
+    }
+  }, [formErrors]);
+
+  // Handle language selection
+  const handleLanguageChange = useCallback((language) => {
+    setNewDoctor(prev => ({
+      ...prev,
+      languages: prev.languages.includes(language)
+        ? prev.languages.filter(l => l !== language)
+        : [...prev.languages, language]
+    }));
+  }, []);
+
+  // Handle image selection
+  const handleImageSelect = useCallback((e) => {
+    const file = e.target.files[0];
+    if (file) {
+      // Check file size (max 5MB)
+      if (file.size > 5 * 1024 * 1024) {
+        showNotification('Image size should be less than 5MB', 'error');
+        return;
+      }
+      
+      // Check file type
+      if (!file.type.startsWith('image/')) {
+        showNotification('Please select an image file', 'error');
+        return;
+      }
+      
+      setSelectedImage(file);
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setImagePreview(reader.result);
+      };
+      reader.readAsDataURL(file);
+    }
+  }, [showNotification]);
+
+  // Handle form submission
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    
+    // Validate form
+    const { isValid, errors } = validateDoctorForm(newDoctor);
+    
+    if (!isValid) {
+      setFormErrors(errors);
+      showNotification('Please fill in all required fields', 'error');
+      return;
+    }
+    
+    setModalLoading(true);
+    
+    try {
+      // Check if email exists
+      const emailCheck = await doctorAPI.checkEmail(newDoctor.email);
+      
+      if (emailCheck.success && emailCheck.exists) {
+        setFormErrors(prev => ({ ...prev, email: 'Email already exists' }));
+        showNotification('Email already registered', 'error');
+        setModalLoading(false);
+        return;
+      }
+      
+      let doctorData = { ...newDoctor };
+      
+      // Upload image if selected
+      if (selectedImage) {
+        try {
+          setUploadProgress(0);
+          const uploadResult = await doctorAPI.uploadImage(
+            selectedImage, 
+            (progress) => setUploadProgress(progress)
+          );
+          
+          if (uploadResult.success) {
+            doctorData.image = uploadResult.imageUrl;
+          } else {
+            showNotification(uploadResult.message, 'error');
+            setModalLoading(false);
+            return;
+          }
+        } catch (uploadError) {
+          console.error('Upload error:', uploadError);
+          showNotification('Failed to upload image', 'error');
+          setModalLoading(false);
+          return;
+        }
+      }
+      
+      // Format and create doctor
+      const formattedData = formatDoctorData(doctorData);
+      const result = await doctorAPI.createDoctor(formattedData);
+      
+      if (result.success) {
+        showNotification(`✅ Doctor ${newDoctor.name} created successfully!`, 'success');
+        resetForm();
+        onSuccess();
+        onClose();
+      } else {
+        if (result.field) {
+          setFormErrors(prev => ({ ...prev, [result.field]: result.message }));
+        }
+        showNotification(`❌ ${result.message}`, 'error');
+      }
+    } catch (error) {
+      console.error('Submit error:', error);
+      showNotification('❌ Failed to create doctor. Please try again.', 'error');
+    } finally {
+      setModalLoading(false);
+      setUploadProgress(0);
+    }
+  };
+
+  // Reset form
+  const resetForm = useCallback(() => {
+    setNewDoctor({
+      name: '',
+      email: '',
+      password: 'doctor123',
+      phone: '',
+      specialization: '',
+      qualifications: '',
+      experience: '',
+      license: '',
+      hospital: '',
+      location: 'Colombo',
+      fees: '',
+      consultationTime: '30 mins',
+      languages: ['English', 'Sinhala'],
+      isVideoAvailable: true,
+      isVerified: true,
+      rating: 4.5,
+      status: 'active',
+      image: '',
+      aiSummary: ''
+    });
+    setSelectedImage(null);
+    setImagePreview(null);
+    setFormErrors({});
+    setUploadProgress(0);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  }, []);
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 overflow-y-auto">
       <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+        {/* Modal Header */}
         <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex justify-between items-center">
           <h2 className="text-2xl font-bold text-gray-900">Add New Doctor</h2>
           <button
-            onClick={onClose}
+            onClick={() => {
+              resetForm();
+              onClose();
+            }}
             className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
           >
             <FaTimes size={20} />
           </button>
         </div>
 
-        <form onSubmit={onSubmit} className="p-6">
+        {/* Modal Form */}
+        <form onSubmit={handleSubmit} className="p-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Left Column - Form fields */}
+            {/* Left Column */}
             <div className="space-y-4">
               {/* Profile Image Upload */}
               <div>
@@ -44,8 +241,8 @@ const AddDoctorModal = React.memo(({
                 <div className="flex items-center space-x-4">
                   <div className="relative">
                     <div className="w-24 h-24 rounded-full bg-gradient-to-br from-teal-400 to-teal-600 flex items-center justify-center overflow-hidden">
-                      {formState.imagePreview ? (
-                        <img src={formState.imagePreview} alt="Preview" className="w-full h-full object-cover" />
+                      {imagePreview ? (
+                        <img src={imagePreview} alt="Preview" className="w-full h-full object-cover" />
                       ) : (
                         <FaUserMd className="text-white text-3xl" />
                       )}
@@ -65,21 +262,21 @@ const AddDoctorModal = React.memo(({
                       className="hidden"
                     />
                   </div>
-                  {modalState.uploadProgress > 0 && modalState.uploadProgress < 100 && (
+                  {uploadProgress > 0 && uploadProgress < 100 && (
                     <div className="flex-1">
                       <div className="w-full bg-gray-200 rounded-full h-2">
                         <div
                           className="bg-teal-600 h-2 rounded-full"
-                          style={{ width: `${modalState.uploadProgress}%` }}
+                          style={{ width: `${uploadProgress}%` }}
                         ></div>
                       </div>
-                      <p className="text-xs text-gray-500 mt-1">Uploading: {modalState.uploadProgress}%</p>
+                      <p className="text-xs text-gray-500 mt-1">Uploading: {uploadProgress}%</p>
                     </div>
                   )}
                 </div>
               </div>
 
-              {/* Name */}
+              {/* Full Name */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Full Name <span className="text-red-500">*</span>
@@ -87,16 +284,14 @@ const AddDoctorModal = React.memo(({
                 <input
                   type="text"
                   name="name"
-                  value={formState.newDoctor.name}
+                  value={newDoctor.name}
                   onChange={handleInputChange}
-                  className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-teal-500 ${
-                    formState.formErrors.name ? 'border-red-500' : 'border-gray-300'
+                  className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-teal-500 outline-none ${
+                    formErrors.name ? 'border-red-500' : 'border-gray-300'
                   }`}
                   placeholder="Dr. John Doe"
                 />
-                {formState.formErrors.name && (
-                  <p className="text-red-500 text-xs mt-1">{formState.formErrors.name}</p>
-                )}
+                {formErrors.name && <p className="text-red-500 text-xs mt-1">{formErrors.name}</p>}
               </div>
 
               {/* Email */}
@@ -107,16 +302,14 @@ const AddDoctorModal = React.memo(({
                 <input
                   type="email"
                   name="email"
-                  value={formState.newDoctor.email}
+                  value={newDoctor.email}
                   onChange={handleInputChange}
-                  className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-teal-500 ${
-                    formState.formErrors.email ? 'border-red-500' : 'border-gray-300'
+                  className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-teal-500 outline-none ${
+                    formErrors.email ? 'border-red-500' : 'border-gray-300'
                   }`}
                   placeholder="doctor@example.com"
                 />
-                {formState.formErrors.email && (
-                  <p className="text-red-500 text-xs mt-1">{formState.formErrors.email}</p>
-                )}
+                {formErrors.email && <p className="text-red-500 text-xs mt-1">{formErrors.email}</p>}
               </div>
 
               {/* Phone */}
@@ -127,16 +320,14 @@ const AddDoctorModal = React.memo(({
                 <input
                   type="text"
                   name="phone"
-                  value={formState.newDoctor.phone}
+                  value={newDoctor.phone}
                   onChange={handleInputChange}
-                  className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-teal-500 ${
-                    formState.formErrors.phone ? 'border-red-500' : 'border-gray-300'
+                  className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-teal-500 outline-none ${
+                    formErrors.phone ? 'border-red-500' : 'border-gray-300'
                   }`}
                   placeholder="+94 77 123 4567"
                 />
-                {formState.formErrors.phone && (
-                  <p className="text-red-500 text-xs mt-1">{formState.formErrors.phone}</p>
-                )}
+                {formErrors.phone && <p className="text-red-500 text-xs mt-1">{formErrors.phone}</p>}
               </div>
 
               {/* Specialization */}
@@ -146,10 +337,10 @@ const AddDoctorModal = React.memo(({
                 </label>
                 <select
                   name="specialization"
-                  value={formState.newDoctor.specialization}
+                  value={newDoctor.specialization}
                   onChange={handleInputChange}
-                  className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-teal-500 ${
-                    formState.formErrors.specialization ? 'border-red-500' : 'border-gray-300'
+                  className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-teal-500 outline-none ${
+                    formErrors.specialization ? 'border-red-500' : 'border-gray-300'
                   }`}
                 >
                   <option value="">Select Specialization</option>
@@ -157,8 +348,8 @@ const AddDoctorModal = React.memo(({
                     <option key={spec} value={spec}>{spec}</option>
                   ))}
                 </select>
-                {formState.formErrors.specialization && (
-                  <p className="text-red-500 text-xs mt-1">{formState.formErrors.specialization}</p>
+                {formErrors.specialization && (
+                  <p className="text-red-500 text-xs mt-1">{formErrors.specialization}</p>
                 )}
               </div>
 
@@ -170,15 +361,15 @@ const AddDoctorModal = React.memo(({
                 <input
                   type="text"
                   name="qualifications"
-                  value={formState.newDoctor.qualifications}
+                  value={newDoctor.qualifications}
                   onChange={handleInputChange}
-                  className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-teal-500 ${
-                    formState.formErrors.qualifications ? 'border-red-500' : 'border-gray-300'
+                  className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-teal-500 outline-none ${
+                    formErrors.qualifications ? 'border-red-500' : 'border-gray-300'
                   }`}
                   placeholder="MBBS, MD, FRCP"
                 />
-                {formState.formErrors.qualifications && (
-                  <p className="text-red-500 text-xs mt-1">{formState.formErrors.qualifications}</p>
+                {formErrors.qualifications && (
+                  <p className="text-red-500 text-xs mt-1">{formErrors.qualifications}</p>
                 )}
               </div>
 
@@ -190,19 +381,19 @@ const AddDoctorModal = React.memo(({
                 <input
                   type="text"
                   name="experience"
-                  value={formState.newDoctor.experience}
+                  value={newDoctor.experience}
                   onChange={handleInputChange}
-                  className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-teal-500 ${
-                    formState.formErrors.experience ? 'border-red-500' : 'border-gray-300'
+                  className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-teal-500 outline-none ${
+                    formErrors.experience ? 'border-red-500' : 'border-gray-300'
                   }`}
                   placeholder="10+ Years"
                 />
-                {formState.formErrors.experience && (
-                  <p className="text-red-500 text-xs mt-1">{formState.formErrors.experience}</p>
+                {formErrors.experience && (
+                  <p className="text-red-500 text-xs mt-1">{formErrors.experience}</p>
                 )}
               </div>
 
-              {/* License Number */}
+              {/* License */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   License Number <span className="text-red-500">*</span>
@@ -210,15 +401,15 @@ const AddDoctorModal = React.memo(({
                 <input
                   type="text"
                   name="license"
-                  value={formState.newDoctor.license}
+                  value={newDoctor.license}
                   onChange={handleInputChange}
-                  className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-teal-500 ${
-                    formState.formErrors.license ? 'border-red-500' : 'border-gray-300'
+                  className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-teal-500 outline-none ${
+                    formErrors.license ? 'border-red-500' : 'border-gray-300'
                   }`}
                   placeholder="SLMC-12345"
                 />
-                {formState.formErrors.license && (
-                  <p className="text-red-500 text-xs mt-1">{formState.formErrors.license}</p>
+                {formErrors.license && (
+                  <p className="text-red-500 text-xs mt-1">{formErrors.license}</p>
                 )}
               </div>
             </div>
@@ -233,15 +424,15 @@ const AddDoctorModal = React.memo(({
                 <input
                   type="text"
                   name="hospital"
-                  value={formState.newDoctor.hospital}
+                  value={newDoctor.hospital}
                   onChange={handleInputChange}
-                  className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-teal-500 ${
-                    formState.formErrors.hospital ? 'border-red-500' : 'border-gray-300'
+                  className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-teal-500 outline-none ${
+                    formErrors.hospital ? 'border-red-500' : 'border-gray-300'
                   }`}
                   placeholder="City Hospital"
                 />
-                {formState.formErrors.hospital && (
-                  <p className="text-red-500 text-xs mt-1">{formState.formErrors.hospital}</p>
+                {formErrors.hospital && (
+                  <p className="text-red-500 text-xs mt-1">{formErrors.hospital}</p>
                 )}
               </div>
 
@@ -252,22 +443,22 @@ const AddDoctorModal = React.memo(({
                 </label>
                 <select
                   name="location"
-                  value={formState.newDoctor.location}
+                  value={newDoctor.location}
                   onChange={handleInputChange}
-                  className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-teal-500 ${
-                    formState.formErrors.location ? 'border-red-500' : 'border-gray-300'
+                  className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-teal-500 outline-none ${
+                    formErrors.location ? 'border-red-500' : 'border-gray-300'
                   }`}
                 >
                   {locations.map(loc => (
                     <option key={loc} value={loc}>{loc}</option>
                   ))}
                 </select>
-                {formState.formErrors.location && (
-                  <p className="text-red-500 text-xs mt-1">{formState.formErrors.location}</p>
+                {formErrors.location && (
+                  <p className="text-red-500 text-xs mt-1">{formErrors.location}</p>
                 )}
               </div>
 
-              {/* Consultation Fee */}
+              {/* Fees */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Consultation Fee <span className="text-red-500">*</span>
@@ -275,15 +466,15 @@ const AddDoctorModal = React.memo(({
                 <input
                   type="text"
                   name="fees"
-                  value={formState.newDoctor.fees}
+                  value={newDoctor.fees}
                   onChange={handleInputChange}
-                  className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-teal-500 ${
-                    formState.formErrors.fees ? 'border-red-500' : 'border-gray-300'
+                  className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-teal-500 outline-none ${
+                    formErrors.fees ? 'border-red-500' : 'border-gray-300'
                   }`}
                   placeholder="LKR 2,500"
                 />
-                {formState.formErrors.fees && (
-                  <p className="text-red-500 text-xs mt-1">{formState.formErrors.fees}</p>
+                {formErrors.fees && (
+                  <p className="text-red-500 text-xs mt-1">{formErrors.fees}</p>
                 )}
               </div>
 
@@ -295,9 +486,9 @@ const AddDoctorModal = React.memo(({
                 <input
                   type="text"
                   name="consultationTime"
-                  value={formState.newDoctor.consultationTime}
+                  value={newDoctor.consultationTime}
                   onChange={handleInputChange}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 outline-none"
                   placeholder="30 mins"
                 />
               </div>
@@ -307,12 +498,12 @@ const AddDoctorModal = React.memo(({
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Languages
                 </label>
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-3">
                   {languageOptions.map(lang => (
                     <label key={lang} className="inline-flex items-center">
                       <input
                         type="checkbox"
-                        checked={formState.newDoctor.languages.includes(lang)}
+                        checked={newDoctor.languages.includes(lang)}
                         onChange={() => handleLanguageChange(lang)}
                         className="rounded border-gray-300 text-teal-600 focus:ring-teal-500"
                       />
@@ -332,7 +523,7 @@ const AddDoctorModal = React.memo(({
                     <input
                       type="checkbox"
                       name="isVideoAvailable"
-                      checked={formState.newDoctor.isVideoAvailable}
+                      checked={newDoctor.isVideoAvailable}
                       onChange={handleInputChange}
                       className="rounded border-gray-300 text-teal-600 focus:ring-teal-500"
                     />
@@ -342,7 +533,7 @@ const AddDoctorModal = React.memo(({
                     <input
                       type="checkbox"
                       name="isVerified"
-                      checked={formState.newDoctor.isVerified}
+                      checked={newDoctor.isVerified}
                       onChange={handleInputChange}
                       className="rounded border-gray-300 text-teal-600 focus:ring-teal-500"
                     />
@@ -358,9 +549,9 @@ const AddDoctorModal = React.memo(({
                 </label>
                 <select
                   name="status"
-                  value={formState.newDoctor.status}
+                  value={newDoctor.status}
                   onChange={handleInputChange}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 outline-none"
                 >
                   <option value="active">Active</option>
                   <option value="inactive">Inactive</option>
@@ -376,34 +567,34 @@ const AddDoctorModal = React.memo(({
                 <input
                   type="number"
                   name="rating"
-                  value={formState.newDoctor.rating}
+                  value={newDoctor.rating}
                   onChange={handleInputChange}
                   step="0.1"
                   min="0"
                   max="5"
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 outline-none"
                 />
               </div>
 
               {/* AI Summary */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  AI Summary / Description
+                  AI Summary
                 </label>
                 <textarea
                   name="aiSummary"
-                  value={formState.newDoctor.aiSummary}
+                  value={newDoctor.aiSummary}
                   onChange={handleInputChange}
                   rows="3"
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
-                  placeholder="Enter doctor description or AI summary..."
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 outline-none"
+                  placeholder="Enter doctor description..."
                 />
               </div>
 
-              {/* Default Password Info */}
+              {/* Password Info */}
               <div className="bg-blue-50 p-4 rounded-lg">
                 <p className="text-sm text-blue-700">
-                  Default password will be: <strong>doctor123</strong>
+                  Default password: <strong>doctor123</strong>
                 </p>
               </div>
             </div>
@@ -413,18 +604,21 @@ const AddDoctorModal = React.memo(({
           <div className="flex justify-end space-x-3 mt-8 pt-4 border-t">
             <button
               type="button"
-              onClick={onClose}
+              onClick={() => {
+                resetForm();
+                onClose();
+              }}
               className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors"
-              disabled={modalState.modalLoading}
+              disabled={modalLoading}
             >
               Cancel
             </button>
             <button
               type="submit"
-              disabled={modalState.modalLoading}
+              disabled={modalLoading}
               className="px-6 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors flex items-center space-x-2 disabled:opacity-50"
             >
-              {modalState.modalLoading ? (
+              {modalLoading ? (
                 <>
                   <FaSpinner className="animate-spin" />
                   <span>Creating...</span>
@@ -442,7 +636,5 @@ const AddDoctorModal = React.memo(({
     </div>
   );
 });
-
-AddDoctorModal.displayName = 'AddDoctorModal';
 
 export default AddDoctorModal;
