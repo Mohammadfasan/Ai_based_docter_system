@@ -85,7 +85,7 @@ const doctorAPI = {
     }
   },
 
-  // GET doctors with pagination and search - FIXED
+  // GET doctors with pagination and search
   getPaginatedDoctors: async (page = 1, limit = 10, search = '') => {
     try {
       const params = new URLSearchParams({
@@ -161,7 +161,7 @@ const doctorAPI = {
     }
   },
 
-  // CREATE new doctor - FIXED
+  // CREATE new doctor
   createDoctor: async (doctorData) => {
     try {
       console.log('📤 Sending doctor data to server:', doctorData);
@@ -228,14 +228,52 @@ const doctorAPI = {
   // UPDATE doctor
   updateDoctor: async (id, doctorData) => {
     try {
+      console.log('📤 Updating doctor data:', id, doctorData);
+      
       const response = await axiosInstance.put(`/doctors/${id}`, doctorData);
-      return {
-        success: true,
-        data: response.data,
-        message: 'Doctor updated successfully',
-        doctor: response.data.doctor
-      };
+      
+      console.log('📥 Update response:', response.data);
+      
+      if (response.data) {
+        if (response.data.success) {
+          return {
+            success: true,
+            data: response.data,
+            message: response.data.message || 'Doctor updated successfully',
+            doctor: response.data.doctor || response.data
+          };
+        } else {
+          return {
+            success: true,
+            data: response.data,
+            message: 'Doctor updated successfully',
+            doctor: response.data.doctor || response.data
+          };
+        }
+      }
+      
+      throw new Error('Invalid response from server');
+      
     } catch (error) {
+      console.error('❌ Update doctor error:', error.response?.data || error.message);
+      
+      if (error.response?.status === 400) {
+        return {
+          success: false,
+          message: error.response.data.message || 'Validation error',
+          error: error.response.data,
+          field: getErrorField(error.response.data.message)
+        };
+      }
+      
+      if (error.code === 'ERR_NETWORK') {
+        return {
+          success: false,
+          message: 'Cannot connect to server. Please check if server is running.',
+          error: error.message
+        };
+      }
+      
       return {
         success: false,
         message: error.response?.data?.message || 'Failed to update doctor',

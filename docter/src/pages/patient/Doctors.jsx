@@ -1,3 +1,4 @@
+// Doctors.jsx - Updated version
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
@@ -25,6 +26,15 @@ const Doctors = ({ doctorsData = [] }) => {
     const matchesFilter = activeFilter === "All" || doctor.specialization?.toLowerCase().includes(activeFilter.toLowerCase());
     return matchesSearch && matchesFilter;
   });
+
+  // Helper function to format languages array to string
+  const formatLanguages = (languages) => {
+    if (!languages) return 'English, Sinhala';
+    if (Array.isArray(languages)) {
+      return languages.join(', ');
+    }
+    return languages;
+  };
 
   return (
     <div className="min-h-screen bg-[#f8fafc] font-['Plus_Jakarta_Sans'] pb-24">
@@ -79,18 +89,25 @@ const Doctors = ({ doctorsData = [] }) => {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
           {filteredDoctors.length > 0 ? (
             filteredDoctors.map((doctor) => (
-              <div key={doctor.id} className="group bg-white rounded-[3rem] p-5 border border-slate-100 hover:border-teal-200 transition-all duration-500 hover:shadow-[0_40px_80px_-20px_rgba(15,23,42,0.1)] flex flex-col">
+              <div key={doctor._id || doctor.id} className="group bg-white rounded-[3rem] p-5 border border-slate-100 hover:border-teal-200 transition-all duration-500 hover:shadow-[0_40px_80px_-20px_rgba(15,23,42,0.1)] flex flex-col">
                 
                 {/* Image Section */}
                 <div className="relative mb-6">
                   <div className="w-full h-64 rounded-[2.5rem] overflow-hidden">
-                    <img src={doctor.image} alt={doctor.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" />
+                    <img 
+                      src={doctor.image || `https://ui-avatars.com/api/?name=${doctor.name?.charAt(0)}&background=0D9488&color=fff&size=200`} 
+                      alt={doctor.name} 
+                      className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
+                      onError={(e) => {
+                        e.target.src = `https://ui-avatars.com/api/?name=${doctor.name?.charAt(0)}&background=0D9488&color=fff&size=200`;
+                      }}
+                    />
                     <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent"></div>
                   </div>
                   <div className="absolute bottom-4 left-4 right-4 flex justify-between items-center">
                     <div className="bg-white/20 backdrop-blur-md px-4 py-2 rounded-2xl border border-white/20 flex items-center gap-2">
                       <Star size={14} className="fill-yellow-400 text-yellow-400" />
-                      <span className="text-white font-black text-sm">{doctor.rating}</span>
+                      <span className="text-white font-black text-sm">{doctor.rating || 4.5}</span>
                     </div>
                     {doctor.isVideoAvailable && (
                       <div className="bg-teal-500 p-2.5 rounded-2xl text-[#0f172a] shadow-lg">
@@ -111,7 +128,7 @@ const Doctors = ({ doctorsData = [] }) => {
                       <div className="w-8 h-8 rounded-lg bg-slate-50 flex items-center justify-center text-teal-500">
                         <MapPin size={16} />
                       </div>
-                      {doctor.location}
+                      {doctor.location || 'Colombo'}
                     </div>
 
                     {/* Language display */}
@@ -119,7 +136,7 @@ const Doctors = ({ doctorsData = [] }) => {
                       <div className="w-8 h-8 rounded-lg bg-slate-50 flex items-center justify-center text-blue-500">
                         <Globe size={16} />
                       </div>
-                      {doctor.languages}
+                      {formatLanguages(doctor.languages)}
                     </div>
 
                     <div className="flex items-center gap-3 text-slate-500 text-sm font-bold">
@@ -128,15 +145,23 @@ const Doctors = ({ doctorsData = [] }) => {
                       </div>
                       {doctor.hospital}
                     </div>
+                    
+                    {/* Experience */}
+                    <div className="flex items-center gap-3 text-slate-500 text-sm font-bold">
+                      <div className="w-8 h-8 rounded-lg bg-slate-50 flex items-center justify-center text-orange-500">
+                        <Clock size={16} />
+                      </div>
+                      {doctor.experience} Experience
+                    </div>
                   </div>
 
                   <div className="flex justify-between items-center p-4 bg-slate-50 rounded-2xl mb-6">
                     <span className="text-[10px] font-black text-slate-400 uppercase">Consultation Fee</span>
-                    <span className="text-[#0f172a] font-black text-lg">{doctor.fees}</span>
+                    <span className="text-[#0f172a] font-black text-lg">{doctor.fees || 'LKR 2,500'}</span>
                   </div>
 
                   <button 
-                    onClick={() => navigate(`/book-appointment/${doctor.id}`)}
+                    onClick={() => navigate(`/book-appointment/${doctor._id || doctor.id}`)}
                     className="w-full py-4 bg-[#0f172a] hover:bg-teal-500 text-white hover:text-[#0f172a] rounded-2xl font-black text-sm transition-all duration-300 flex items-center justify-center gap-2 group/btn shadow-xl shadow-slate-200"
                   >
                     BOOK APPOINTMENT

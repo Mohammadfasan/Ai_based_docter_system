@@ -9,7 +9,7 @@ import LanguageSelector from './components/LanguageSelector';
 
 // Patient Pages
 import Dashboard from './pages/patient/Dashboard';
-import Doctors from './pages/patient/Doctors';
+import Doctors from './pages/patient/DoctorsPage';
 import Appointments from './pages/patient/Appointments';
 import MedicalRecordsPage from './pages/patient/MedicalRecordsPage';
 import Feedback from './pages/patient/Feedback';

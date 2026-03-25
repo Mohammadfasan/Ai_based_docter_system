@@ -4,6 +4,7 @@ import {
 } from 'react-icons/fa';
 import { doctorAPI } from '../../services/api';
 import AddDoctorModal from './AddDoctorModal';
+import EditDoctorModal from './EditDoctorModal.jsx';
 
 const AdminManagement = () => {
   const [loading, setLoading] = useState(true);
@@ -13,6 +14,8 @@ const AdminManagement = () => {
   
   // Modal State
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [selectedDoctor, setSelectedDoctor] = useState(null);
   
   // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
@@ -115,8 +118,9 @@ const AdminManagement = () => {
 
   // ✅ Handle edit doctor
   const handleEditDoctor = useCallback((doctor) => {
-    showNotification('Edit functionality coming soon!', 'info');
-  }, [showNotification]);
+    setSelectedDoctor(doctor);
+    setShowEditModal(true);
+  }, []);
 
   // ✅ Handle view doctor
   const handleViewDoctor = useCallback((doctor) => {
@@ -174,7 +178,7 @@ const AdminManagement = () => {
     });
   };
 
-  // ✅ Loading Skeleton Component (Updated - removed stat cards)
+  // ✅ Loading Skeleton Component
   const LoadingSkeleton = () => (
     <div className="animate-pulse">
       <div className="bg-white rounded-2xl shadow-lg overflow-hidden p-6">
@@ -454,6 +458,18 @@ const AdminManagement = () => {
         }}
         onSuccess={handleModalSuccess}
         showNotification={showNotification}
+      />
+
+      {/* Edit Doctor Modal */}
+      <EditDoctorModal
+        isOpen={showEditModal}
+        onClose={() => {
+          setShowEditModal(false);
+          setSelectedDoctor(null);
+        }}
+        onSuccess={handleModalSuccess}
+        showNotification={showNotification}
+        doctorData={selectedDoctor}
       />
 
       {/* CSS for animations */}
