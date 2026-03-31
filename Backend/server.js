@@ -4,6 +4,7 @@ import dotenv from "dotenv";
 import connectDB from "./config/db.js";
 import authRoutes from "./routes/auth.js";
 import doctorRoutes from "./routes/doctors.js";
+import doctorScheduleRoutes from "./routes/doctorScheduleRoutes.js";
 import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs";
@@ -48,6 +49,7 @@ connectDB().catch(err => {
 // ✅ Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/doctors', doctorRoutes);
+app.use('/api/doctor-schedule', doctorScheduleRoutes);
 
 // ✅ Test route
 app.get('/api/test', (req, res) => {

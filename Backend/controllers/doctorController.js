@@ -1,15 +1,36 @@
 import Doctor from "../models/Doctor.js";
-import fs from "fs";
-import path from "path";
-import { fileURLToPath } from "url";
+import User from "../models/User.js";
+import bcrypt from "bcryptjs";
 
-// Get __dirname equivalent in ES modules
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+// Generate User ID helper function
+const generateUserId = (userType, name, email) => {
+  const emailHash = email.toLowerCase().split('').reduce((acc, char, index) => {
+    return acc + char.charCodeAt(0) * (index + 1);
+  }, 0);
+  
+  const hashString = Math.abs(emailHash).toString(36).slice(-4).toUpperCase();
+  
+  const getInitials = (fullName) => {
+    if (!fullName || fullName.trim() === '') {
+      return userType === 'doctor' ? 'DOC' : userType === 'patient' ? 'PAT' : 'ADM';
+    }
+    return fullName
+      .split(' ')
+      .map(n => n.charAt(0).toUpperCase())
+      .join('')
+      .slice(0, 3);
+  };
+  
+  const prefix = userType === 'patient' ? 'PAT' : 
+                 userType === 'doctor' ? 'DOC' : 
+                 'ADM';
+  
+  const initials = getInitials(name);
+  
+  return `${prefix}-${hashString}-${initials}`;
+};
 
-// ============================================
-// ✅ GET all doctors
-// ============================================
+// GET all doctors
 export const getAllDoctors = async (req, res) => {
   try {
     const doctors = await Doctor.find().sort({ createdAt: -1 }).lean();
@@ -28,9 +49,7 @@ export const getAllDoctors = async (req, res) => {
   }
 };
 
-// ============================================
-// ✅ GET doctors with pagination and search - OPTIMIZED VERSION
-// ============================================
+// GET doctors with pagination and search
 export const getPaginatedDoctors = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
@@ -50,20 +69,17 @@ export const getPaginatedDoctors = async (req, res) => {
       };
     }
 
-    // 🚀 IMPROVEMENT: Run queries in parallel for better performance
-    // Only run heavy stats if it's the first page AND no search (dashboard view)
     const shouldIncludeStats = page === 1 && !search;
     
     const promises = [
-      Doctor.countDocuments(query), // Total count
+      Doctor.countDocuments(query),
       Doctor.find(query)
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)
-        .lean() // 🚀 lean() makes queries 3x faster by returning POJOs instead of Mongoose Docs
+        .lean()
     ];
 
-    // Only add stats query when needed (first page, no search)
     if (shouldIncludeStats) {
       promises.push(
         Doctor.aggregate([
@@ -86,14 +102,11 @@ export const getPaginatedDoctors = async (req, res) => {
         ])
       );
     } else {
-      // If stats not needed, add empty promise that resolves quickly
       promises.push(Promise.resolve([]));
     }
 
-    // Execute all promises in parallel
     const [total, doctors, statsResult] = await Promise.all(promises);
 
-    // Format stats if available
     const stats = statsResult && statsResult[0] ? {
       avgRating: statsResult[0].avgRating || 0,
       activeDoctors: statsResult[0].active || 0,
@@ -102,12 +115,12 @@ export const getPaginatedDoctors = async (req, res) => {
 
     res.json({
       success: true,
-      doctors,
-      total,
-      page,
-      limit,
+      doctors: doctors,
+      total: total,
+      page: page,
+      limit: limit,
       totalPages: Math.ceil(total / limit),
-      stats: shouldIncludeStats ? stats : {} // Only return stats when requested
+      stats: shouldIncludeStats ? stats : {}
     });
     
   } catch (error) {
@@ -120,9 +133,7 @@ export const getPaginatedDoctors = async (req, res) => {
   }
 };
 
-// ============================================
-// ✅ GET doctor by ID - OPTIMIZED with lean()
-// ============================================
+// GET doctor by ID
 export const getDoctorById = async (req, res) => {
   try {
     const doctor = await Doctor.findOne({
@@ -130,7 +141,7 @@ export const getDoctorById = async (req, res) => {
         { doctorId: req.params.id },
         { _id: req.params.id }
       ]
-    }).lean(); // 🚀 Added lean() for better performance
+    }).lean();
     
     if (!doctor) {
       return res.status(404).json({
@@ -153,13 +164,10 @@ export const getDoctorById = async (req, res) => {
   }
 };
 
-// ============================================
-// ✅ CREATE new doctor - NO PASSWORD HASHING (PLAIN TEXT)
-// ============================================
+// CREATE new doctor
 export const createDoctor = async (req, res) => {
   try {
     console.log('📝 Creating new doctor:', req.body.name);
-    console.log('📦 Received data:', JSON.stringify(req.body, null, 2));
     
     // Validate required fields
     const requiredFields = ['name', 'email', 'phone', 'specialization', 'qualifications', 'experience', 'license', 'hospital', 'fees'];
@@ -172,40 +180,61 @@ export const createDoctor = async (req, res) => {
       }
     }
     
-    // 🚀 IMPROVEMENT: Run email and license checks in parallel
-    const [emailExists, licenseExists] = await Promise.all([
+    // Validate email format
+    const emailRegex = /^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/;
+    if (!emailRegex.test(req.body.email)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please enter a valid email address'
+      });
+    }
+    
+    // Check for existing records
+    const [emailExists, licenseExists, userExists] = await Promise.all([
       Doctor.findOne({ email: req.body.email.toLowerCase() }).lean(),
-      req.body.license ? Doctor.findOne({ license: req.body.license }).lean() : Promise.resolve(null)
+      req.body.license ? Doctor.findOne({ license: req.body.license }).lean() : Promise.resolve(null),
+      User.findOne({ email: req.body.email.toLowerCase() }).lean()
     ]);
     
     if (emailExists) {
       return res.status(400).json({
         success: false,
-        message: 'Email already registered. Please use a different email.'
+        message: 'Email already registered as a doctor'
+      });
+    }
+    
+    if (userExists) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email already registered as a user'
       });
     }
     
     if (licenseExists) {
       return res.status(400).json({
         success: false,
-        message: 'License number already exists. Please check and try again.'
+        message: 'License number already exists'
       });
     }
     
-    // ⚠️ IMPORTANT: NO PASSWORD HASHING - Plain text save pannu
-    const plainPassword = req.body.password || 'doctor123';
+    // Use default password
+    const plainPassword = 'doctor123';
+    
+    // Hash password for User record
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(plainPassword, salt);
     
     // Prepare doctor data
     const doctorData = {
-      name: req.body.name,
-      email: req.body.email.toLowerCase(),
-      password: plainPassword,  // 🔴 PLAIN TEXT PASSWORD - NO HASH
-      phone: req.body.phone,
+      name: req.body.name.trim(),
+      email: req.body.email.toLowerCase().trim(),
+      password: plainPassword, // Store plain password in Doctor model
+      phone: req.body.phone.trim(),
       specialization: req.body.specialization,
-      qualifications: req.body.qualifications,
+      qualifications: req.body.qualifications.trim(),
       experience: req.body.experience,
-      license: req.body.license,
-      hospital: req.body.hospital,
+      license: req.body.license.trim(),
+      hospital: req.body.hospital.trim(),
       location: req.body.location || 'Colombo',
       fees: req.body.fees,
       consultationTime: req.body.consultationTime || '30 mins',
@@ -223,48 +252,58 @@ export const createDoctor = async (req, res) => {
       avatarColor: req.body.avatarColor || 'from-teal-500 to-teal-600'
     };
     
-    console.log('📦 Saving doctor data...');
-    console.log('🔐 Password (plain text):', plainPassword);
-    
     // Create doctor
     const doctor = new Doctor(doctorData);
     await doctor.save();
     
     console.log(`✅ New doctor created with ID: ${doctor.doctorId}`);
-    console.log(`✅ Doctor saved in database with _id: ${doctor._id}`);
+    
+    // Create User record for authentication with hashed password
+    const userData = {
+      name: doctor.name,
+      email: doctor.email,
+      password: hashedPassword, // Store hashed password here
+      userId: doctor.doctorId,
+      userType: 'doctor',
+      phone: doctor.phone,
+      status: 'active',
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+    
+    const newUser = new User(userData);
+    await newUser.save();
+    
+    console.log(`✅ User record created for doctor with ID: ${newUser.userId}`);
+    
+    // Remove password from response
+    const doctorResponse = doctor.toObject();
+    delete doctorResponse.password;
     
     res.status(201).json({
       success: true,
       message: 'Doctor created successfully',
       doctorId: doctor.doctorId,
-      doctor: doctor
+      doctor: doctorResponse,
+      loginCredentials: {
+        email: doctor.email,
+        password: plainPassword,
+        userId: doctor.doctorId
+      }
     });
     
   } catch (error) {
     console.error('❌ Error creating doctor:', error);
     
-    // Handle duplicate key errors
     if (error.code === 11000) {
       const field = Object.keys(error.keyPattern)[0];
       let message = 'Duplicate field error';
-      
       if (field === 'email') message = 'Email already exists';
       if (field === 'license') message = 'License number already exists';
-      if (field === 'doctorId') message = 'Error generating unique ID. Please try again.';
       
       return res.status(400).json({
         success: false,
         message: message
-      });
-    }
-    
-    // Handle validation errors
-    if (error.name === 'ValidationError') {
-      const errors = Object.values(error.errors).map(err => err.message);
-      return res.status(400).json({
-        success: false,
-        message: 'Validation error',
-        errors: errors
       });
     }
     
@@ -276,15 +315,11 @@ export const createDoctor = async (req, res) => {
   }
 };
 
-// ============================================
-// ✅ UPDATE doctor - ENHANCED VERSION
-// ============================================
+// UPDATE doctor
 export const updateDoctor = async (req, res) => {
   try {
     console.log('📝 Updating doctor:', req.params.id);
-    console.log('📦 Update data:', JSON.stringify(req.body, null, 2));
     
-    // Find the doctor first
     const doctor = await Doctor.findOne({
       $or: [
         { _id: req.params.id },
@@ -299,54 +334,39 @@ export const updateDoctor = async (req, res) => {
       });
     }
     
-    console.log('✅ Found doctor:', doctor.name, doctor.email);
-    
-    // 🚀 IMPROVEMENT: Run email and license checks in parallel if needed
-    const checks = [];
-    
     // Check email uniqueness if being updated
+    let emailChanged = false;
     if (req.body.email && req.body.email.toLowerCase() !== doctor.email) {
-      checks.push(
-        Doctor.findOne({ 
-          email: req.body.email.toLowerCase(),
-          _id: { $ne: doctor._id }
-        }).lean()
-      );
-    } else {
-      checks.push(Promise.resolve(null));
+      const emailExists = await Doctor.findOne({ 
+        email: req.body.email.toLowerCase(),
+        _id: { $ne: doctor._id }
+      }).lean();
+      
+      if (emailExists) {
+        return res.status(400).json({
+          success: false,
+          message: 'Email already taken by another doctor'
+        });
+      }
+      emailChanged = true;
     }
     
     // Check license uniqueness if being updated
     if (req.body.license && req.body.license !== doctor.license) {
-      checks.push(
-        Doctor.findOne({ 
-          license: req.body.license,
-          _id: { $ne: doctor._id }
-        }).lean()
-      );
-    } else {
-      checks.push(Promise.resolve(null));
+      const licenseExists = await Doctor.findOne({ 
+        license: req.body.license,
+        _id: { $ne: doctor._id }
+      }).lean();
+      
+      if (licenseExists) {
+        return res.status(400).json({
+          success: false,
+          message: 'License number already taken by another doctor'
+        });
+      }
     }
     
-    const [emailExists, licenseExists] = await Promise.all(checks);
-    
-    if (emailExists) {
-      return res.status(400).json({
-        success: false,
-        message: 'Email already taken by another doctor',
-        field: 'email'
-      });
-    }
-    
-    if (licenseExists) {
-      return res.status(400).json({
-        success: false,
-        message: 'License number already taken by another doctor',
-        field: 'license'
-      });
-    }
-    
-    // Update fields (including password if provided - plain text)
+    // Update fields
     const updateableFields = [
       'name', 'email', 'phone', 'specialization', 'qualifications', 
       'experience', 'license', 'hospital', 'location', 'fees', 
@@ -357,36 +377,40 @@ export const updateDoctor = async (req, res) => {
     
     updateableFields.forEach(field => {
       if (req.body[field] !== undefined && req.body[field] !== null) {
-        // Special handling for email to ensure lowercase
         if (field === 'email') {
-          doctor[field] = req.body[field].toLowerCase();
-        } 
-        // Handle password separately
-        else if (field === 'password') {
-          // Only update password if provided and not empty
-          if (req.body.password && req.body.password.trim() !== '') {
-            doctor[field] = req.body.password;
-            console.log('🔐 Password updated (plain text)');
-          }
-        }
-        else {
+          doctor[field] = req.body[field].toLowerCase().trim();
+        } else if (field === 'languages' && Array.isArray(req.body[field])) {
+          doctor[field] = req.body[field];
+        } else if (typeof req.body[field] === 'string') {
+          doctor[field] = req.body[field].trim();
+        } else {
           doctor[field] = req.body[field];
         }
       }
     });
     
-    // Handle password separately if it's in the request body
-    if (req.body.password && req.body.password.trim() !== '') {
-      doctor.password = req.body.password;
-      console.log('🔐 Password updated (plain text)');
-    }
-    
-    console.log('💾 Saving updated doctor...');
     await doctor.save();
     
-    console.log(`✅ Doctor updated successfully: ${doctor.doctorId}`);
+    // Update User record
+    let user = await User.findOne({ 
+      $or: [
+        { email: doctor.email },
+        { userId: doctor.doctorId }
+      ]
+    });
     
-    // Remove password from response
+    if (user) {
+      user.name = doctor.name;
+      user.phone = doctor.phone;
+      if (emailChanged) {
+        user.email = doctor.email;
+      }
+      user.status = doctor.status;
+      user.updatedAt = new Date();
+      await user.save();
+      console.log('✅ User record updated');
+    }
+    
     const doctorResponse = doctor.toObject();
     delete doctorResponse.password;
     
@@ -399,33 +423,6 @@ export const updateDoctor = async (req, res) => {
     
   } catch (error) {
     console.error('❌ Error updating doctor:', error);
-    
-    // Handle duplicate key errors
-    if (error.code === 11000) {
-      const field = Object.keys(error.keyPattern)[0];
-      let message = 'Duplicate field error';
-      
-      if (field === 'email') message = 'Email already taken by another doctor';
-      if (field === 'license') message = 'License number already taken by another doctor';
-      if (field === 'doctorId') message = 'Error generating unique ID. Please try again.';
-      
-      return res.status(400).json({
-        success: false,
-        message: message,
-        field: field
-      });
-    }
-    
-    // Handle validation errors
-    if (error.name === 'ValidationError') {
-      const errors = Object.values(error.errors).map(err => err.message);
-      return res.status(400).json({
-        success: false,
-        message: 'Validation error',
-        errors: errors
-      });
-    }
-    
     res.status(500).json({
       success: false,
       message: 'Error updating doctor',
@@ -434,9 +431,7 @@ export const updateDoctor = async (req, res) => {
   }
 };
 
-// ============================================
-// ✅ DELETE doctor
-// ============================================
+// DELETE doctor
 export const deleteDoctor = async (req, res) => {
   try {
     console.log('🗑️ Deleting doctor:', req.params.id);
@@ -455,7 +450,16 @@ export const deleteDoctor = async (req, res) => {
       });
     }
     
-    console.log(`✅ Doctor deleted successfully: ${doctor.name} (${doctor.doctorId})`);
+    // Delete User record
+    await User.findOneAndDelete({ 
+      $or: [
+        { email: doctor.email },
+        { userId: doctor.doctorId }
+      ],
+      userType: 'doctor'
+    });
+    
+    console.log(`✅ Doctor deleted successfully: ${doctor.name}`);
     
     res.json({
       success: true,
@@ -473,9 +477,7 @@ export const deleteDoctor = async (req, res) => {
   }
 };
 
-// ============================================
-// ✅ SEARCH doctors - OPTIMIZED with lean()
-// ============================================
+// SEARCH doctors
 export const searchDoctors = async (req, res) => {
   try {
     const searchQuery = req.query.q || '';
@@ -484,10 +486,9 @@ export const searchDoctors = async (req, res) => {
       $or: [
         { name: { $regex: searchQuery, $options: 'i' } },
         { specialization: { $regex: searchQuery, $options: 'i' } },
-        { hospital: { $regex: searchQuery, $options: 'i' } },
-        { doctorId: { $regex: searchQuery, $options: 'i' } }
+        { hospital: { $regex: searchQuery, $options: 'i' } }
       ]
-    }).lean(); // 🚀 Added lean() for better performance
+    }).lean();
     
     res.json({
       success: true,
@@ -504,9 +505,7 @@ export const searchDoctors = async (req, res) => {
   }
 };
 
-// ============================================
-// ✅ CHECK if email exists - OPTIMIZED with lean()
-// ============================================
+// CHECK email exists
 export const checkEmail = async (req, res) => {
   try {
     const { email, excludeId } = req.body;
@@ -523,7 +522,7 @@ export const checkEmail = async (req, res) => {
       query._id = { $ne: excludeId };
     }
     
-    const exists = await Doctor.findOne(query).select('_id email').lean(); // 🚀 Added lean() and select only needed fields
+    const exists = await Doctor.findOne(query).select('_id email').lean();
     
     res.json({
       success: true,
@@ -535,153 +534,6 @@ export const checkEmail = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Error checking email',
-      error: error.message
-    });
-  }
-};
-
-// ============================================
-// ✅ GET doctors statistics
-// ============================================
-export const getDoctorStats = async (req, res) => {
-  try {
-    const stats = await Doctor.aggregate([
-      {
-        $group: {
-          _id: null,
-          totalDoctors: { $sum: 1 },
-          activeDoctors: {
-            $sum: { $cond: [{ $eq: ["$status", "active"] }, 1, 0] }
-          },
-          videoAvailable: {
-            $sum: { $cond: [{ $eq: ["$isVideoAvailable", true] }, 1, 0] }
-          },
-          verifiedDoctors: {
-            $sum: { $cond: [{ $eq: ["$isVerified", true] }, 1, 0] }
-          },
-          avgRating: { $avg: "$rating" },
-          totalReviews: { $sum: "$reviewCount" }
-        }
-      }
-    ]);
-    
-    const specializationStats = await Doctor.aggregate([
-      {
-        $group: {
-          _id: "$specialization",
-          count: { $sum: 1 }
-        }
-      },
-      { $sort: { count: -1 } }
-    ]);
-    
-    res.json({
-      success: true,
-      data: {
-        overview: stats[0] || {
-          totalDoctors: 0,
-          activeDoctors: 0,
-          videoAvailable: 0,
-          verifiedDoctors: 0,
-          avgRating: 0,
-          totalReviews: 0
-        },
-        bySpecialization: specializationStats
-      }
-    });
-  } catch (error) {
-    console.error('Error fetching doctor stats:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error fetching doctor statistics',
-      error: error.message
-    });
-  }
-};
-
-// ============================================
-// ✅ BULK DELETE doctors
-// ============================================
-export const bulkDeleteDoctors = async (req, res) => {
-  try {
-    const { ids } = req.body;
-    
-    if (!ids || !Array.isArray(ids) || ids.length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'Please provide an array of doctor IDs to delete'
-      });
-    }
-    
-    const result = await Doctor.deleteMany({
-      $or: [
-        { _id: { $in: ids } },
-        { doctorId: { $in: ids } }
-      ]
-    });
-    
-    console.log(`🗑️ Bulk deleted ${result.deletedCount} doctors`);
-    
-    res.json({
-      success: true,
-      message: `Successfully deleted ${result.deletedCount} doctors`,
-      deletedCount: result.deletedCount
-    });
-  } catch (error) {
-    console.error('Error in bulk delete:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error performing bulk delete',
-      error: error.message
-    });
-  }
-};
-
-// ============================================
-// ✅ TOGGLE doctor status
-// ============================================
-export const toggleDoctorStatus = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { status } = req.body;
-    
-    if (!status || !['active', 'inactive', 'busy'].includes(status)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Please provide a valid status (active, inactive, busy)'
-      });
-    }
-    
-    const doctor = await Doctor.findOneAndUpdate(
-      {
-        $or: [
-          { _id: id },
-          { doctorId: id }
-        ]
-      },
-      { status },
-      { new: true }
-    ).lean();
-    
-    if (!doctor) {
-      return res.status(404).json({
-        success: false,
-        message: 'Doctor not found'
-      });
-    }
-    
-    console.log(`🔄 Doctor status updated: ${doctor.name} -> ${status}`);
-    
-    res.json({
-      success: true,
-      message: `Doctor status updated to ${status}`,
-      doctor: doctor
-    });
-  } catch (error) {
-    console.error('Error toggling doctor status:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error updating doctor status',
       error: error.message
     });
   }

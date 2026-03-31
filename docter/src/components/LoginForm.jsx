@@ -1,4 +1,4 @@
-// LoginForm.jsx (Updated with Forgot Password functionality)
+// LoginForm.jsx (Fixed with localStorage)
 import React, { useState } from 'react';
 import { 
   FaEnvelope, FaLock, FaUser, 
@@ -74,19 +74,35 @@ const LoginForm = ({ onLogin }) => {
 
   const handleLogin = async () => {
     try {
+      console.log('🔐 Attempting login:', { 
+        email: formData.email, 
+        userType: formData.userType 
+      });
+      
       const response = await api.post('/login', {
         email: formData.email,
         password: formData.password,
         userType: formData.userType
       });
 
+      console.log('📥 Login response:', response.data);
+
       if (response.data.success) {
-        sessionStorage.setItem('token', response.data.token);
-        sessionStorage.setItem('currentUser', JSON.stringify(response.data.user));
-        sessionStorage.setItem('userType', formData.userType);
+        // ✅ FIXED: Use localStorage instead of sessionStorage
+        localStorage.setItem('token', response.data.token);
+        localStorage.setItem('currentUser', JSON.stringify(response.data.user));
+        localStorage.setItem('userType', formData.userType);
+        
+        // Verify data was saved
+        console.log('✅ Token saved:', localStorage.getItem('token'));
+        console.log('✅ User saved:', localStorage.getItem('currentUser'));
         
         setServerMessage({ type: 'success', text: 'Login successful!' });
-        onLogin(formData.userType, response.data.user);
+        
+        // Small delay to show success message
+        setTimeout(() => {
+          onLogin(formData.userType, response.data.user);
+        }, 500);
       }
     } catch (error) {
       console.error('Login error:', error);
@@ -110,16 +126,26 @@ const LoginForm = ({ onLogin }) => {
       const response = await api.post('/signup', signupData);
 
       if (response.data.success) {
-        sessionStorage.setItem('token', response.data.token);
-        sessionStorage.setItem('currentUser', JSON.stringify(response.data.user));
-        sessionStorage.setItem('userType', formData.userType);
+        // ✅ FIXED: Use localStorage instead of sessionStorage
+        localStorage.setItem('token', response.data.token);
+        localStorage.setItem('currentUser', JSON.stringify(response.data.user));
+        localStorage.setItem('userType', formData.userType);
         
         setServerMessage({ type: 'success', text: 'Account created successfully!' });
         
         // Show user ID in alert
-        alert(`✅ Account created!\nYour ID: ${response.data.user.userId}`);
+        alert(`✅ Account created!\nYour ID: ${response.data.user.userId}\nPlease login with your credentials.`);
         
-        onLogin(formData.userType, response.data.user);
+        // Switch to login mode after signup
+        setIsLogin(true);
+        setFormData({
+          ...formData,
+          password: '',
+          confirmPassword: ''
+        });
+        
+        // Don't auto-login, let user login manually
+        setServerMessage({ type: 'info', text: 'Account created! Please login with your credentials.' });
       }
     } catch (error) {
       console.error('Signup error:', error);
@@ -188,8 +214,15 @@ const LoginForm = ({ onLogin }) => {
   // Handle Google Sign-In Success
   const handleGoogleSuccess = (user) => {
     console.log('Google sign-in success:', user);
+    // ✅ Save to localStorage
+    if (user.token) {
+      localStorage.setItem('token', user.token);
+    }
+    localStorage.setItem('currentUser', JSON.stringify(user));
+    localStorage.setItem('userType', user.userType || 'patient');
+    
     setServerMessage({ type: 'success', text: 'Google sign-in successful!' });
-    onLogin(user.userType, user);
+    onLogin(user.userType || 'patient', user);
   };
 
   // Handle Google Sign-In Error
@@ -263,7 +296,7 @@ const LoginForm = ({ onLogin }) => {
         type="button"
         onClick={() => {
           setFormData({...formData, userType: 'admin'});
-          setIsLogin(true); // Admin only login
+          setIsLogin(true);
         }}
         className={`px-6 py-2 rounded-full text-sm font-medium transition-all ${
           formData.userType === 'admin'
@@ -304,6 +337,24 @@ const LoginForm = ({ onLogin }) => {
 
           {/* User Type Selector */}
           <UserTypeSelector />
+
+          {/* Doctor Login Hint */}
+          {formData.userType === 'doctor' && isLogin && (
+            <div className="mb-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
+              <p className="text-xs text-blue-700">
+                💡 Doctor login: Use the email provided by admin with password <strong>doctor123</strong>
+              </p>
+            </div>
+          )}
+
+          {/* Admin Login Hint */}
+          {formData.userType === 'admin' && isLogin && (
+            <div className="mb-4 p-3 bg-purple-50 rounded-lg border border-purple-200">
+              <p className="text-xs text-purple-700">
+                💡 Admin login: Use admin@healthai.com with password <strong>admin123</strong>
+              </p>
+            </div>
+          )}
 
           <GoogleAuth 
             onSuccess={handleGoogleSuccess}
@@ -503,6 +554,25 @@ const LoginForm = ({ onLogin }) => {
             <button className="text-blue-600 hover:text-blue-700">Terms of Service</button>
             {' '}and{' '}
             <button className="text-blue-600 hover:text-blue-700">Privacy Policy</button>
+          </div>
+        </div>
+
+        {/* Test Credentials */}
+        <div className="mt-6 bg-white rounded-xl shadow-md p-4 border border-gray-200">
+          <p className="text-xs font-semibold text-gray-500 mb-2">🔐 Test Credentials</p>
+          <div className="space-y-2 text-xs">
+            <div className="flex justify-between">
+              <span className="text-gray-600">👤 Doctor:</span>
+              <span className="text-gray-800">doctor@healthai.com / doctor123</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-600">👤 Patient:</span>
+              <span className="text-gray-800">patient@healthai.com / patient123</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-600">👤 Admin:</span>
+              <span className="text-gray-800">admin@healthai.com / admin123</span>
+            </div>
           </div>
         </div>
       </div>
