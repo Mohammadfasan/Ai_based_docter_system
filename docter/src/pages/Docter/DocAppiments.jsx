@@ -27,7 +27,7 @@ const DocAppiments = ({
   userData = {}
 }) => {
   const navigate = useNavigate();
-  const [activeFilter, setActiveFilter] = useState('all');
+  const [activeFilter, setActiveFilter] = useState('pending'); // ✅ Changed default to 'pending'
   const [searchQuery, setSearchQuery] = useState('');
   const [showFilters, setShowFilters] = useState(false);
   const [appointments, setAppointments] = useState([]);
@@ -42,6 +42,7 @@ const DocAppiments = ({
   const [showFileViewModal, setShowFileViewModal] = useState(false);
   const [selectedFile, setSelectedFile] = useState(null);
   const [error, setError] = useState('');
+  const [actionLoading, setActionLoading] = useState(null); // Track which appointment is being processed
   
   // Helper function to check if date is expired (before today)
   const isExpired = (dateString) => {
@@ -125,6 +126,10 @@ const DocAppiments = ({
         allAppointments = response.data.data || [];
       }
       
+      // Log pending appointments count
+      const pendingApps = allAppointments.filter(apt => apt.status === 'pending');
+      console.log(`📋 Found ${pendingApps.length} pending appointments`);
+      
       // Separate expired and active
       const expired = allAppointments.filter(apt => isExpired(apt.date));
       setExpiredCount(expired.length);
@@ -154,50 +159,89 @@ const DocAppiments = ({
     }
   };
 
-  const cleanupExpiredAppointments = async () => {
+  // ✅ Update appointment status via API
+  const handleConfirm = async (id) => {
+    setActionLoading(id);
     try {
       const token = localStorage.getItem('token');
-      const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
-      const doctorIdValue = doctorId || userData?.userId || currentUser?.userId;
       
-      if (!doctorIdValue) return;
-      
-      // Get all appointments
-      const response = await axios.get(`${API_URL}/appointments/doctor/${doctorIdValue}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const response = await axios.patch(`${API_URL}/appointments/${id}/status`,
+        { status: 'confirmed' },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
       
       if (response.data.success) {
-        const expiredApps = response.data.data.filter(apt => isExpired(apt.date));
-        
-        // Delete each expired appointment
-        for (const app of expiredApps) {
-          try {
-            await axios.delete(`${API_URL}/appointments/${app._id}`, {
-              headers: { Authorization: `Bearer ${token}` }
-            });
-          } catch (deleteError) {
-            console.warn(`Failed to delete appointment ${app._id}:`, deleteError.message);
-          }
-        }
-        
-        console.log('🗑️ Expired appointments deleted');
+        console.log('✅ Appointment confirmed');
         await loadAppointments();
+        // Show success message
+        alert('✅ Appointment confirmed successfully!');
+      } else {
+        throw new Error(response.data.message || 'Failed to confirm');
       }
     } catch (error) {
-      console.error('Error cleaning expired appointments:', error);
+      console.error('Error confirming appointment:', error);
+      alert(error.response?.data?.message || 'Failed to confirm appointment');
+    } finally {
+      setActionLoading(null);
     }
   };
 
-  const handleDeleteExpired = async () => {
-    if (window.confirm(`Delete ${expiredCount} expired appointment(s)?`)) {
-      await cleanupExpiredAppointments();
-      setShowExpiredModal(false);
+  const handleCancel = async (id) => {
+    setActionLoading(id);
+    if (!window.confirm('Are you sure you want to cancel this appointment?')) {
+      setActionLoading(null);
+      return;
+    }
+    
+    try {
+      const token = localStorage.getItem('token');
+      
+      const response = await axios.patch(`${API_URL}/appointments/${id}/status`,
+        { status: 'cancelled' },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      
+      if (response.data.success) {
+        console.log('❌ Appointment cancelled');
+        await loadAppointments();
+        alert('❌ Appointment cancelled!');
+      } else {
+        throw new Error(response.data.message || 'Failed to cancel');
+      }
+    } catch (error) {
+      console.error('Error cancelling appointment:', error);
+      alert(error.response?.data?.message || 'Failed to cancel appointment');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleComplete = async (id) => {
+    setActionLoading(id);
+    try {
+      const token = localStorage.getItem('token');
+      
+      const response = await axios.patch(`${API_URL}/appointments/${id}/status`,
+        { status: 'completed' },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      
+      if (response.data.success) {
+        console.log('✅ Appointment marked as completed');
+        await loadAppointments();
+        alert('✅ Appointment marked as completed!');
+      } else {
+        throw new Error(response.data.message || 'Failed to complete');
+      }
+    } catch (error) {
+      console.error('Error completing appointment:', error);
+      alert(error.response?.data?.message || 'Failed to complete appointment');
+    } finally {
+      setActionLoading(null);
     }
   };
 
   const loadPatientMedicalRecords = (patientId, patientEmail) => {
-    // Fetch from MongoDB medical records
     const fetchRecords = async () => {
       try {
         const token = localStorage.getItem('token');
@@ -206,7 +250,6 @@ const DocAppiments = ({
         });
         
         if (response.data.success) {
-          // Filter records for this patient
           const records = response.data.data.filter(record => 
             record.patientId === patientId || 
             record.email === patientEmail
@@ -265,61 +308,6 @@ const DocAppiments = ({
     return <FaFileAlt className="text-gray-500" size={16} />;
   };
 
-  // ✅ Update appointment status via API
-  const handleConfirm = async (id) => {
-    try {
-      const token = localStorage.getItem('token');
-      
-      await axios.patch(`${API_URL}/appointments/${id}/status`,
-        { status: 'confirmed' },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      
-      console.log('✅ Appointment confirmed');
-      await loadAppointments();
-      alert('✅ Appointment confirmed!');
-    } catch (error) {
-      console.error('Error confirming appointment:', error);
-      alert('Failed to confirm appointment');
-    }
-  };
-
-  const handleCancel = async (id) => {
-    try {
-      const token = localStorage.getItem('token');
-      
-      await axios.patch(`${API_URL}/appointments/${id}/status`,
-        { status: 'cancelled' },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      
-      console.log('❌ Appointment cancelled');
-      await loadAppointments();
-      alert('❌ Appointment cancelled!');
-    } catch (error) {
-      console.error('Error cancelling appointment:', error);
-      alert('Failed to cancel appointment');
-    }
-  };
-
-  const handleComplete = async (id) => {
-    try {
-      const token = localStorage.getItem('token');
-      
-      await axios.patch(`${API_URL}/appointments/${id}/status`,
-        { status: 'completed' },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      
-      console.log('✅ Appointment marked as completed');
-      await loadAppointments();
-      alert('✅ Appointment marked as completed!');
-    } catch (error) {
-      console.error('Error completing appointment:', error);
-      alert('Failed to complete appointment');
-    }
-  };
-
   const handleWritePrescription = (appointment) => {
     navigate('/prescriptions', { 
       state: { 
@@ -334,6 +322,46 @@ const DocAppiments = ({
         fromAppointment: true
       } 
     });
+  };
+
+  const cleanupExpiredAppointments = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
+      const doctorIdValue = doctorId || userData?.userId || currentUser?.userId;
+      
+      if (!doctorIdValue) return;
+      
+      const response = await axios.get(`${API_URL}/appointments/doctor/${doctorIdValue}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      if (response.data.success) {
+        const expiredApps = response.data.data.filter(apt => isExpired(apt.date));
+        
+        for (const app of expiredApps) {
+          try {
+            await axios.delete(`${API_URL}/appointments/${app._id}`, {
+              headers: { Authorization: `Bearer ${token}` }
+            });
+          } catch (deleteError) {
+            console.warn(`Failed to delete appointment ${app._id}:`, deleteError.message);
+          }
+        }
+        
+        console.log('🗑️ Expired appointments deleted');
+        await loadAppointments();
+      }
+    } catch (error) {
+      console.error('Error cleaning expired appointments:', error);
+    }
+  };
+
+  const handleDeleteExpired = async () => {
+    if (window.confirm(`Delete ${expiredCount} expired appointment(s)?`)) {
+      await cleanupExpiredAppointments();
+      setShowExpiredModal(false);
+    }
   };
 
   const filteredAppointments = appointments.filter(appointment => {
@@ -373,9 +401,10 @@ const DocAppiments = ({
     return matchesSearch && matchesFilter;
   });
 
+  // Count pending appointments for badge
+  const pendingCount = appointments.filter(apt => apt.status === 'pending').length;
   const todayCount = appointments.filter(apt => apt.isToday).length;
   const futureCount = appointments.filter(apt => apt.isFuture).length;
-  const pendingCount = appointments.filter(apt => apt.status === 'pending').length;
   const confirmedCount = appointments.filter(apt => apt.status === 'confirmed').length;
   const completedCount = appointments.filter(apt => apt.status === 'completed').length;
   const cancelledCount = appointments.filter(apt => apt.status === 'cancelled').length;
@@ -421,6 +450,11 @@ const DocAppiments = ({
             <span className="bg-cyan-500/20 text-cyan-400 px-4 py-2 rounded-full text-[10px] font-black tracking-widest uppercase border border-cyan-500/30">
               Appointment Dashboard
             </span>
+            {pendingCount > 0 && (
+              <span className="bg-amber-500/20 text-amber-400 px-4 py-2 rounded-full text-[10px] font-black tracking-widest uppercase border border-amber-500/30">
+                {pendingCount} Pending Request{pendingCount !== 1 ? 's' : ''}
+              </span>
+            )}
           </div>
           <h1 className="text-5xl md:text-7xl font-black text-white tracking-tighter uppercase leading-none mb-6" style={{ fontFamily: '"Montserrat", sans-serif' }}>
             Patient <span className="text-cyan-400">Visits</span>
@@ -498,7 +532,16 @@ const DocAppiments = ({
           <motion.div 
             key={i} 
             whileHover={{ y: -5 }} 
-            className="bg-white p-6 rounded-2xl shadow-xl flex items-center gap-4 border border-slate-100"
+            className="bg-white p-6 rounded-2xl shadow-xl flex items-center gap-4 border border-slate-100 cursor-pointer hover:shadow-2xl transition-all"
+            onClick={() => {
+              if (item.label === 'Pending') setActiveFilter('pending');
+              else if (item.label === 'Confirmed') setActiveFilter('confirmed');
+              else if (item.label === 'Completed') setActiveFilter('completed');
+              else if (item.label === 'Cancelled') setActiveFilter('cancelled');
+              else if (item.label === 'Today') setActiveFilter('today');
+              else if (item.label === 'Future') setActiveFilter('future');
+              else setActiveFilter('all');
+            }}
           >
             <div className={`${item.bg} p-4 rounded-xl shadow-lg`}>{item.icon}</div>
             <div>
@@ -578,7 +621,7 @@ const DocAppiments = ({
                         activeFilter === 'pending' ? 'bg-amber-500 text-white' : 'bg-amber-50 text-amber-600 hover:bg-amber-100'
                       }`}
                     >
-                      Pending
+                      Pending ({pendingCount})
                     </button>
                     <button 
                       onClick={() => { setActiveFilter('confirmed'); setShowFilters(false); }}
@@ -586,7 +629,7 @@ const DocAppiments = ({
                         activeFilter === 'confirmed' ? 'bg-green-500 text-white' : 'bg-green-50 text-green-600 hover:bg-green-100'
                       }`}
                     >
-                      Confirmed
+                      Confirmed ({confirmedCount})
                     </button>
                     <button 
                       onClick={() => { setActiveFilter('completed'); setShowFilters(false); }}
@@ -594,7 +637,7 @@ const DocAppiments = ({
                         activeFilter === 'completed' ? 'bg-purple-500 text-white' : 'bg-purple-50 text-purple-600 hover:bg-purple-100'
                       }`}
                     >
-                      Completed
+                      Completed ({completedCount})
                     </button>
                     <button 
                       onClick={() => { setActiveFilter('cancelled'); setShowFilters(false); }}
@@ -602,7 +645,7 @@ const DocAppiments = ({
                         activeFilter === 'cancelled' ? 'bg-red-500 text-white' : 'bg-red-50 text-red-600 hover:bg-red-100'
                       }`}
                     >
-                      Cancelled
+                      Cancelled ({cancelledCount})
                     </button>
                   </div>
                 </div>
@@ -649,7 +692,7 @@ const DocAppiments = ({
                         {appointment.patientName ? appointment.patientName.charAt(0).toUpperCase() : 'P'}
                       </div>
                       <div className="flex-1">
-                        <div className="flex items-center gap-3 mb-1">
+                        <div className="flex items-center gap-3 mb-1 flex-wrap">
                           <h3 className="text-xl font-black">{appointment.patientName}</h3>
                           <span className={`px-3 py-1 rounded-full text-[9px] font-black flex items-center gap-1 border ${getStatusColor(appointment.status)}`}>
                             {getStatusIcon(appointment.status)}
@@ -744,23 +787,31 @@ const DocAppiments = ({
                         onClick={() => viewPatientMedicalRecords(appointment)}
                         className="col-span-1 px-3 py-4 bg-blue-50 text-blue-600 rounded-xl text-xs font-black hover:bg-blue-100 transition-all flex items-center justify-center gap-2 border border-blue-200"
                         title="View Medical Records"
+                        disabled={actionLoading === appointment._id}
                       >
                         <FileText size={16} />
                         <span className="hidden sm:inline">Records</span>
                       </button>
                       
-                      {(!appointment.status || appointment.status === 'pending') && (
+                      {/* PENDING STATUS - Show Confirm & Cancel buttons */}
+                      {appointment.status === 'pending' && (
                         <>
                           <button 
                             onClick={() => handleConfirm(appointment._id)}
-                            className="col-span-1 px-3 py-4 bg-green-600 text-white rounded-xl text-xs font-black hover:bg-green-700 transition-all flex items-center justify-center gap-2"
+                            disabled={actionLoading === appointment._id}
+                            className="col-span-1 px-3 py-4 bg-green-600 text-white rounded-xl text-xs font-black hover:bg-green-700 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                           >
-                            <FaCheck size={16} />
+                            {actionLoading === appointment._id ? (
+                              <span className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></span>
+                            ) : (
+                              <FaCheck size={16} />
+                            )}
                             <span className="hidden sm:inline">Confirm</span>
                           </button>
                           <button 
                             onClick={() => handleCancel(appointment._id)}
-                            className="col-span-2 px-3 py-4 bg-red-50 text-red-600 rounded-xl text-xs font-black hover:bg-red-100 transition-all flex items-center justify-center gap-2 border border-red-200"
+                            disabled={actionLoading === appointment._id}
+                            className="col-span-2 px-3 py-4 bg-red-50 text-red-600 rounded-xl text-xs font-black hover:bg-red-100 transition-all flex items-center justify-center gap-2 border border-red-200 disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             <FaTimes size={16} />
                             <span className="hidden sm:inline">Cancel</span>
@@ -768,6 +819,7 @@ const DocAppiments = ({
                         </>
                       )}
                       
+                      {/* CONFIRMED STATUS - Show Complete & Cancel buttons */}
                       {appointment.status === 'confirmed' && (
                         <>
                           {appointment.type?.includes('Video') && appointment.videoLink && (
@@ -781,16 +833,22 @@ const DocAppiments = ({
                           )}
                           <button 
                             onClick={() => handleComplete(appointment._id)}
-                            className={`col-span-1 px-3 py-4 bg-blue-600 text-white rounded-xl text-xs font-black hover:bg-blue-700 transition-all flex items-center justify-center gap-2 ${
+                            disabled={actionLoading === appointment._id}
+                            className={`col-span-1 px-3 py-4 bg-blue-600 text-white rounded-xl text-xs font-black hover:bg-blue-700 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${
                               !appointment.type?.includes('Video') ? 'col-span-2' : ''
                             }`}
                           >
-                            <FaCalendarCheck size={16} />
+                            {actionLoading === appointment._id ? (
+                              <span className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></span>
+                            ) : (
+                              <FaCalendarCheck size={16} />
+                            )}
                             <span className="hidden sm:inline">Complete</span>
                           </button>
                           <button 
                             onClick={() => handleCancel(appointment._id)}
-                            className="col-span-1 px-3 py-4 bg-red-50 text-red-600 rounded-xl text-xs font-black hover:bg-red-100 transition-all flex items-center justify-center gap-2 border border-red-200"
+                            disabled={actionLoading === appointment._id}
+                            className="col-span-1 px-3 py-4 bg-red-50 text-red-600 rounded-xl text-xs font-black hover:bg-red-100 transition-all flex items-center justify-center gap-2 border border-red-200 disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             <FaTimes size={16} />
                             <span className="hidden sm:inline">Cancel</span>
@@ -798,6 +856,7 @@ const DocAppiments = ({
                         </>
                       )}
 
+                      {/* COMPLETED STATUS - Show Write Prescription */}
                       {appointment.status === 'completed' && (
                         <>
                           <button 
@@ -817,8 +876,9 @@ const DocAppiments = ({
                         </>
                       )}
 
+                      {/* CANCELLED STATUS - Show message */}
                       {appointment.status === 'cancelled' && (
-                        <div className="col-span-3 px-3 py-4 bg-slate-100 text-slate-500 rounded-xl text-xs font-black text-center">
+                        <div className="col-span-4 px-3 py-4 bg-slate-100 text-slate-500 rounded-xl text-xs font-black text-center">
                           Appointment Cancelled
                         </div>
                       )}
@@ -826,7 +886,7 @@ const DocAppiments = ({
                   </div>
 
                   {/* Today/Upcoming Badge */}
-                  {(appointment.isToday || appointment.isFuture) && (
+                  {(appointment.isToday || appointment.isFuture) && appointment.status !== 'cancelled' && (
                     <div className={`absolute top-4 right-4 px-4 py-2 rounded-full text-[9px] font-black uppercase tracking-wider ${
                       appointment.isToday ? 'bg-cyan-500 text-white' : 'bg-blue-500 text-white'
                     }`}>
@@ -865,7 +925,7 @@ const DocAppiments = ({
         </AnimatePresence>
       </div>
 
-      {/* Medical Records List Modal */}
+      {/* Medical Records List Modal - Keep existing */}
       <AnimatePresence>
         {showMedicalModal && selectedAppointment && (
           <div className="fixed inset-0 bg-[#001b38]/80 backdrop-blur-xl flex items-center justify-center z-50 p-4">
@@ -938,7 +998,7 @@ const DocAppiments = ({
         )}
       </AnimatePresence>
 
-      {/* Single Record View Modal */}
+      {/* Single Record View Modal - Keep existing */}
       <AnimatePresence>
         {showRecordViewModal && selectedMedicalRecord && (
           <div className="fixed inset-0 bg-[#001b38]/80 backdrop-blur-xl flex items-center justify-center z-[60] p-4">
@@ -965,13 +1025,11 @@ const DocAppiments = ({
               
               <div className="p-8 overflow-y-auto max-h-[60vh]">
                 <div className="space-y-6">
-                  {/* Doctor Info */}
                   <div className="bg-slate-50 p-6 rounded-2xl">
                     <p className="text-[9px] font-black text-slate-400 uppercase mb-2">Doctor</p>
                     <p className="font-black text-[#001b38] text-lg">{selectedMedicalRecord.doctor || 'Unknown'}</p>
                   </div>
 
-                  {/* Notes */}
                   {selectedMedicalRecord.notes && (
                     <div className="bg-slate-50 p-6 rounded-2xl">
                       <p className="text-[9px] font-black text-slate-400 uppercase mb-2">Notes</p>
@@ -979,7 +1037,6 @@ const DocAppiments = ({
                     </div>
                   )}
 
-                  {/* OP Details */}
                   {selectedMedicalRecord.opDetails && (
                     <div className="bg-slate-50 p-6 rounded-2xl">
                       <p className="text-[9px] font-black text-slate-400 uppercase mb-4">Vitals & Details</p>
@@ -1024,7 +1081,6 @@ const DocAppiments = ({
                     </div>
                   )}
 
-                  {/* Files */}
                   {selectedMedicalRecord.files && selectedMedicalRecord.files.length > 0 && (
                     <div className="bg-slate-50 p-6 rounded-2xl">
                       <p className="text-[9px] font-black text-slate-400 uppercase mb-4">Attached Files</p>
@@ -1055,7 +1111,6 @@ const DocAppiments = ({
                         ))}
                       </div>
                       
-                      {/* Download All Button */}
                       {selectedMedicalRecord.files.length > 1 && (
                         <button
                           onClick={() => handleDownloadAllFiles(selectedMedicalRecord)}
@@ -1074,7 +1129,7 @@ const DocAppiments = ({
         )}
       </AnimatePresence>
 
-      {/* File View Modal */}
+      {/* File View Modal - Keep existing */}
       <AnimatePresence>
         {showFileViewModal && selectedFile && (
           <div className="fixed inset-0 bg-[#001b38]/80 backdrop-blur-xl flex items-center justify-center z-[70] p-4">
@@ -1143,7 +1198,7 @@ const DocAppiments = ({
         )}
       </AnimatePresence>
 
-      {/* Delete Expired Modal */}
+      {/* Delete Expired Modal - Keep existing */}
       <AnimatePresence>
         {showExpiredModal && (
           <div className="fixed inset-0 bg-[#001b38]/80 backdrop-blur-xl flex items-center justify-center z-[80] p-4">

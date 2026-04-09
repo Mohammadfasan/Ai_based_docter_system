@@ -1,171 +1,181 @@
+// controllers/appointmentController.js - UPDATED with pending status
+
+import mongoose from 'mongoose';
 import Appointment from '../models/Appointment.js';
 import DoctorSchedule from '../models/DoctorSchedule.js';
+import Doctor from '../models/Doctor.js';
 
-// ✅ Create new appointment
+// Helper function to find doctor by various ID formats
+const findDoctorByAnyId = async (doctorId) => {
+  // Try multiple ways to find the doctor
+  let doctor = await Doctor.findOne({ doctorId: doctorId });
+  
+  if (!doctor && mongoose.Types.ObjectId.isValid(doctorId)) {
+    doctor = await Doctor.findById(doctorId);
+  }
+  
+  if (!doctor) {
+    doctor = await Doctor.findOne({ userId: doctorId });
+  }
+  
+  if (!doctor) {
+    doctor = await Doctor.findOne({ email: doctorId });
+  }
+  
+  return doctor;
+};
+
+// Create a new appointment (status = pending)
 export const createAppointment = async (req, res) => {
   try {
-    const { 
-      doctorId, date, time, slotId, patientId, patientName, 
-      patientEmail, doctorName, doctorSpecialization, type, 
-      location, videoLink, fee, symptoms, status
-    } = req.body;
+    console.log('📝 Create appointment request body:', req.body);
     
-    console.log('📝 Creating appointment:', { doctorId, date, time, slotId, patientId });
-    
-    // Check if appointment already exists for this slot
-    const existingAppointment = await Appointment.findOne({
+    const {
       doctorId,
-      date,
-      time,
-      status: { $ne: 'cancelled' }
-    });
-    
-    if (existingAppointment) {
-      return res.status(400).json({
-        success: false,
-        message: 'This time slot is already booked'
-      });
-    }
-    
-    // Verify slot is still available in doctor's schedule
-    const schedule = await DoctorSchedule.findOne({ doctorId });
-    if (!schedule) {
-      return res.status(400).json({
-        success: false,
-        message: 'Doctor schedule not found'
-      });
-    }
-    
-    const slot = schedule.slots.find(s => String(s.id) === String(slotId));
-    if (!slot) {
-      return res.status(400).json({
-        success: false,
-        message: 'Slot not found'
-      });
-    }
-    
-    if (slot.status === 'booked') {
-      return res.status(400).json({
-        success: false,
-        message: 'This time slot is no longer available'
-      });
-    }
-    
-    // Create appointment with 'pending' status
-    const appointment = new Appointment({
-      patientId,
+      doctorName,
+      specialization,
       patientName,
       patientEmail,
-      doctorId,
-      doctorName: doctorName || slot.doctorName,
-      doctorSpecialization: doctorSpecialization || slot.specialization,
+      patientPhone,
       date,
       time,
       type,
+      location,
+      videoLink,
+      fee,
+      notes
+    } = req.body;
+
+    // Get patient ID from authenticated user
+    const patientId = req.user._id;
+    
+    console.log('👤 Patient ID:', patientId);
+    console.log('👨‍⚕️ Doctor ID (from request):', doctorId);
+
+    // Validate required fields
+    if (!doctorId || !doctorName || !specialization || !patientName || !date || !time || !type) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required fields: doctorId, doctorName, specialization, patientName, date, time, type'
+      });
+    }
+
+    // First, find the doctor to get the actual doctorId string used in DoctorSchedule
+    const doctor = await findDoctorByAnyId(doctorId);
+    
+    if (!doctor) {
+      return res.status(404).json({
+        success: false,
+        message: 'Doctor not found. Please check the doctor information.'
+      });
+    }
+    
+    // Use the doctor's custom doctorId (string) for schedule lookup
+    const actualDoctorId = doctor.doctorId;
+    console.log('👨‍⚕️ Found doctor:', doctor.name, 'with doctorId:', actualDoctorId);
+    
+    // Find schedule using the doctor's custom ID (String)
+    let schedule = await DoctorSchedule.findOne({ doctorId: actualDoctorId });
+    
+    if (!schedule) {
+      console.log('❌ No schedule found for doctorId:', actualDoctorId);
+      return res.status(400).json({
+        success: false,
+        message: 'Doctor schedule not found. Please contact the doctor to set up their availability.'
+      });
+    }
+    
+    console.log('✅ Schedule found with slots:', schedule.slots.length);
+    
+    // Find the specific slot
+    const slot = schedule.slots.find(s => s.date === date && s.time === time);
+    
+    if (!slot) {
+      console.log('❌ Slot not found for date:', date, 'time:', time);
+      return res.status(400).json({
+        success: false,
+        message: 'Selected time slot is not available on this date.'
+      });
+    }
+    
+    if (slot.status !== 'available') {
+      console.log('❌ Slot is not available, status:', slot.status);
+      return res.status(400).json({
+        success: false,
+        message: 'Selected time slot is no longer available. Please choose another slot.'
+      });
+    }
+
+    // OPTION 1: Keep slot as available until doctor confirms
+    // Don't update slot status yet - only mark as pending in appointment
+    // This allows other patients to book the same slot until doctor confirms
+    
+    // OPTION 2: Mark slot as pending (requires updating DoctorSchedule model)
+    // If you want to prevent double booking, uncomment this:
+    /*
+    slot.status = 'pending';
+    slot.bookedBy = patientId.toString();
+    slot.bookedAt = new Date();
+    await schedule.save();
+    console.log('✅ Slot marked as pending');
+    */
+
+    // Generate a unique appointment ID
+    const appointmentId = `APT${Date.now()}${Math.floor(Math.random() * 1000)}`;
+
+    // Create appointment with PENDING status (not confirmed)
+    const appointment = await Appointment.create({
+      appointmentId: appointmentId,
+      doctorId: doctor._id,
+      doctorName: doctorName,
+      specialization: specialization,
+      patientId: patientId,
+      patientName: patientName,
+      patientEmail: patientEmail || '',
+      patientPhone: patientPhone || 'Not provided',
+      date: date,
+      time: time,
+      type: type === 'video' ? 'video' : 'in-person',
       location: location || '',
       videoLink: videoLink || '',
-      fee: fee || slot.fee,
-      symptoms: symptoms || 'General consultation',
-      slotId: String(slotId),
-      status: status || 'pending',
-      bookedAt: new Date(),
-      attachedRecords: [],
+      fee: fee || slot.fee || 0,
+      notes: notes || '',
+      status: 'pending',  // ← PENDING, not confirmed
+      paymentStatus: 'pending',
       createdAt: new Date(),
       updatedAt: new Date()
     });
-    
-    await appointment.save();
-    console.log('✅ Appointment created:', appointment._id);
-    
-    // Mark slot as booked in DoctorSchedule
-    slot.status = 'booked';
-    slot.bookedBy = patientId;
-    slot.bookedAt = new Date();
-    schedule.lastUpdated = new Date();
-    await schedule.save();
-    console.log('✅ Slot marked as booked in schedule');
-    
+
+    console.log('✅ Appointment created successfully with PENDING status:', appointment._id);
+
     res.status(201).json({
       success: true,
-      message: 'Appointment created successfully',
+      message: 'Appointment request submitted successfully. Waiting for doctor confirmation.',
       data: appointment
     });
-    
+
   } catch (error) {
-    console.error('❌ Error creating appointment:', error);
+    console.error('Create appointment error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
+  }
+};
+
+// Confirm a pending appointment (doctor only)
+export const confirmAppointment = async (req, res) => {
+  try {
+    const { id } = req.params;
     
-    if (error.code === 11000) {
+    if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({
         success: false,
-        message: 'This time slot is already booked'
+        message: 'Invalid appointment ID'
       });
     }
-    
-    res.status(500).json({
-      success: false,
-      message: 'Failed to create appointment',
-      error: error.message
-    });
-  }
-};
 
-// ✅ Get current patient's appointments - SHOW ALL STATUSES
-export const getMyAppointments = async (req, res) => {
-  try {
-    const patientId = req.user.userId || req.user._id || req.user.id;
-    
-    console.log('📋 Fetching appointments for patient:', patientId);
-    
-    // Get ALL appointments regardless of status
-    const appointments = await Appointment.find({ patientId }).sort({ date: 1, time: 1 });
-    
-    console.log(`✅ Found ${appointments.length} appointments for patient (all statuses)`);
-    
-    res.status(200).json({
-      success: true,
-      data: appointments
-    });
-  } catch (error) {
-    console.error('❌ Error fetching appointments:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch appointments',
-      error: error.message
-    });
-  }
-};
-
-// ✅ Get all appointments for a specific doctor - SHOW ALL STATUSES
-export const getDoctorAppointments = async (req, res) => {
-  try {
-    const { doctorId } = req.params;
-    
-    console.log('📋 Fetching appointments for doctor:', doctorId);
-    
-    // Get ALL appointments regardless of status
-    const appointments = await Appointment.find({ doctorId }).sort({ date: 1, time: 1 });
-    
-    console.log(`✅ Found ${appointments.length} appointments for doctor (all statuses)`);
-    
-    res.status(200).json({
-      success: true,
-      data: appointments
-    });
-  } catch (error) {
-    console.error('❌ Error fetching doctor appointments:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch appointments',
-      error: error.message
-    });
-  }
-};
-
-// ✅ Get single appointment by ID
-export const getAppointmentById = async (req, res) => {
-  try {
-    const { id } = req.params;
-    
     const appointment = await Appointment.findById(id);
     
     if (!appointment) {
@@ -175,340 +185,742 @@ export const getAppointmentById = async (req, res) => {
       });
     }
     
-    res.status(200).json({
-      success: true,
-      data: appointment
-    });
-  } catch (error) {
-    console.error('❌ Error fetching appointment:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch appointment',
-      error: error.message
-    });
-  }
-};
-
-// ✅ Update appointment status (confirm/complete/cancel)
-export const updateAppointmentStatus = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { status } = req.body;
-    
-    console.log('📝 Updating appointment status:', { id, status });
-    
-    const appointment = await Appointment.findById(id);
-    
-    if (!appointment) {
-      return res.status(404).json({
+    // Check if user is the doctor
+    if (appointment.doctorId.toString() !== req.user._id.toString() && req.user.role !== 'admin') {
+      return res.status(403).json({
         success: false,
-        message: 'Appointment not found'
+        message: 'Only the doctor can confirm this appointment'
       });
     }
     
-    // Update status
-    appointment.status = status;
+    if (appointment.status !== 'pending') {
+      return res.status(400).json({
+        success: false,
+        message: `Only pending appointments can be confirmed. Current status: ${appointment.status}`
+      });
+    }
+    
+    // Update appointment status to confirmed
+    appointment.status = 'confirmed';
+    appointment.confirmedAt = new Date();
     appointment.updatedAt = new Date();
+    await appointment.save();
     
-    // Set timestamp based on status
-    if (status === 'confirmed') {
-      appointment.confirmedAt = new Date();
-    } else if (status === 'completed') {
-      appointment.completedAt = new Date();
-    } else if (status === 'cancelled') {
-      appointment.cancelledAt = new Date();
-      
-      // Free up the slot when cancelled
-      const schedule = await DoctorSchedule.findOne({ doctorId: appointment.doctorId });
-      if (schedule && appointment.slotId) {
-        const slot = schedule.slots.find(s => String(s.id) === String(appointment.slotId));
-        if (slot) {
-          slot.status = 'available';
-          slot.bookedBy = null;
-          slot.bookedAt = null;
-          schedule.lastUpdated = new Date();
+    // Now update the slot to booked (prevent double booking)
+    const doctor = await Doctor.findById(appointment.doctorId);
+    if (doctor) {
+      const schedule = await DoctorSchedule.findOne({ doctorId: doctor.doctorId });
+      if (schedule) {
+        const slot = schedule.slots.find(s => s.date === appointment.date && s.time === appointment.time);
+        if (slot && slot.status === 'available') {
+          slot.status = 'booked';
+          slot.bookedBy = appointment.patientId.toString();
+          slot.bookedAt = new Date();
           await schedule.save();
-          console.log('✅ Slot freed up after cancellation');
+          console.log('✅ Slot marked as booked for confirmed appointment');
         }
       }
     }
     
+    res.json({
+      success: true,
+      message: 'Appointment confirmed successfully',
+      data: appointment
+    });
+    
+  } catch (error) {
+    console.error('Confirm appointment error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+// Reject/Cancel a pending appointment
+export const rejectAppointment = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { rejectionReason } = req.body;
+    
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid appointment ID'
+      });
+    }
+
+    const appointment = await Appointment.findById(id);
+    
+    if (!appointment) {
+      return res.status(404).json({
+        success: false,
+        message: 'Appointment not found'
+      });
+    }
+    
+    // Check if user is the doctor
+    if (appointment.doctorId.toString() !== req.user._id.toString() && req.user.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Only the doctor can reject this appointment'
+      });
+    }
+    
+    if (appointment.status !== 'pending') {
+      return res.status(400).json({
+        success: false,
+        message: `Only pending appointments can be rejected. Current status: ${appointment.status}`
+      });
+    }
+    
+    // Update appointment status to cancelled
+    appointment.status = 'cancelled';
+    appointment.cancelledAt = new Date();
+    appointment.cancellationReason = rejectionReason || 'Rejected by doctor';
+    appointment.updatedAt = new Date();
     await appointment.save();
     
-    res.status(200).json({
+    res.json({
+      success: true,
+      message: 'Appointment rejected',
+      data: appointment
+    });
+    
+  } catch (error) {
+    console.error('Reject appointment error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+// Get my appointments (for patients)
+export const getMyAppointments = async (req, res) => {
+  try {
+    const patientId = req.user._id;
+    const { status, upcoming } = req.query;
+
+    let query = { patientId };
+
+    if (status) {
+      query.status = status;
+    }
+
+    let appointments = await Appointment.find(query).sort({ date: -1, time: 1 });
+
+    // Filter upcoming appointments if requested
+    if (upcoming === 'true') {
+      const today = new Date().toISOString().split('T')[0];
+      appointments = appointments.filter(apt => apt.date >= today && apt.status === 'confirmed');
+    }
+
+    res.json({
+      success: true,
+      count: appointments.length,
+      data: appointments
+    });
+
+  } catch (error) {
+    console.error('Get my appointments error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+// Get doctor appointments
+export const getDoctorAppointments = async (req, res) => {
+  try {
+    const { doctorId } = req.params;
+    const { date, status } = req.query;
+    
+    // First find the doctor to get MongoDB _id
+    const doctor = await findDoctorByAnyId(doctorId);
+    
+    if (!doctor) {
+      return res.status(404).json({
+        success: false,
+        message: 'Doctor not found'
+      });
+    }
+
+    let query = { doctorId: doctor._id };
+
+    if (date) {
+      query.date = date;
+    }
+
+    if (status) {
+      query.status = status;
+    }
+
+    const appointments = await Appointment.find(query).sort({ date: -1, time: 1 });
+
+    res.json({
+      success: true,
+      count: appointments.length,
+      data: appointments
+    });
+
+  } catch (error) {
+    console.error('Get doctor appointments error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+// Get appointment by ID
+export const getAppointmentById = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid appointment ID'
+      });
+    }
+
+    const appointment = await Appointment.findById(id);
+
+    if (!appointment) {
+      return res.status(404).json({
+        success: false,
+        message: 'Appointment not found'
+      });
+    }
+
+    // Check authorization (patient or doctor)
+    const userId = req.user._id;
+    const isPatient = appointment.patientId.toString() === userId.toString();
+    const isDoctor = appointment.doctorId.toString() === userId.toString();
+
+    if (!isPatient && !isDoctor && req.user.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Not authorized to view this appointment'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: appointment
+    });
+
+  } catch (error) {
+    console.error('Get appointment by ID error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+// Update appointment status
+export const updateAppointmentStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status, cancellationReason } = req.body;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid appointment ID'
+      });
+    }
+
+    const appointment = await Appointment.findById(id);
+
+    if (!appointment) {
+      return res.status(404).json({
+        success: false,
+        message: 'Appointment not found'
+      });
+    }
+
+    // Check authorization
+    const userId = req.user._id;
+    const isPatient = appointment.patientId.toString() === userId.toString();
+    const isDoctor = appointment.doctorId.toString() === userId.toString();
+
+    if (!isPatient && !isDoctor && req.user.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Not authorized to update this appointment'
+      });
+    }
+
+    // Validate status transition
+    const validTransitions = {
+      'pending': ['confirmed', 'cancelled'],
+      'confirmed': ['completed', 'cancelled', 'no-show'],
+      'completed': [],
+      'cancelled': [],
+      'no-show': []
+    };
+
+    if (!validTransitions[appointment.status]?.includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot change status from ${appointment.status} to ${status}`
+      });
+    }
+
+    // Update status
+    appointment.status = status;
+    appointment.updatedAt = new Date();
+
+    if (status === 'cancelled') {
+      appointment.cancelledAt = new Date();
+      appointment.cancellationReason = cancellationReason || 'No reason provided';
+      
+      // Find the doctor to get their custom doctorId
+      const doctor = await Doctor.findById(appointment.doctorId);
+      if (doctor) {
+        // Free up the slot in doctor's schedule if it was booked
+        const schedule = await DoctorSchedule.findOne({ doctorId: doctor.doctorId });
+        if (schedule) {
+          const slot = schedule.slots.find(s => s.date === appointment.date && s.time === appointment.time);
+          if (slot && (slot.status === 'booked' || slot.status === 'pending')) {
+            slot.status = 'available';
+            slot.bookedBy = null;
+            slot.bookedAt = null;
+            await schedule.save();
+            console.log('✅ Slot released for doctor:', doctor.doctorId);
+          }
+        }
+      }
+    }
+
+    if (status === 'confirmed') {
+      appointment.confirmedAt = new Date();
+    }
+
+    if (status === 'completed') {
+      appointment.completedAt = new Date();
+    }
+
+    await appointment.save();
+
+    res.json({
       success: true,
       message: `Appointment ${status} successfully`,
       data: appointment
     });
+
   } catch (error) {
-    console.error('❌ Error updating appointment:', error);
+    console.error('Update appointment status error:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to update appointment',
-      error: error.message
+      message: error.message
     });
   }
 };
 
-// ✅ Delete appointment
+// Delete appointment
 export const deleteAppointment = async (req, res) => {
   try {
     const { id } = req.params;
-    
-    console.log('🗑️ Deleting appointment:', id);
-    
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid appointment ID'
+      });
+    }
+
     const appointment = await Appointment.findById(id);
-    
+
     if (!appointment) {
       return res.status(404).json({
         success: false,
         message: 'Appointment not found'
       });
     }
-    
-    // Free up the slot if appointment was booked
-    if (appointment.status !== 'cancelled' && appointment.slotId) {
-      const schedule = await DoctorSchedule.findOne({ doctorId: appointment.doctorId });
-      if (schedule) {
-        const slot = schedule.slots.find(s => String(s.id) === String(appointment.slotId));
-        if (slot) {
-          slot.status = 'available';
-          slot.bookedBy = null;
-          slot.bookedAt = null;
-          schedule.lastUpdated = new Date();
-          await schedule.save();
-          console.log('✅ Slot freed up after deletion');
-        }
-      }
-    }
-    
-    await Appointment.findByIdAndDelete(id);
-    
-    res.status(200).json({
-      success: true,
-      message: 'Appointment deleted successfully'
-    });
-  } catch (error) {
-    console.error('❌ Error deleting appointment:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to delete appointment',
-      error: error.message
-    });
-  }
-};
 
-// ✅ Delete multiple expired appointments
-export const deleteExpiredAppointments = async (req, res) => {
-  try {
-    const patientId = req.user.userId || req.user._id || req.user.id;
-    
-    console.log('🗑️ Deleting expired appointments for patient:', patientId);
-    
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const todayStr = today.toISOString().split('T')[0];
-    
-    // Find expired appointments
-    const expiredAppointments = await Appointment.find({
-      patientId,
-      date: { $lt: todayStr }
-    });
-    
-    let deletedCount = 0;
-    
-    for (const appointment of expiredAppointments) {
-      // Free up slots for expired appointments
-      if (appointment.slotId) {
-        const schedule = await DoctorSchedule.findOne({ doctorId: appointment.doctorId });
+    // Check authorization
+    const userId = req.user._id;
+    const isPatient = appointment.patientId.toString() === userId.toString();
+    const isDoctor = appointment.doctorId.toString() === userId.toString();
+
+    if (!isPatient && !isDoctor && req.user.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Not authorized to delete this appointment'
+      });
+    }
+
+    // Free up the slot if appointment was confirmed or pending
+    if (appointment.status === 'confirmed' || appointment.status === 'pending') {
+      const doctor = await Doctor.findById(appointment.doctorId);
+      if (doctor) {
+        const schedule = await DoctorSchedule.findOne({ doctorId: doctor.doctorId });
         if (schedule) {
-          const slot = schedule.slots.find(s => String(s.id) === String(appointment.slotId));
-          if (slot && slot.status === 'booked') {
+          const slot = schedule.slots.find(s => s.date === appointment.date && s.time === appointment.time);
+          if (slot && (slot.status === 'booked' || slot.status === 'pending')) {
             slot.status = 'available';
             slot.bookedBy = null;
             slot.bookedAt = null;
-            schedule.lastUpdated = new Date();
             await schedule.save();
           }
         }
       }
-      
-      await Appointment.findByIdAndDelete(appointment._id);
-      deletedCount++;
     }
-    
-    console.log(`✅ Deleted ${deletedCount} expired appointments`);
-    
-    res.status(200).json({
+
+    await appointment.deleteOne();
+
+    res.json({
       success: true,
-      message: `Deleted ${deletedCount} expired appointments`,
-      data: { deletedCount }
+      message: 'Appointment deleted successfully'
     });
+
   } catch (error) {
-    console.error('❌ Error deleting expired appointments:', error);
+    console.error('Delete appointment error:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to delete expired appointments',
-      error: error.message
+      message: error.message
     });
   }
 };
 
-// ✅ Attach medical record to appointment
+// Delete expired appointments (older than 30 days)
+export const deleteExpiredAppointments = async (req, res) => {
+  try {
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+    const result = await Appointment.deleteMany({
+      date: { $lt: thirtyDaysAgo.toISOString().split('T')[0] },
+      status: { $in: ['completed', 'cancelled', 'no-show'] }
+    });
+
+    res.json({
+      success: true,
+      message: `${result.deletedCount} expired appointments deleted`,
+      deletedCount: result.deletedCount
+    });
+
+  } catch (error) {
+    console.error('Delete expired appointments error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+// Attach medical record to appointment
 export const attachRecordToAppointment = async (req, res) => {
   try {
     const { id } = req.params;
-    const { recordId } = req.body;
-    
-    console.log('📎 Attaching record to appointment:', { appointmentId: id, recordId });
-    
+    const { recordId, recordType, recordName, recordUrl, uploadedBy } = req.body;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid appointment ID'
+      });
+    }
+
     const appointment = await Appointment.findById(id);
-    
+
     if (!appointment) {
       return res.status(404).json({
         success: false,
         message: 'Appointment not found'
       });
     }
-    
+
+    // Check authorization
+    const userId = req.user._id;
+    const isPatient = appointment.patientId.toString() === userId.toString();
+    const isDoctor = appointment.doctorId.toString() === userId.toString();
+
+    if (!isPatient && !isDoctor && req.user.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Not authorized to attach records to this appointment'
+      });
+    }
+
     // Initialize attachedRecords array if it doesn't exist
     if (!appointment.attachedRecords) {
       appointment.attachedRecords = [];
     }
-    
-    // Add record if not already attached
-    if (!appointment.attachedRecords.includes(recordId)) {
-      appointment.attachedRecords.push(recordId);
-      appointment.updatedAt = new Date();
-      await appointment.save();
-      
-      console.log('✅ Record attached successfully');
-    } else {
-      console.log('ℹ️ Record already attached');
-    }
-    
-    res.status(200).json({
+
+    // Add new record
+    const newRecord = {
+      recordId: recordId || `REC${Date.now()}${Math.floor(Math.random() * 1000)}`,
+      recordType: recordType || 'document',
+      recordName: recordName || 'Medical Record',
+      recordUrl: recordUrl || '',
+      uploadedBy: uploadedBy || userId,
+      uploadedAt: new Date()
+    };
+
+    appointment.attachedRecords.push(newRecord);
+    appointment.updatedAt = new Date();
+    await appointment.save();
+
+    res.json({
       success: true,
       message: 'Record attached successfully',
-      data: appointment
+      data: newRecord
     });
+
   } catch (error) {
-    console.error('❌ Error attaching record:', error);
+    console.error('Attach record error:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to attach record',
-      error: error.message
+      message: error.message
     });
   }
 };
 
-// ✅ Remove attached record from appointment
+// Remove attached record from appointment
 export const removeAttachedRecord = async (req, res) => {
   try {
     const { id, recordId } = req.params;
-    
-    console.log('📎 Removing record from appointment:', { appointmentId: id, recordId });
-    
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid appointment ID'
+      });
+    }
+
     const appointment = await Appointment.findById(id);
-    
+
     if (!appointment) {
       return res.status(404).json({
         success: false,
         message: 'Appointment not found'
       });
     }
-    
-    if (appointment.attachedRecords) {
-      appointment.attachedRecords = appointment.attachedRecords.filter(
-        recId => recId !== recordId
-      );
-      appointment.updatedAt = new Date();
-      await appointment.save();
-      
-      console.log('✅ Record removed successfully');
+
+    // Check authorization
+    const userId = req.user._id;
+    const isPatient = appointment.patientId.toString() === userId.toString();
+    const isDoctor = appointment.doctorId.toString() === userId.toString();
+
+    if (!isPatient && !isDoctor && req.user.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Not authorized to remove records from this appointment'
+      });
     }
+
+    // Find and remove the record
+    const recordIndex = appointment.attachedRecords.findIndex(r => r.recordId === recordId);
     
-    res.status(200).json({
+    if (recordIndex === -1) {
+      return res.status(404).json({
+        success: false,
+        message: 'Record not found'
+      });
+    }
+
+    appointment.attachedRecords.splice(recordIndex, 1);
+    appointment.updatedAt = new Date();
+    await appointment.save();
+
+    res.json({
       success: true,
-      message: 'Record removed successfully',
-      data: appointment
+      message: 'Record removed successfully'
     });
+
   } catch (error) {
-    console.error('❌ Error removing record:', error);
+    console.error('Remove record error:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to remove record',
-      error: error.message
+      message: error.message
     });
   }
 };
 
-// ✅ Get appointment statistics for patient
+// Get patient statistics
 export const getPatientStats = async (req, res) => {
   try {
-    const patientId = req.user.userId || req.user._id || req.user.id;
-    
-    const total = await Appointment.countDocuments({ patientId });
-    const pending = await Appointment.countDocuments({ patientId, status: 'pending' });
-    const confirmed = await Appointment.countDocuments({ patientId, status: 'confirmed' });
-    const completed = await Appointment.countDocuments({ patientId, status: 'completed' });
-    const cancelled = await Appointment.countDocuments({ patientId, status: 'cancelled' });
-    
-    res.status(200).json({
+    const patientId = req.user._id;
+
+    const totalAppointments = await Appointment.countDocuments({ patientId });
+    const pendingAppointments = await Appointment.countDocuments({
+      patientId,
+      status: 'pending'
+    });
+    const upcomingAppointments = await Appointment.countDocuments({
+      patientId,
+      date: { $gte: new Date().toISOString().split('T')[0] },
+      status: 'confirmed'
+    });
+    const completedAppointments = await Appointment.countDocuments({
+      patientId,
+      status: 'completed'
+    });
+    const cancelledAppointments = await Appointment.countDocuments({
+      patientId,
+      status: 'cancelled'
+    });
+
+    // Calculate total spent
+    const appointments = await Appointment.find({
+      patientId,
+      status: 'completed'
+    });
+    const totalSpent = appointments.reduce((sum, apt) => sum + (apt.fee || 0), 0);
+
+    res.json({
       success: true,
       data: {
-        total,
-        pending,
-        confirmed,
-        completed,
-        cancelled
+        totalAppointments,
+        pendingAppointments,
+        upcomingAppointments,
+        completedAppointments,
+        cancelledAppointments,
+        totalSpent
       }
     });
+
   } catch (error) {
-    console.error('❌ Error fetching patient stats:', error);
+    console.error('Get patient stats error:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to fetch statistics',
-      error: error.message
+      message: error.message
     });
   }
 };
 
-// ✅ Get appointment statistics for doctor
+// Get doctor statistics
 export const getDoctorStats = async (req, res) => {
   try {
     const { doctorId } = req.params;
     
-    const today = new Date().toISOString().split('T')[0];
+    // Find doctor to get MongoDB _id
+    const doctor = await findDoctorByAnyId(doctorId);
     
-    const total = await Appointment.countDocuments({ doctorId });
-    const pending = await Appointment.countDocuments({ doctorId, status: 'pending' });
-    const confirmed = await Appointment.countDocuments({ doctorId, status: 'confirmed' });
-    const completed = await Appointment.countDocuments({ doctorId, status: 'completed' });
-    const cancelled = await Appointment.countDocuments({ doctorId, status: 'cancelled' });
-    const todayAppointments = await Appointment.countDocuments({ 
-      doctorId, 
-      date: today,
-      status: { $in: ['pending', 'confirmed'] }
+    if (!doctor) {
+      return res.status(404).json({
+        success: false,
+        message: 'Doctor not found'
+      });
+    }
+
+    const totalAppointments = await Appointment.countDocuments({ doctorId: doctor._id });
+    const pendingAppointments = await Appointment.countDocuments({
+      doctorId: doctor._id,
+      status: 'pending'
     });
-    
-    res.status(200).json({
+    const today = new Date().toISOString().split('T')[0];
+    const todayAppointments = await Appointment.countDocuments({
+      doctorId: doctor._id,
+      date: today
+    });
+    const completedAppointments = await Appointment.countDocuments({
+      doctorId: doctor._id,
+      status: 'completed'
+    });
+    const cancelledAppointments = await Appointment.countDocuments({
+      doctorId: doctor._id,
+      status: 'cancelled'
+    });
+    const upcomingAppointments = await Appointment.countDocuments({
+      doctorId: doctor._id,
+      date: { $gte: today },
+      status: 'confirmed'
+    });
+
+    // Calculate total revenue
+    const completedApps = await Appointment.find({
+      doctorId: doctor._id,
+      status: 'completed'
+    });
+    const totalRevenue = completedApps.reduce((sum, apt) => sum + (apt.fee || 0), 0);
+
+    res.json({
       success: true,
       data: {
-        total,
-        pending,
-        confirmed,
-        completed,
-        cancelled,
-        todayAppointments
+        totalAppointments,
+        pendingAppointments,
+        todayAppointments,
+        upcomingAppointments,
+        completedAppointments,
+        cancelledAppointments,
+        totalRevenue
       }
     });
+
   } catch (error) {
-    console.error('❌ Error fetching doctor stats:', error);
+    console.error('Get doctor stats error:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to fetch statistics',
-      error: error.message
+      message: error.message
+    });
+  }
+};
+
+// Get available slots (from doctorScheduleController)
+export const getAvailableSlots = async (req, res) => {
+  try {
+    const { doctorId } = req.params;
+    const { date } = req.query;
+    
+    // Find doctor to get the custom doctorId string
+    const doctor = await findDoctorByAnyId(doctorId);
+    
+    if (!doctor) {
+      return res.json({
+        success: true,
+        data: []
+      });
+    }
+    
+    const schedule = await DoctorSchedule.findOne({ doctorId: doctor.doctorId });
+    
+    if (!schedule) {
+      return res.json({
+        success: true,
+        data: []
+      });
+    }
+    
+    let slots = schedule.slots;
+    
+    // Filter by date if provided
+    if (date) {
+      slots = slots.filter(slot => slot.date === date);
+    }
+    
+    // Filter available slots (only 'available', not 'booked' or 'pending')
+    const availableSlots = slots
+      .filter(slot => slot.status === 'available')
+      .map(slot => ({
+        id: slot.id,
+        time: slot.time,
+        date: slot.date,
+        type: slot.type,
+        location: slot.location,
+        videoLink: slot.videoLink,
+        fee: slot.fee,
+        status: slot.status,
+        doctorName: slot.doctorName,
+        specialization: slot.specialization
+      }));
+    
+    res.json({
+      success: true,
+      data: availableSlots
+    });
+    
+  } catch (error) {
+    console.error('Get available slots error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
     });
   }
 };
