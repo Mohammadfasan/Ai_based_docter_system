@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  Calendar, Clock, Search, X, Stethoscope, RefreshCw, 
+  Calendar, Clock, X, Stethoscope, RefreshCw, 
   PlusCircle, FileText, Paperclip, ExternalLink, 
-  AlertCircle, FilePlus, Lock, ChevronRight, CheckCircle,
-  MapPin, Video, Link as LinkIcon, Trash2, Eye, Download
+  AlertCircle, MapPin, Video, Trash2, Eye, Download
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import axios from 'axios';
+
+const API_URL = 'http://localhost:5000/api';
 
 const Appointments = () => {
   const navigate = useNavigate();
@@ -19,142 +21,150 @@ const Appointments = () => {
   const [currentUser, setCurrentUser] = useState(null);
   const [showViewModal, setShowViewModal] = useState(false);
   const [selectedFile, setSelectedFile] = useState(null);
+  const [error, setError] = useState('');
 
   // Helper function to check if date is expired
   const isExpired = (dateString) => {
     if (!dateString) return false;
-    
     const today = new Date();
-    today.setHours(0, 0, 0, 0); // Set to start of day
-    
+    today.setHours(0, 0, 0, 0);
     const appointmentDate = new Date(dateString);
     appointmentDate.setHours(0, 0, 0, 0);
-    
     return appointmentDate < today;
   };
 
   // Helper function to check if date is today
   const isToday = (dateString) => {
     if (!dateString) return false;
-    
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    
     const appointmentDate = new Date(dateString);
     appointmentDate.setHours(0, 0, 0, 0);
-    
     return appointmentDate.getTime() === today.getTime();
-  };
-
-  // Helper function to check if date is future
-  const isFuture = (dateString) => {
-    if (!dateString) return false;
-    
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    
-    const appointmentDate = new Date(dateString);
-    appointmentDate.setHours(0, 0, 0, 0);
-    
-    return appointmentDate > today;
   };
 
   useEffect(() => {
     loadData();
     // Check for expired appointments every minute
     const interval = setInterval(() => {
-      cleanupExpiredAppointments();
       loadData();
-    }, 60000); // 1 minute
+    }, 60000);
     
     return () => clearInterval(interval);
   }, []);
 
-  const loadData = () => {
-    const user = JSON.parse(localStorage.getItem('currentUser') || '{}');
-    setCurrentUser(user);
-    const patientId = user?.userId || user?.id;
-    
-    // Get all users to ensure correct names
-    const allUsers = JSON.parse(localStorage.getItem('healthai_users') || '[]');
-    
-    const allApps = JSON.parse(localStorage.getItem('appointments') || '[]');
-    
-    // Filter for this patient's appointments
-    let userApps = allApps.filter(app => app.patientId === patientId);
-    
-    // FIXED: Ensure patient names are correct by cross-referencing with users data
-    userApps = userApps.map(app => {
-      const patientUser = allUsers.find(u => u.userId === app.patientId);
-      if (patientUser && patientUser.name && patientUser.name !== app.patientName) {
-        console.log(`Fixing appointment patient name: ${app.patientName} -> ${patientUser.name}`);
-        return { ...app, patientName: patientUser.name };
+  const loadData = async () => {
+    try {
+      setLoading(true);
+      setError('');
+      
+      // Get current user from localStorage (only for auth)
+      const user = JSON.parse(localStorage.getItem('currentUser') || '{}');
+      setCurrentUser(user);
+      
+      const token = localStorage.getItem('token');
+      if (!token) {
+        navigate('/login');
+        return;
       }
-      return app;
-    });
-    
-    // Count expired appointments
-    const expired = userApps.filter(app => isExpired(app.date));
-    setExpiredCount(expired.length);
-    
-    // Show only today and future appointments (not expired)
-    const activeAppointments = userApps.filter(app => !isExpired(app.date));
-    
-    // Sort by date (nearest first)
-    setAppointments(activeAppointments.sort((a, b) => new Date(a.date) - new Date(b.date)));
 
-    // ✅ FIXED: Get medical records from the correct storage (medical_records_{userId})
-    const records = JSON.parse(localStorage.getItem(`medical_records_${patientId}`) || '[]');
-    setMedicalRecords(records);
-    
-    setLoading(false);
-  };
+      // ✅ Fetch appointments from MongoDB
+      const appointmentsResponse = await axios.get(`${API_URL}/appointments/my-appointments`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      console.log('📥 Appointments from MongoDB:', appointmentsResponse.data);
+      
+      let userApps = [];
+      if (appointmentsResponse.data.success) {
+        userApps = appointmentsResponse.data.data || [];
+      }
+      
+      // Filter out expired appointments for display only
+      const activeAppointments = userApps.filter(app => !isExpired(app.date));
+      const expiredApps = userApps.filter(app => isExpired(app.date));
+      
+      setExpiredCount(expiredApps.length);
+      setAppointments(activeAppointments.sort((a, b) => new Date(a.date) - new Date(b.date)));
 
-  // Auto-delete expired appointments
-  const cleanupExpiredAppointments = () => {
-    const user = JSON.parse(localStorage.getItem('currentUser') || '{}');
-    const patientId = user?.userId || user?.id;
-    
-    const allApps = JSON.parse(localStorage.getItem('appointments') || '[]');
-    
-    // Filter out expired appointments for this patient
-    const updatedApps = allApps.filter(app => {
-      // Keep if not this patient's appointment
-      if (app.patientId !== patientId) return true;
-      // Keep if not expired
-      return !isExpired(app.date);
-    });
-    
-    if (updatedApps.length !== allApps.length) {
-      localStorage.setItem('appointments', JSON.stringify(updatedApps));
-      console.log('🗑️ Auto-deleted expired appointments');
+      // ✅ Fetch medical records from MongoDB
+      try {
+        const recordsResponse = await axios.get(`${API_URL}/medical-records/my-records`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        
+        if (recordsResponse.data.success) {
+          setMedicalRecords(recordsResponse.data.data || []);
+        }
+      } catch (recordError) {
+        console.warn('Medical records fetch failed:', recordError.message);
+        setMedicalRecords([]);
+      }
+      
+    } catch (error) {
+      console.error('❌ Error loading data:', error);
+      setError('Failed to load appointments. Please try again.');
+    } finally {
+      setLoading(false);
     }
   };
 
-  // Manual delete expired
-  const handleDeleteExpired = () => {
-    if (window.confirm(`Delete ${expiredCount} expired appointment(s)?`)) {
-      cleanupExpiredAppointments();
-      loadData();
+  // ✅ Delete expired appointments via API
+  const handleDeleteExpired = async () => {
+    if (!window.confirm(`Delete ${expiredCount} expired appointment(s)?`)) {
+      return;
+    }
+    
+    try {
+      const token = localStorage.getItem('token');
+      
+      // Get all appointments first to find expired ones
+      const response = await axios.get(`${API_URL}/appointments/my-appointments`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      if (response.data.success) {
+        const expiredApps = response.data.data.filter(app => isExpired(app.date));
+        
+        // Delete each expired appointment
+        for (const app of expiredApps) {
+          try {
+            await axios.delete(`${API_URL}/appointments/${app._id}`, {
+              headers: { Authorization: `Bearer ${token}` }
+            });
+          } catch (deleteError) {
+            console.warn(`Failed to delete appointment ${app._id}:`, deleteError.message);
+          }
+        }
+        
+        console.log('🗑️ Expired appointments deleted');
+        await loadData();
+      }
+    } catch (error) {
+      console.error('Error deleting expired appointments:', error);
+      alert('Failed to delete expired appointments');
+    } finally {
       setShowExpiredModal(false);
     }
   };
 
-  const handleAttachRecord = (appointmentId, recordId) => {
-    const allApps = JSON.parse(localStorage.getItem('appointments') || '[]');
-    const updatedApps = allApps.map(app => {
-      if (app.id === appointmentId) {
-        const attached = app.attachedRecords || [];
-        if (!attached.includes(recordId)) {
-          return { ...app, attachedRecords: [...attached, recordId] };
-        }
-      }
-      return app;
-    });
-
-    localStorage.setItem('appointments', JSON.stringify(updatedApps));
-    loadData();
-    setShowAttachModal(false);
+  // ✅ Attach medical record to appointment via API
+  const handleAttachRecord = async (appointmentId, recordId) => {
+    try {
+      const token = localStorage.getItem('token');
+      
+      await axios.patch(`${API_URL}/appointments/${appointmentId}/attach-record`, 
+        { recordId },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      
+      console.log('✅ Record attached successfully');
+      await loadData();
+      setShowAttachModal(false);
+    } catch (error) {
+      console.error('Error attaching record:', error);
+      alert('Failed to attach record');
+    }
   };
 
   const handleViewFile = (record, file) => {
@@ -216,6 +226,9 @@ const Appointments = () => {
               Patient: {currentUser.name}
             </p>
           )}
+          {error && (
+            <p className="text-red-400 text-sm mt-2 text-center md:text-left">{error}</p>
+          )}
         </div>
       </header>
 
@@ -227,7 +240,7 @@ const Appointments = () => {
               <AlertCircle className="text-amber-600" size={24} />
               <div>
                 <p className="font-black text-amber-800">{expiredCount} expired appointment(s)</p>
-                <p className="text-sm text-amber-600">Past appointments are automatically deleted</p>
+                <p className="text-sm text-amber-600">Click delete to remove past appointments</p>
               </div>
             </div>
             <button
@@ -245,16 +258,14 @@ const Appointments = () => {
             {appointments.length > 0 ? (
               appointments.map((app) => {
                 const isTodayApp = isToday(app.date);
-                const isFutureApp = isFuture(app.date);
                 
                 return (
                   <div 
-                    key={app.id} 
+                    key={app._id || app.id} 
                     className={`bg-white rounded-[2.5rem] p-8 shadow-xl border hover:border-teal-200 transition-all group ${
                       isTodayApp ? 'border-purple-300 bg-purple-50/30' : 'border-white'
                     }`}
                   >
-                    {/* TODAY Badge */}
                     {isTodayApp && (
                       <div className="mb-4">
                         <span className="px-4 py-2 bg-purple-600 text-white rounded-full text-xs font-black">
@@ -279,10 +290,7 @@ const Appointments = () => {
                           <div className="flex items-center gap-2 text-[10px] font-black text-slate-500 bg-slate-50 px-4 py-2 rounded-xl border border-slate-100">
                             <Calendar size={14} className="text-teal-500" /> 
                             {new Date(app.date).toLocaleDateString('en-US', { 
-                              weekday: 'short', 
-                              month: 'short', 
-                              day: 'numeric',
-                              year: 'numeric'
+                              weekday: 'short', month: 'short', day: 'numeric', year: 'numeric'
                             })}
                           </div>
                           <div className="flex items-center gap-2 text-[10px] font-black text-slate-500 bg-slate-50 px-4 py-2 rounded-xl border border-slate-100">
@@ -294,13 +302,13 @@ const Appointments = () => {
                           </div>
                         </div>
 
-                        {/* Attached Medical Records - From MedicalRecordsPage */}
+                        {/* Attached Medical Records */}
                         {app.attachedRecords && app.attachedRecords.length > 0 && (
                           <div className="mt-4">
                             <p className="text-[10px] font-black text-slate-400 uppercase mb-2">Attached Reports</p>
                             <div className="flex flex-wrap gap-2">
                               {app.attachedRecords.map(recId => {
-                                const record = medicalRecords.find(r => r.id === recId);
+                                const record = medicalRecords.find(r => r._id === recId || r.id === recId);
                                 return record ? (
                                   <div key={recId} className="flex items-center gap-2 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-xl text-[10px] font-bold border border-blue-100">
                                     {record.type === 'X-Ray' || record.type === 'MRI' || record.type === 'CT Scan' ? (
@@ -348,7 +356,7 @@ const Appointments = () => {
                           )}
                           <button 
                             onClick={() => { 
-                              setActiveAppointmentId(app.id); 
+                              setActiveAppointmentId(app._id || app.id); 
                               setShowAttachModal(true); 
                             }} 
                             className="px-4 py-3 bg-teal-50 text-teal-600 rounded-xl font-black text-xs hover:bg-teal-100 transition-all flex items-center gap-2"
@@ -380,7 +388,6 @@ const Appointments = () => {
             <div className="bg-[#0f172a] rounded-[2.5rem] p-8 shadow-xl text-white sticky top-6">
               <h4 className="text-xl font-black mb-4">Summary</h4>
               
-              {/* Stats */}
               <div className="space-y-4 mb-8">
                 <div className="flex justify-between items-center p-4 bg-white/5 rounded-xl">
                   <span className="text-slate-300">Total Upcoming</span>
@@ -411,13 +418,6 @@ const Appointments = () => {
                   <span className="text-slate-300">Total Records</span>
                   <span className="text-2xl font-black text-amber-400">{medicalRecords.length}</span>
                 </div>
-
-                {currentUser && (
-                  <div className="flex justify-between items-center p-4 bg-white/5 rounded-xl">
-                    <span className="text-slate-300">Patient ID</span>
-                    <span className="text-sm font-black text-amber-400">{currentUser.userId || currentUser.id}</span>
-                  </div>
-                )}
               </div>
 
               <button 
@@ -459,8 +459,8 @@ const Appointments = () => {
               {medicalRecords.length > 0 ? (
                 medicalRecords.map(record => (
                   <div 
-                    key={record.id} 
-                    onClick={() => handleAttachRecord(activeAppointmentId, record.id)} 
+                    key={record._id || record.id} 
+                    onClick={() => handleAttachRecord(activeAppointmentId, record._id || record.id)} 
                     className="p-4 border border-slate-100 rounded-2xl hover:bg-teal-50 cursor-pointer flex items-center justify-between transition-all"
                   >
                     <div>
@@ -495,7 +495,7 @@ const Appointments = () => {
         </div>
       )}
 
-      {/* Delete Expired Confirmation Modal */}
+      {/* Delete Expired Modal */}
       {showExpiredModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-[2.5rem] max-w-md w-full p-8 shadow-2xl">
@@ -506,7 +506,7 @@ const Appointments = () => {
               <h2 className="text-2xl font-black text-[#0f172a]">Delete Expired?</h2>
               <p className="text-slate-500 mt-2">
                 You have <span className="font-black text-amber-600">{expiredCount}</span> expired appointment(s).
-                These will be permanently removed.
+                These will be permanently removed from the database.
               </p>
             </div>
             
@@ -528,7 +528,7 @@ const Appointments = () => {
         </div>
       )}
 
-      {/* View File Modal */}
+      {/* View File Modal - unchanged */}
       {showViewModal && selectedFile && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
           <div className="bg-white rounded-[2.5rem] max-w-4xl w-full p-8 shadow-2xl max-h-[90vh] overflow-y-auto">

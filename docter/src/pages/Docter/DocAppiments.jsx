@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
-  FaCalendarAlt, FaClock, FaPhone, FaUserCircle,
+  FaCalendarAlt, FaClock, FaUserCircle,
   FaCheck, FaTimes, FaVideo, FaExclamationTriangle,
   FaUserMd, FaInfoCircle, FaCalendarCheck,
   FaFilter, FaSearch, FaStethoscope, FaCalendar,
@@ -17,6 +17,9 @@ import {
   User, Mail, Phone as PhoneIcon, FileText, Video, Download
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import axios from 'axios';
+
+const API_URL = 'http://localhost:5000/api';
 
 const DocAppiments = ({ 
   doctorId = null,
@@ -38,6 +41,7 @@ const DocAppiments = ({
   const [expiredCount, setExpiredCount] = useState(0);
   const [showFileViewModal, setShowFileViewModal] = useState(false);
   const [selectedFile, setSelectedFile] = useState(null);
+  const [error, setError] = useState('');
   
   // Helper function to check if date is expired (before today)
   const isExpired = (dateString) => {
@@ -81,123 +85,146 @@ const DocAppiments = ({
   useEffect(() => {
     loadAppointments();
     const interval = setInterval(() => {
-      cleanupExpiredAppointments();
       loadAppointments();
     }, 60000);
     
     return () => clearInterval(interval);
   }, [doctorId, userData]);
 
-  const loadAppointments = () => {
+  const loadAppointments = async () => {
     setLoading(true);
+    setError('');
     
-    const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
-    
-    const actualDoctorId = doctorId || 
-                          userData?.userId || 
-                          currentUser?.userId;
-    
-    const doctorEmailId = doctorEmail || 
-                         userData?.email || 
-                         currentUser?.email;
-    
-    if (!actualDoctorId) {
-      setLoading(false);
-      return;
-    }
-    
-    const allAppointments = JSON.parse(localStorage.getItem('appointments') || '[]');
-    
-    // Get all users to ensure correct patient names
-    const allUsers = JSON.parse(localStorage.getItem('healthai_users') || '[]');
-    
-    let doctorAppointments = allAppointments.filter(apt => {
-      const matchById = apt.doctorId && String(apt.doctorId) === String(actualDoctorId);
-      const matchByUserId = apt.doctorUserId && String(apt.doctorUserId) === String(actualDoctorId);
-      const matchByEmail = apt.doctorEmail && apt.doctorEmail.toLowerCase() === doctorEmailId?.toLowerCase();
-      
-      return matchById || matchByUserId || matchByEmail;
-    });
-    
-    // FIXED: Ensure patient names are correct by cross-referencing with users data
-    doctorAppointments = doctorAppointments.map(app => {
-      const patientUser = allUsers.find(u => 
-        u.userId === app.patientId || 
-        u.email === app.patientEmail
-      );
-      if (patientUser && patientUser.name && patientUser.name !== app.patientName) {
-        console.log(`Fixing patient name: ${app.patientName} -> ${patientUser.name}`);
-        return { ...app, patientName: patientUser.name };
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        navigate('/login');
+        return;
       }
-      return app;
-    });
-    
-    const expired = doctorAppointments.filter(apt => isExpired(apt.date));
-    setExpiredCount(expired.length);
-    
-    const activeAppointments = doctorAppointments.filter(apt => !isExpired(apt.date));
-    
-    const formattedAppointments = activeAppointments.map(apt => ({
-      ...apt,
-      displayDate: apt.date ? new Date(apt.date).toLocaleDateString('en-US', {
-        month: 'short', day: 'numeric', year: 'numeric'
-      }) : apt.date,
-      patientName: apt.patientName || 'Unknown Patient',
-      symptoms: apt.symptoms || 'General consultation',
-      time: apt.time || '--:--',
-      type: apt.type || 'Clinic Visit',
-      fee: apt.fee || 2500,
-      isToday: isToday(apt.date),
-      isFuture: isFuture(apt.date)
-    }));
-    
-    setAppointments(formattedAppointments);
-    setLoading(false);
-  };
-
-  const cleanupExpiredAppointments = () => {
-    const allAppointments = JSON.parse(localStorage.getItem('appointments') || '[]');
-    const updatedAppointments = allAppointments.filter(apt => !isExpired(apt.date));
-    
-    if (updatedAppointments.length !== allAppointments.length) {
-      localStorage.setItem('appointments', JSON.stringify(updatedAppointments));
+      
+      const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
+      
+      const actualDoctorId = doctorId || 
+                            userData?.userId || 
+                            currentUser?.userId;
+      
+      if (!actualDoctorId) {
+        setLoading(false);
+        return;
+      }
+      
+      // ✅ Fetch appointments from MongoDB
+      const response = await axios.get(`${API_URL}/appointments/doctor/${actualDoctorId}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      console.log('📥 Doctor appointments from MongoDB:', response.data);
+      
+      let allAppointments = [];
+      if (response.data.success) {
+        allAppointments = response.data.data || [];
+      }
+      
+      // Separate expired and active
+      const expired = allAppointments.filter(apt => isExpired(apt.date));
+      setExpiredCount(expired.length);
+      
+      const activeAppointments = allAppointments.filter(apt => !isExpired(apt.date));
+      
+      const formattedAppointments = activeAppointments.map(apt => ({
+        ...apt,
+        displayDate: apt.date ? new Date(apt.date).toLocaleDateString('en-US', {
+          month: 'short', day: 'numeric', year: 'numeric'
+        }) : apt.date,
+        patientName: apt.patientName || 'Unknown Patient',
+        symptoms: apt.symptoms || 'General consultation',
+        time: apt.time || '--:--',
+        type: apt.type || 'Clinic Visit',
+        fee: apt.fee || 2500,
+        isToday: isToday(apt.date),
+        isFuture: isFuture(apt.date)
+      }));
+      
+      setAppointments(formattedAppointments);
+    } catch (error) {
+      console.error('❌ Error loading appointments:', error);
+      setError('Failed to load appointments. Please try again.');
+    } finally {
+      setLoading(false);
     }
   };
 
-  const handleDeleteExpired = () => {
+  const cleanupExpiredAppointments = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
+      const doctorIdValue = doctorId || userData?.userId || currentUser?.userId;
+      
+      if (!doctorIdValue) return;
+      
+      // Get all appointments
+      const response = await axios.get(`${API_URL}/appointments/doctor/${doctorIdValue}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      if (response.data.success) {
+        const expiredApps = response.data.data.filter(apt => isExpired(apt.date));
+        
+        // Delete each expired appointment
+        for (const app of expiredApps) {
+          try {
+            await axios.delete(`${API_URL}/appointments/${app._id}`, {
+              headers: { Authorization: `Bearer ${token}` }
+            });
+          } catch (deleteError) {
+            console.warn(`Failed to delete appointment ${app._id}:`, deleteError.message);
+          }
+        }
+        
+        console.log('🗑️ Expired appointments deleted');
+        await loadAppointments();
+      }
+    } catch (error) {
+      console.error('Error cleaning expired appointments:', error);
+    }
+  };
+
+  const handleDeleteExpired = async () => {
     if (window.confirm(`Delete ${expiredCount} expired appointment(s)?`)) {
-      cleanupExpiredAppointments();
-      loadAppointments();
+      await cleanupExpiredAppointments();
       setShowExpiredModal(false);
     }
   };
 
   const loadPatientMedicalRecords = (patientId, patientEmail) => {
-    // FIXED: Get records from medical_records_{patientId} format
-    if (patientId) {
-      const records = JSON.parse(localStorage.getItem(`medical_records_${patientId}`) || '[]');
-      return records;
-    }
+    // Fetch from MongoDB medical records
+    const fetchRecords = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        const response = await axios.get(`${API_URL}/medical-records/my-records`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        
+        if (response.data.success) {
+          // Filter records for this patient
+          const records = response.data.data.filter(record => 
+            record.patientId === patientId || 
+            record.email === patientEmail
+          );
+          setPatientRecords(records);
+        }
+      } catch (error) {
+        console.error('Error loading medical records:', error);
+        setPatientRecords([]);
+      }
+    };
     
-    // Fallback to old format
-    const records = JSON.parse(localStorage.getItem('user_medical_records') || '[]');
-    
-    return records.filter(record => 
-      record.patientId === patientId || 
-      record.userId === patientId ||
-      record.email === patientEmail ||
-      record.patientEmail === patientEmail ||
-      record.uploadedById === patientId
-    );
+    fetchRecords();
   };
 
   const viewPatientMedicalRecords = (appointment) => {
     setSelectedAppointment(appointment);
-    const records = loadPatientMedicalRecords(
-      appointment.patientId, 
-      appointment.patientEmail
-    );
-    setPatientRecords(records);
+    loadPatientMedicalRecords(appointment.patientId, appointment.patientEmail);
     setShowMedicalModal(true);
   };
 
@@ -212,7 +239,6 @@ const DocAppiments = ({
   };
 
   const handleDownloadFile = (file) => {
-    // Create download link
     const link = document.createElement('a');
     link.href = file.data;
     link.download = file.name;
@@ -224,11 +250,10 @@ const DocAppiments = ({
   const handleDownloadAllFiles = (record) => {
     if (!record.files || record.files.length === 0) return;
     
-    // Download each file
     record.files.forEach(file => {
       setTimeout(() => {
         handleDownloadFile(file);
-      }, 500); // Small delay between downloads
+      }, 500);
     });
   };
 
@@ -240,41 +265,62 @@ const DocAppiments = ({
     return <FaFileAlt className="text-gray-500" size={16} />;
   };
 
-  const handleConfirm = (id) => {
-    const allAppointments = JSON.parse(localStorage.getItem('appointments') || '[]');
-    const updatedAllAppointments = allAppointments.map(apt => 
-      apt.id === id ? { ...apt, status: 'confirmed' } : apt
-    );
-    localStorage.setItem('appointments', JSON.stringify(updatedAllAppointments));
-    
-    loadAppointments();
-    alert('✅ Appointment confirmed!');
+  // ✅ Update appointment status via API
+  const handleConfirm = async (id) => {
+    try {
+      const token = localStorage.getItem('token');
+      
+      await axios.patch(`${API_URL}/appointments/${id}/status`,
+        { status: 'confirmed' },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      
+      console.log('✅ Appointment confirmed');
+      await loadAppointments();
+      alert('✅ Appointment confirmed!');
+    } catch (error) {
+      console.error('Error confirming appointment:', error);
+      alert('Failed to confirm appointment');
+    }
   };
 
-  const handleCancel = (id) => {
-    const allAppointments = JSON.parse(localStorage.getItem('appointments') || '[]');
-    const updatedAllAppointments = allAppointments.map(apt => 
-      apt.id === id ? { ...apt, status: 'cancelled' } : apt
-    );
-    localStorage.setItem('appointments', JSON.stringify(updatedAllAppointments));
-    
-    loadAppointments();
-    alert('❌ Appointment cancelled!');
+  const handleCancel = async (id) => {
+    try {
+      const token = localStorage.getItem('token');
+      
+      await axios.patch(`${API_URL}/appointments/${id}/status`,
+        { status: 'cancelled' },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      
+      console.log('❌ Appointment cancelled');
+      await loadAppointments();
+      alert('❌ Appointment cancelled!');
+    } catch (error) {
+      console.error('Error cancelling appointment:', error);
+      alert('Failed to cancel appointment');
+    }
   };
 
-  const handleComplete = (id) => {
-    const allAppointments = JSON.parse(localStorage.getItem('appointments') || '[]');
-    const updatedAllAppointments = allAppointments.map(apt => 
-      apt.id === id ? { ...apt, status: 'completed' } : apt
-    );
-    localStorage.setItem('appointments', JSON.stringify(updatedAllAppointments));
-    
-    loadAppointments();
-    alert('✅ Appointment marked as completed!');
+  const handleComplete = async (id) => {
+    try {
+      const token = localStorage.getItem('token');
+      
+      await axios.patch(`${API_URL}/appointments/${id}/status`,
+        { status: 'completed' },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      
+      console.log('✅ Appointment marked as completed');
+      await loadAppointments();
+      alert('✅ Appointment marked as completed!');
+    } catch (error) {
+      console.error('Error completing appointment:', error);
+      alert('Failed to complete appointment');
+    }
   };
 
   const handleWritePrescription = (appointment) => {
-    // Navigate to prescription manager with appointment data
     navigate('/prescriptions', { 
       state: { 
         appointment: appointment,
@@ -283,7 +329,7 @@ const DocAppiments = ({
         patientEmail: appointment.patientEmail,
         appointmentDate: appointment.date,
         symptoms: appointment.symptoms,
-        doctorName: userData?.name || appointment.doctorName || 'Dr. Sarah Johnson',
+        doctorName: userData?.name || appointment.doctorName,
         doctorId: userData?.userId || appointment.doctorId,
         fromAppointment: true
       } 
@@ -406,6 +452,15 @@ const DocAppiments = ({
         <Activity className="absolute -bottom-20 -left-10 text-white/5 w-96 h-96" />
       </div>
 
+      {/* Error Alert */}
+      {error && (
+        <div className="max-w-7xl mx-auto px-6 -mt-20 relative z-20 mb-6">
+          <div className="bg-red-500/10 border border-red-500/30 rounded-2xl p-4 backdrop-blur-sm">
+            <p className="text-red-400 text-center">{error}</p>
+          </div>
+        </div>
+      )}
+
       {/* Expired Alert */}
       {expiredCount > 0 && (
         <div className="max-w-7xl mx-auto px-6 -mt-20 relative z-20 mb-6">
@@ -416,11 +471,11 @@ const DocAppiments = ({
               </div>
               <div>
                 <p className="font-black text-amber-500 text-lg">{expiredCount} Expired Appointment(s)</p>
-                <p className="text-sm text-amber-400/70">Past appointments are automatically deleted</p>
+                <p className="text-sm text-amber-400/70">Past appointments will be automatically deleted</p>
               </div>
             </div>
             <button
-              onClick={handleDeleteExpired}
+              onClick={() => setShowExpiredModal(true)}
               className="px-8 py-4 bg-amber-500 text-[#001b38] rounded-xl font-black text-xs tracking-widest uppercase hover:bg-amber-400 transition-all flex items-center gap-3"
             >
               <FaTrash size={14} />
@@ -584,7 +639,7 @@ const DocAppiments = ({
                   initial={{ opacity: 0, scale: 0.9 }}
                   animate={{ opacity: 1, scale: 1 }}
                   exit={{ opacity: 0, scale: 0.9 }}
-                  key={appointment.id} 
+                  key={appointment._id || appointment.id} 
                   className="bg-white rounded-3xl shadow-xl border border-slate-100 overflow-hidden hover:shadow-2xl transition-all group relative"
                 >
                   {/* Card Header - Patient Info */}
@@ -683,84 +738,6 @@ const DocAppiments = ({
                       </div>
                     )}
 
-                    {/* Attached Records from MedicalRecordsPage */}
-                    {appointment.attachedRecords && appointment.attachedRecords.length > 0 && (
-                      <div className="mb-6">
-                        <p className="text-[9px] font-black text-slate-400 uppercase mb-3 flex items-center gap-2">
-                          <FaPaperclip size={12} />
-                          Patient Medical Records ({appointment.attachedRecords.length})
-                        </p>
-                        <div className="space-y-2 max-h-48 overflow-y-auto pr-2">
-                          {appointment.attachedRecords.map(recId => {
-                            // Get records from medical_records_{patientId}
-                            const records = JSON.parse(localStorage.getItem(`medical_records_${appointment.patientId}`) || '[]');
-                            const record = records.find(r => r.id === recId);
-                            return record ? (
-                              <div
-                                key={recId}
-                                className="p-3 bg-blue-50 rounded-xl border border-blue-200"
-                              >
-                                <div className="flex items-center justify-between mb-2">
-                                  <div className="flex items-center gap-2">
-                                    {getFileIcon(record.files?.[0]?.name)}
-                                    <span className="font-bold text-blue-800 text-sm">
-                                      {record.diagnosis || record.type}
-                                    </span>
-                                  </div>
-                                  <span className="text-[8px] bg-blue-200 text-blue-800 px-2 py-1 rounded-full font-black">
-                                    {record.date}
-                                  </span>
-                                </div>
-                                
-                                {/* Files List */}
-                                {record.files && record.files.length > 0 && (
-                                  <div className="space-y-2 mt-2">
-                                    {record.files.map((file, idx) => (
-                                      <div key={idx} className="flex items-center justify-between p-2 bg-white rounded-lg">
-                                        <div className="flex items-center gap-2">
-                                          {getFileIcon(file.name)}
-                                          <span className="text-xs text-slate-600 truncate max-w-[150px]">
-                                            {file.name}
-                                          </span>
-                                        </div>
-                                        <div className="flex gap-1">
-                                          <button
-                                            onClick={() => viewFile(file)}
-                                            className="p-1.5 bg-cyan-100 text-cyan-700 rounded-lg hover:bg-cyan-200 transition-all"
-                                            title="View"
-                                          >
-                                            <FaEye size={12} />
-                                          </button>
-                                          <button
-                                            onClick={() => handleDownloadFile(file)}
-                                            className="p-1.5 bg-green-100 text-green-700 rounded-lg hover:bg-green-200 transition-all"
-                                            title="Download"
-                                          >
-                                            <Download size={12} />
-                                          </button>
-                                        </div>
-                                      </div>
-                                    ))}
-                                  </div>
-                                )}
-                                
-                                {/* Download All Button */}
-                                {record.files && record.files.length > 1 && (
-                                  <button
-                                    onClick={() => handleDownloadAllFiles(record)}
-                                    className="mt-2 w-full py-2 bg-blue-600 text-white rounded-lg text-[10px] font-black hover:bg-blue-700 transition-all flex items-center justify-center gap-2"
-                                  >
-                                    <Download size={12} />
-                                    DOWNLOAD ALL ({record.files.length} files)
-                                  </button>
-                                )}
-                              </div>
-                            ) : null;
-                          })}
-                        </div>
-                      </div>
-                    )}
-
                     {/* Action Buttons */}
                     <div className="grid grid-cols-4 gap-3">
                       <button 
@@ -775,14 +752,14 @@ const DocAppiments = ({
                       {(!appointment.status || appointment.status === 'pending') && (
                         <>
                           <button 
-                            onClick={() => handleConfirm(appointment.id)}
+                            onClick={() => handleConfirm(appointment._id)}
                             className="col-span-1 px-3 py-4 bg-green-600 text-white rounded-xl text-xs font-black hover:bg-green-700 transition-all flex items-center justify-center gap-2"
                           >
                             <FaCheck size={16} />
                             <span className="hidden sm:inline">Confirm</span>
                           </button>
                           <button 
-                            onClick={() => handleCancel(appointment.id)}
+                            onClick={() => handleCancel(appointment._id)}
                             className="col-span-2 px-3 py-4 bg-red-50 text-red-600 rounded-xl text-xs font-black hover:bg-red-100 transition-all flex items-center justify-center gap-2 border border-red-200"
                           >
                             <FaTimes size={16} />
@@ -803,7 +780,7 @@ const DocAppiments = ({
                             </button>
                           )}
                           <button 
-                            onClick={() => handleComplete(appointment.id)}
+                            onClick={() => handleComplete(appointment._id)}
                             className={`col-span-1 px-3 py-4 bg-blue-600 text-white rounded-xl text-xs font-black hover:bg-blue-700 transition-all flex items-center justify-center gap-2 ${
                               !appointment.type?.includes('Video') ? 'col-span-2' : ''
                             }`}
@@ -812,7 +789,7 @@ const DocAppiments = ({
                             <span className="hidden sm:inline">Complete</span>
                           </button>
                           <button 
-                            onClick={() => handleCancel(appointment.id)}
+                            onClick={() => handleCancel(appointment._id)}
                             className="col-span-1 px-3 py-4 bg-red-50 text-red-600 rounded-xl text-xs font-black hover:bg-red-100 transition-all flex items-center justify-center gap-2 border border-red-200"
                           >
                             <FaTimes size={16} />
@@ -1160,6 +1137,45 @@ const DocAppiments = ({
                     </p>
                   </div>
                 )}
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Delete Expired Modal */}
+      <AnimatePresence>
+        {showExpiredModal && (
+          <div className="fixed inset-0 bg-[#001b38]/80 backdrop-blur-xl flex items-center justify-center z-[80] p-4">
+            <motion.div 
+              initial={{ opacity: 0, y: 50 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 50 }}
+              className="bg-white w-full max-w-md rounded-[40px] overflow-hidden shadow-2xl"
+            >
+              <div className="p-8 text-center">
+                <div className="w-20 h-20 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                  <FaTrash className="text-amber-600" size={32} />
+                </div>
+                <h2 className="text-2xl font-black text-[#001b38] mb-4">Delete Expired?</h2>
+                <p className="text-slate-500 mb-6">
+                  You have <span className="font-black text-amber-600">{expiredCount}</span> expired appointment(s).
+                  These will be permanently removed from the database.
+                </p>
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setShowExpiredModal(false)}
+                    className="flex-1 py-4 bg-slate-100 text-slate-700 rounded-xl font-black text-sm hover:bg-slate-200 transition-all"
+                  >
+                    CANCEL
+                  </button>
+                  <button
+                    onClick={handleDeleteExpired}
+                    className="flex-1 py-4 bg-amber-600 text-white rounded-xl font-black text-sm hover:bg-amber-700 transition-all"
+                  >
+                    DELETE ALL
+                  </button>
+                </div>
               </div>
             </motion.div>
           </div>

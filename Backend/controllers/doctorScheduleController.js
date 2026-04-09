@@ -129,6 +129,8 @@ export const getAvailableSlots = async (req, res) => {
     const { doctorId } = req.params;
     const { date } = req.query;
     
+    console.log('📅 Fetching available slots for doctor:', doctorId, 'date:', date);
+    
     const doctor = await findDoctorById(doctorId);
     
     if (!doctor) {
@@ -154,15 +156,18 @@ export const getAvailableSlots = async (req, res) => {
       availableSlots = availableSlots.filter(slot => slot.date === date);
     }
     
-    // Only show future slots
+    // Only show future slots (today and future dates)
     const today = new Date().toISOString().split('T')[0];
     availableSlots = availableSlots.filter(slot => slot.date >= today);
     
+    // Sort by date and time
     availableSlots.sort((a, b) => {
       const dateCompare = a.date.localeCompare(b.date);
       if (dateCompare !== 0) return dateCompare;
       return a.time.localeCompare(b.time);
     });
+    
+    console.log(`✅ Found ${availableSlots.length} available slots`);
     
     res.status(200).json({
       success: true,
@@ -383,7 +388,7 @@ export const addMultipleSlots = async (req, res) => {
       
       if (!existingSlots.has(slotKey)) {
         const newSlot = {
-          id: Date.now() + Math.random(),
+          id: Date.now() + Math.floor(Math.random() * 1000),
           time: slot.time,
           date: slot.date,
           type: slot.type,
@@ -454,7 +459,7 @@ export const deleteMySlot = async (req, res) => {
       });
     }
     
-    const slotIndex = schedule.slots.findIndex(slot => slot.id == slotId);
+    const slotIndex = schedule.slots.findIndex(slot => String(slot.id) === String(slotId));
     
     if (slotIndex === -1) {
       return res.status(404).json({
@@ -512,7 +517,7 @@ export const deleteSlot = async (req, res) => {
       });
     }
     
-    const slotIndex = schedule.slots.findIndex(slot => slot.id == slotId);
+    const slotIndex = schedule.slots.findIndex(slot => String(slot.id) === String(slotId));
     
     if (slotIndex === -1) {
       return res.status(404).json({
@@ -546,11 +551,13 @@ export const deleteSlot = async (req, res) => {
   }
 };
 
-// Update slot status (book/cancel)
+// Update slot status (book/cancel) - FIXED VERSION
 export const updateSlotStatus = async (req, res) => {
   try {
     const { doctorId, slotId } = req.params;
     const { status, patientId, patientName, patientEmail } = req.body;
+    
+    console.log('📝 Updating slot status:', { doctorId, slotId, status });
     
     const doctor = await findDoctorById(doctorId);
     
@@ -571,7 +578,8 @@ export const updateSlotStatus = async (req, res) => {
       });
     }
     
-    const slot = schedule.slots.find(slot => slot.id == slotId);
+    // Find slot by id (compare as strings for consistency)
+    const slot = schedule.slots.find(slot => String(slot.id) === String(slotId));
     
     if (!slot) {
       return res.status(404).json({
@@ -584,17 +592,26 @@ export const updateSlotStatus = async (req, res) => {
       if (slot.status === 'booked') {
         return res.status(400).json({
           success: false,
-          message: 'Slot already booked'
+          message: 'Slot already booked by another patient'
         });
       }
       
       slot.status = 'booked';
       slot.bookedBy = patientId;
       slot.bookedAt = new Date();
+      
+      console.log('✅ Slot booked:', slot.id, 'by patient:', patientId);
     } else if (status === 'available') {
       slot.status = 'available';
       slot.bookedBy = null;
       slot.bookedAt = null;
+      
+      console.log('✅ Slot released:', slot.id);
+    } else {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid status. Must be "booked" or "available"'
+      });
     }
     
     schedule.lastUpdated = new Date();
@@ -602,7 +619,7 @@ export const updateSlotStatus = async (req, res) => {
     
     res.status(200).json({
       success: true,
-      message: `Slot ${status === 'booked' ? 'booked' : 'cancelled'} successfully`,
+      message: `Slot ${status === 'booked' ? 'booked' : 'released'} successfully`,
       data: slot
     });
   } catch (error) {

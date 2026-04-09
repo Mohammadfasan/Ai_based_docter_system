@@ -5,6 +5,7 @@ import connectDB from "./config/db.js";
 import authRoutes from "./routes/auth.js";
 import doctorRoutes from "./routes/doctors.js";
 import doctorScheduleRoutes from "./routes/doctorScheduleRoutes.js";
+import appointmentRoutes from "./routes/appoimentRouter.js";
 import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs";
@@ -50,6 +51,7 @@ connectDB().catch(err => {
 app.use('/api/auth', authRoutes);
 app.use('/api/doctors', doctorRoutes);
 app.use('/api/doctor-schedule', doctorScheduleRoutes);
+app.use('/api/appointments', appointmentRoutes);
 
 // ✅ Test route
 app.get('/api/test', (req, res) => {
