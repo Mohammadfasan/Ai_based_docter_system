@@ -9,9 +9,6 @@ import {
 import { doctorScheduleService } from '../../services/doctorScheduleService';
 import { doctorAPI } from '../../services/api';
 import { appointmentAPI } from '../../services/appointmentAPI';
-import axios from 'axios';
-
-const API_URL = 'http://localhost:5000/api';
 
 const BookAppointment = () => {
   const { doctorId } = useParams();
@@ -144,6 +141,7 @@ const BookAppointment = () => {
         );
         if (!stillAvailable) {
           setSelectedSlot(null);
+          setBookingError('The previously selected slot is no longer available. Please select a new slot.');
         }
       }
       
@@ -155,11 +153,50 @@ const BookAppointment = () => {
     }
   };
 
+  // Verify slot is still available before booking
+  const verifySlotBeforeBooking = async () => {
+    if (!selectedSlot) return false;
+    
+    try {
+      const slotsResponse = await doctorScheduleService.getAvailableSlots(doctorId);
+      let slots = [];
+      if (slotsResponse.success) {
+        slots = slotsResponse.data || [];
+      } else if (Array.isArray(slotsResponse)) {
+        slots = slotsResponse;
+      } else if (slotsResponse.data && Array.isArray(slotsResponse.data)) {
+        slots = slotsResponse.data;
+      }
+      
+      const stillAvailable = slots.find(s => 
+        s.date === selectedSlot.date && 
+        s.time === selectedSlot.time && 
+        s.status === 'available'
+      );
+      
+      if (!stillAvailable) {
+        setBookingError('This time slot is no longer available. Please select another slot.');
+        await refreshSlots();
+        setSelectedSlot(null);
+        return false;
+      }
+      
+      return true;
+    } catch (error) {
+      console.error('Error verifying slot:', error);
+      return false;
+    }
+  };
+
   const handleBookAppointment = async () => {
     if (!selectedSlot) {
       alert('Please select a time slot');
       return;
     }
+
+    // Verify slot is still available
+    const isValid = await verifySlotBeforeBooking();
+    if (!isValid) return;
 
     const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
     if (!currentUser?.userId && !currentUser?._id) {
@@ -210,7 +247,16 @@ const BookAppointment = () => {
       }
     } catch (error) {
       console.error('❌ Booking failed:', error);
-      setBookingError(error.response?.data?.message || error.message || 'Failed to book appointment. Please try again.');
+      
+      // Handle 409 conflict (slot already booked)
+      if (error.response?.status === 409) {
+        setBookingError(error.response?.data?.message || 'This time slot is no longer available. Please select another slot.');
+        // Refresh slots to remove the booked slot
+        await refreshSlots();
+        setSelectedSlot(null);
+      } else {
+        setBookingError(error.response?.data?.message || error.message || 'Failed to book appointment. Please try again.');
+      }
     } finally {
       setIsBooking(false);
     }

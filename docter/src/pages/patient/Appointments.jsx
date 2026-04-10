@@ -1,14 +1,12 @@
+// Appointments.jsx - Using ONLY MongoDB with auto-refresh
 import React, { useState, useEffect, useCallback } from 'react';
 import { 
   Calendar, Clock, Stethoscope, RefreshCw, 
   PlusCircle, FileText, Paperclip, ExternalLink, 
-  AlertCircle, Trash2, Eye, Download, X, 
-  Clock as ClockIcon, CheckCircle, XCircle
+  AlertCircle, Trash2, Eye, Download, X, Clock as ClockIcon
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
-
-const API_URL = 'http://localhost:5000/api';
+import { appointmentAPI } from '../../services/appointmentAPI';
 
 const Appointments = () => {
   const navigate = useNavigate();
@@ -25,8 +23,8 @@ const Appointments = () => {
   const [selectedFile, setSelectedFile] = useState(null);
   const [error, setError] = useState('');
   const [lastUpdate, setLastUpdate] = useState(new Date());
-  const [successMessage, setSuccessMessage] = useState('');
 
+  // Helper function to check if date is expired
   const isExpired = (dateString) => {
     if (!dateString) return false;
     const today = new Date();
@@ -45,38 +43,61 @@ const Appointments = () => {
     return appointmentDate.getTime() === today.getTime();
   };
 
+  // Get status badge styling based on status
   const getStatusBadge = (status, date) => {
-    if (isToday(date)) return 'bg-purple-50 text-purple-600 border-purple-100';
+    if (isToday(date)) {
+      return 'bg-purple-50 text-purple-600 border-purple-100';
+    }
     switch(status) {
-      case 'confirmed': return 'bg-emerald-50 text-emerald-600 border-emerald-100';
-      case 'pending': return 'bg-amber-50 text-amber-600 border-amber-100';
-      case 'completed': return 'bg-blue-50 text-blue-600 border-blue-100';
-      case 'cancelled': return 'bg-red-50 text-red-600 border-red-100';
-      default: return 'bg-slate-50 text-slate-600 border-slate-100';
+      case 'confirmed':
+        return 'bg-emerald-50 text-emerald-600 border-emerald-100';
+      case 'pending':
+        return 'bg-amber-50 text-amber-600 border-amber-100';
+      case 'completed':
+        return 'bg-blue-50 text-blue-600 border-blue-100';
+      case 'cancelled':
+        return 'bg-red-50 text-red-600 border-red-100';
+      case 'no-show':
+        return 'bg-gray-50 text-gray-600 border-gray-100';
+      default:
+        return 'bg-slate-50 text-slate-600 border-slate-100';
     }
   };
 
+  // Get status icon based on status
   const getStatusIcon = (status) => {
     switch(status) {
-      case 'confirmed': return <CheckCircle size={14} className="text-emerald-500" />;
-      case 'pending': return <ClockIcon size={14} className="text-amber-500" />;
-      case 'completed': return <FileText size={14} className="text-blue-500" />;
-      case 'cancelled': return <XCircle size={14} className="text-red-500" />;
-      default: return <Calendar size={14} />;
+      case 'confirmed':
+        return <Calendar size={14} className="text-emerald-500" />;
+      case 'pending':
+        return <ClockIcon size={14} className="text-amber-500" />;
+      case 'completed':
+        return <FileText size={14} className="text-blue-500" />;
+      case 'cancelled':
+        return <AlertCircle size={14} className="text-red-500" />;
+      default:
+        return <Calendar size={14} />;
     }
   };
 
+  // Get status text with styling
   const getStatusText = (status) => {
     switch(status) {
-      case 'confirmed': return 'CONFIRMED';
-      case 'pending': return 'PENDING';
-      case 'completed': return 'COMPLETED';
-      case 'cancelled': return 'CANCELLED';
-      default: return status?.toUpperCase() || 'UNKNOWN';
+      case 'confirmed':
+        return 'CONFIRMED';
+      case 'pending':
+        return 'PENDING';
+      case 'completed':
+        return 'COMPLETED';
+      case 'cancelled':
+        return 'CANCELLED';
+      case 'no-show':
+        return 'NO SHOW';
+      default:
+        return status?.toUpperCase() || 'UNKNOWN';
     }
   };
 
-  // Load appointments from MongoDB (NO localStorage)
   const loadData = useCallback(async (showRefreshIndicator = false) => {
     if (showRefreshIndicator) {
       setRefreshing(true);
@@ -86,112 +107,90 @@ const Appointments = () => {
     setError('');
     
     try {
-      const token = localStorage.getItem('token');
-      if (!token) {
-        navigate('/login');
-        return;
-      }
-      
       const user = JSON.parse(localStorage.getItem('currentUser') || '{}');
       setCurrentUser(user);
       
-      // Fetch appointments from MongoDB
-      const response = await axios.get(`${API_URL}/appointments/my-appointments`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      // Load appointments from MongoDB
+      const response = await appointmentAPI.getMyAppointments();
       
-      if (response.data.success) {
-        let allApps = response.data.data || [];
+      if (response.success) {
+        let allApps = response.data || [];
         
-        console.log(`📋 Found ${allApps.length} total appointments from MongoDB`);
+        // Filter for this patient's appointments (already filtered by API)
+        let userApps = allApps;
         
-        const expired = allApps.filter(app => isExpired(app.date));
+        // Count expired appointments (past dates that are not pending/confirmed)
+        const expired = userApps.filter(app => isExpired(app.date));
         setExpiredCount(expired.length);
         
-        const activeAppointments = allApps.filter(app => !isExpired(app.date));
+        // Show only today and future appointments (not expired)
+        const activeAppointments = userApps.filter(app => !isExpired(app.date));
         
+        // Sort by date (nearest first)
         setAppointments(activeAppointments.sort((a, b) => new Date(a.date) - new Date(b.date)));
         setLastUpdate(new Date());
       } else {
-        throw new Error(response.data.message || 'Failed to load appointments');
+        throw new Error(response.message || 'Failed to load appointments');
       }
       
-      // Fetch medical records from MongoDB
-      try {
-        const recordsResponse = await axios.get(`${API_URL}/medical-records/my-records`, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        if (recordsResponse.data.success) {
-          setMedicalRecords(recordsResponse.data.data || []);
-        }
-      } catch (recordsError) {
-        console.log('No medical records found');
-        setMedicalRecords([]);
-      }
+      // Load medical records from localStorage (keep this as is or move to MongoDB)
+      const patientId = user?.userId || user?.id;
+      const records = JSON.parse(localStorage.getItem(`medical_records_${patientId}`) || '[]');
+      setMedicalRecords(records);
       
     } catch (error) {
       console.error('Error loading data:', error);
-      setError(error.response?.data?.message || 'Failed to load appointments');
+      setError(error.message || 'Failed to load appointments');
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [navigate]);
+  }, []);
 
-  // Auto-refresh every 30 seconds
+  // Auto-refresh every 30 seconds to get status updates from doctor
   useEffect(() => {
     loadData();
+    
+    // Set up auto-refresh interval (every 30 seconds)
     const interval = setInterval(() => {
-      console.log('🔄 Auto-refreshing appointments from MongoDB...');
+      console.log('🔄 Auto-refreshing appointments to check for status updates...');
       loadData(true);
-    }, 30000);
+    }, 30000); // Refresh every 30 seconds
     
     return () => clearInterval(interval);
   }, [loadData]);
 
+  // Manual refresh
   const handleManualRefresh = () => {
     loadData(true);
   };
 
-  // Delete expired appointments from MongoDB
+  // Delete expired appointments via API
   const handleDeleteExpired = async () => {
     try {
-      const token = localStorage.getItem('token');
-      const response = await axios.delete(`${API_URL}/appointments/expired`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      
-      if (response.data.success) {
-        setSuccessMessage(`Deleted ${response.data.deletedCount} expired appointments`);
-        setTimeout(() => setSuccessMessage(''), 3000);
+      const response = await appointmentAPI.deleteExpiredAppointments();
+      if (response.success) {
         await loadData();
         setShowExpiredModal(false);
+      } else {
+        throw new Error(response.message);
       }
     } catch (error) {
       console.error('Error deleting expired:', error);
-      setError('Failed to delete expired appointments');
+      alert('Failed to delete expired appointments');
     }
   };
 
   const handleAttachRecord = async (appointmentId, recordId) => {
     try {
-      const token = localStorage.getItem('token');
-      const response = await axios.post(`${API_URL}/appointments/${appointmentId}/attach`, {
-        recordId: recordId,
-        recordName: medicalRecords.find(r => r._id === recordId)?.diagnosis || 'Medical Record'
-      }, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      
-      if (response.data.success) {
-        setSuccessMessage('Record attached successfully');
-        setTimeout(() => setSuccessMessage(''), 3000);
+      const response = await appointmentAPI.attachRecord(appointmentId, recordId);
+      if (response.success) {
         await loadData();
         setShowAttachModal(false);
       }
     } catch (error) {
       console.error('Error attaching record:', error);
-      setError('Failed to attach record');
+      alert('Failed to attach record');
     }
   };
 
@@ -214,7 +213,7 @@ const Appointments = () => {
       <div className="min-h-screen bg-[#f8fafc] flex items-center justify-center">
         <div className="text-center">
           <RefreshCw className="animate-spin mx-auto mb-4 text-teal-600" size={40} />
-          <p className="text-slate-600">Loading appointments from MongoDB...</p>
+          <p className="text-slate-600">Loading appointments...</p>
         </div>
       </div>
     );
@@ -226,14 +225,14 @@ const Appointments = () => {
         <div className="max-w-7xl mx-auto relative z-10">
           <div className="flex justify-between items-center flex-wrap gap-4">
             <div>
-              <h1 className="text-4xl md:text-5xl font-black text-white tracking-tighter">
+              <h1 className="text-4xl md:text-5xl font-black text-white tracking-tighter text-center md:text-left">
                 Your <span className="text-teal-400">Visits</span>
               </h1>
-              <p className="text-slate-400 font-bold mt-2">
-                Live from MongoDB Database
+              <p className="text-slate-400 font-bold mt-2 text-center md:text-left">
+                Showing today & future appointments only
               </p>
               {currentUser && (
-                <p className="text-teal-400 text-sm mt-2">
+                <p className="text-teal-400 text-sm mt-2 text-center md:text-left">
                   Patient: {currentUser.name}
                 </p>
               )}
@@ -247,19 +246,13 @@ const Appointments = () => {
               Refresh
             </button>
           </div>
-          <p className="text-slate-500 text-xs mt-4">
+          <p className="text-slate-500 text-xs mt-4 text-center md:text-left">
             Last updated: {lastUpdate.toLocaleTimeString()} • Auto-refreshes every 30 seconds
           </p>
         </div>
       </header>
 
       <main className="max-w-7xl mx-auto px-6 lg:px-20 -mt-32 relative z-20">
-        {successMessage && (
-          <div className="mb-6 bg-green-50 border border-green-200 rounded-2xl p-4 text-green-600 text-sm">
-            {successMessage}
-          </div>
-        )}
-
         {error && (
           <div className="mb-6 bg-red-50 border border-red-200 rounded-2xl p-4 text-red-600 text-sm">
             {error}
@@ -267,12 +260,12 @@ const Appointments = () => {
         )}
 
         {expiredCount > 0 && (
-          <div className="mb-6 bg-amber-50 border border-amber-200 rounded-[2rem] p-6 flex items-center justify-between flex-wrap gap-4">
+          <div className="mb-6 bg-amber-50 border border-amber-200 rounded-[2rem] p-6 flex items-center justify-between">
             <div className="flex items-center gap-3">
               <AlertCircle className="text-amber-600" size={24} />
               <div>
                 <p className="font-black text-amber-800">{expiredCount} expired appointment(s)</p>
-                <p className="text-sm text-amber-600">Past appointments will be deleted from MongoDB</p>
+                <p className="text-sm text-amber-600">Past appointments are automatically deleted</p>
               </div>
             </div>
             <button
@@ -280,7 +273,7 @@ const Appointments = () => {
               className="px-6 py-3 bg-amber-600 text-white rounded-xl font-black text-sm hover:bg-amber-700 transition-all flex items-center gap-2"
             >
               <Trash2 size={16} />
-              DELETE EXPIRED
+              DELETE NOW
             </button>
           </div>
         )}
@@ -317,20 +310,21 @@ const Appointments = () => {
                       </div>
                     )}
 
-                    {app.status === 'confirmed' && (
+                    {/* Status changed notification */}
+                    {app.status === 'confirmed' && app._id && (
                       <div className="mb-4">
                         <span className="px-4 py-2 bg-emerald-500 text-white rounded-full text-xs font-black flex items-center gap-2 w-fit">
-                          <CheckCircle size={12} />
+                          <Calendar size={12} />
                           CONFIRMED BY DOCTOR
                         </span>
                       </div>
                     )}
 
-                    {app.status === 'cancelled' && (
+                    {app.status === 'cancelled' && app._id && (
                       <div className="mb-4">
                         <span className="px-4 py-2 bg-red-500 text-white rounded-full text-xs font-black flex items-center gap-2 w-fit">
-                          <XCircle size={12} />
-                          CANCELLED
+                          <AlertCircle size={12} />
+                          CANCELLED BY DOCTOR
                         </span>
                       </div>
                     )}
@@ -348,33 +342,76 @@ const Appointments = () => {
                         </div>
 
                         <div className="flex flex-wrap gap-4 mb-6">
-                          <div className="flex items-center gap-2 text-[10px] font-black text-slate-500 bg-slate-50 px-4 py-2 rounded-xl">
+                          <div className="flex items-center gap-2 text-[10px] font-black text-slate-500 bg-slate-50 px-4 py-2 rounded-xl border border-slate-100">
                             <Calendar size={14} className="text-teal-500" /> 
                             {new Date(app.date).toLocaleDateString('en-US', { 
-                              weekday: 'short', month: 'short', day: 'numeric', year: 'numeric'
+                              weekday: 'short', 
+                              month: 'short', 
+                              day: 'numeric',
+                              year: 'numeric'
                             })}
                           </div>
-                          <div className="flex items-center gap-2 text-[10px] font-black text-slate-500 bg-slate-50 px-4 py-2 rounded-xl">
+                          <div className="flex items-center gap-2 text-[10px] font-black text-slate-500 bg-slate-50 px-4 py-2 rounded-xl border border-slate-100">
                             <Clock size={14} className="text-teal-500" /> {app.time}
                           </div>
                           <div className={`flex items-center gap-2 text-[10px] font-black px-4 py-2 rounded-xl border ${getStatusBadge(app.status, app.date)}`}>
                             {getStatusIcon(app.status)}
                             {getStatusText(app.status)}
                           </div>
+                          <div className="flex items-center gap-2 text-[10px] font-black text-slate-500 bg-slate-50 px-4 py-2 rounded-xl border border-slate-100">
+                            {app.type?.includes('Video') ? <ExternalLink size={14} /> : <Calendar size={14} />}
+                            {app.type?.includes('Video') ? (app.videoLink || 'Video Call') : (app.location || 'Clinic Visit')}
+                          </div>
                         </div>
 
                         {app.notes && (
-                          <div className="mt-2 mb-3 p-3 bg-slate-50 rounded-xl">
-                            <p className="text-xs text-slate-600">
+                          <div className="mt-2 mb-3 p-2 bg-slate-50 rounded-lg">
+                            <p className="text-xs text-slate-500">
                               <span className="font-bold">Reason:</span> {app.notes}
                             </p>
+                          </div>
+                        )}
+
+                        {app.attachedRecords && app.attachedRecords.length > 0 && (
+                          <div className="mt-4">
+                            <p className="text-[10px] font-black text-slate-400 uppercase mb-2">Attached Reports</p>
+                            <div className="flex flex-wrap gap-2">
+                              {app.attachedRecords.map(recId => {
+                                const record = medicalRecords.find(r => r.id === recId);
+                                return record ? (
+                                  <div key={recId} className="flex items-center gap-2 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-xl text-[10px] font-bold border border-blue-100">
+                                    <FileText size={12} />
+                                    <span>{record.diagnosis || record.type}</span>
+                                    {record.files && record.files.length > 0 && (
+                                      <button
+                                        onClick={() => handleViewFile(record, record.files[0])}
+                                        className="ml-1 text-blue-600 hover:text-blue-800"
+                                      >
+                                        <Eye size={10} />
+                                      </button>
+                                    )}
+                                  </div>
+                                ) : null;
+                              })}
+                            </div>
                           </div>
                         )}
                       </div>
 
                       <div className="flex flex-col justify-between items-end">
-                        <div className="flex gap-2">
-                          {app.status === 'confirmed' && app.type === 'video' && app.videoLink && (
+                        <div className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase border flex items-center gap-2 ${
+                          app.status === 'confirmed' ? 'bg-emerald-50 text-emerald-500 border-emerald-100' : 
+                          app.status === 'pending' ? 'bg-amber-50 text-amber-500 border-amber-100' :
+                          app.status === 'completed' ? 'bg-blue-50 text-blue-500 border-blue-100' :
+                          app.status === 'cancelled' ? 'bg-red-50 text-red-500 border-red-100' :
+                          'bg-slate-50 text-slate-500 border-slate-100'
+                        }`}>
+                          {getStatusIcon(app.status)}
+                          {getStatusText(app.status)}
+                        </div>
+                        
+                        <div className="flex gap-2 mt-4">
+                          {app.status === 'confirmed' && app.type?.includes('Video') && app.videoLink && (
                             <a 
                               href={app.videoLink.startsWith('http') ? app.videoLink : `https://${app.videoLink}`} 
                               target="_blank" 
@@ -402,12 +439,12 @@ const Appointments = () => {
                         )}
                         {app.status === 'confirmed' && (
                           <p className="text-[10px] text-emerald-500 mt-3 text-center">
-                            ✓ Appointment confirmed
+                            ✓ Appointment confirmed by doctor
                           </p>
                         )}
                         {app.status === 'cancelled' && (
                           <p className="text-[10px] text-red-500 mt-3 text-center">
-                            ✗ Appointment cancelled
+                            ✗ Appointment cancelled by doctor
                           </p>
                         )}
                       </div>
@@ -419,6 +456,7 @@ const Appointments = () => {
               <div className="bg-white rounded-[2.5rem] p-20 text-center border-2 border-dashed border-slate-200">
                 <Calendar className="mx-auto text-slate-200 mb-4" size={48} />
                 <p className="text-slate-400 font-bold text-lg">No upcoming appointments</p>
+                <p className="text-slate-400 text-sm mt-2">Book an appointment with our specialists</p>
                 <button
                   onClick={() => navigate('/doctors')}
                   className="mt-6 px-8 py-4 bg-teal-600 text-white rounded-xl font-black text-sm hover:bg-teal-700 transition-all"
@@ -459,30 +497,64 @@ const Appointments = () => {
                     {appointments.filter(a => isToday(a.date)).length}
                   </span>
                 </div>
+                
+                <div className="flex justify-between items-center p-4 bg-white/5 rounded-xl">
+                  <span className="text-slate-300">This Week</span>
+                  <span className="text-2xl font-black text-blue-400">
+                    {appointments.filter(a => {
+                      const date = new Date(a.date);
+                      const today = new Date();
+                      const weekLater = new Date(today);
+                      weekLater.setDate(today.getDate() + 7);
+                      return date <= weekLater;
+                    }).length}
+                  </span>
+                </div>
 
                 <div className="flex justify-between items-center p-4 bg-white/5 rounded-xl">
-                  <span className="text-slate-300">Medical Records</span>
+                  <span className="text-slate-300">Total Records</span>
                   <span className="text-2xl font-black text-amber-400">{medicalRecords.length}</span>
                 </div>
+
+                {currentUser && (
+                  <div className="flex justify-between items-center p-4 bg-white/5 rounded-xl">
+                    <span className="text-slate-300">Patient ID</span>
+                    <span className="text-sm font-black text-amber-400">{currentUser.userId || currentUser.id}</span>
+                  </div>
+                )}
               </div>
 
               <button 
                 onClick={() => navigate('/medical-records')} 
                 className="w-full py-4 bg-teal-500 text-[#0f172a] rounded-2xl font-black text-xs hover:bg-teal-400 transition-all"
               >
-                VIEW MEDICAL RECORDS
+                VIEW MEDICAL VAULT ({medicalRecords.length})
+              </button>
+
+              <button
+                onClick={() => {
+                  if (expiredCount > 0) {
+                    setShowExpiredModal(true);
+                  } else {
+                    alert('No expired appointments to clean up');
+                  }
+                }}
+                className="w-full mt-3 py-3 bg-white/5 text-white rounded-2xl font-black text-xs hover:bg-white/10 transition-all flex items-center justify-center gap-2"
+              >
+                <Trash2 size={14} />
+                CLEAN EXPIRED ({expiredCount})
               </button>
             </div>
           </div>
         </div>
       </main>
 
-      {/* Attach Record Modal */}
+      {/* Attach Record Modal - keep as is */}
       {showAttachModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-[2.5rem] max-w-lg w-full p-8 shadow-2xl">
             <div className="flex justify-between items-center mb-6">
-              <h2 className="text-2xl font-black text-[#0f172a]">Select Record</h2>
+              <h2 className="text-2xl font-black text-[#0f172a]">Select Report</h2>
               <button onClick={() => setShowAttachModal(false)} className="text-slate-400 hover:text-slate-600">
                 <X size={24} />
               </button>
@@ -491,15 +563,17 @@ const Appointments = () => {
               {medicalRecords.length > 0 ? (
                 medicalRecords.map(record => (
                   <div 
-                    key={record._id} 
-                    onClick={() => handleAttachRecord(activeAppointmentId, record._id)} 
+                    key={record.id} 
+                    onClick={() => handleAttachRecord(activeAppointmentId, record.id)} 
                     className="p-4 border border-slate-100 rounded-2xl hover:bg-teal-50 cursor-pointer flex items-center justify-between transition-all"
                   >
                     <div>
                       <h4 className="font-bold text-slate-900">{record.diagnosis || record.type}</h4>
                       <p className="text-[10px] text-slate-400 uppercase font-black">{record.date}</p>
                       {record.files && (
-                        <p className="text-[8px] text-teal-600 mt-1">{record.files.length} file(s)</p>
+                        <p className="text-[8px] text-teal-600 mt-1">
+                          {record.files.length} file(s)
+                        </p>
                       )}
                     </div>
                     <PlusCircle size={20} className="text-teal-500" />
@@ -508,7 +582,7 @@ const Appointments = () => {
               ) : (
                 <div className="text-center py-8">
                   <FileText className="mx-auto text-slate-300 mb-3" size={40} />
-                  <p className="text-slate-400 text-sm">No medical records found.</p>
+                  <p className="text-slate-400 text-sm">No records found in vault.</p>
                   <button
                     onClick={() => {
                       setShowAttachModal(false);
@@ -525,7 +599,7 @@ const Appointments = () => {
         </div>
       )}
 
-      {/* Delete Expired Modal */}
+      {/* Delete Expired Confirmation Modal - keep as is */}
       {showExpiredModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-[2.5rem] max-w-md w-full p-8 shadow-2xl">
@@ -536,14 +610,21 @@ const Appointments = () => {
               <h2 className="text-2xl font-black text-[#0f172a]">Delete Expired?</h2>
               <p className="text-slate-500 mt-2">
                 You have <span className="font-black text-amber-600">{expiredCount}</span> expired appointment(s).
+                These will be permanently removed.
               </p>
             </div>
             
             <div className="flex gap-3">
-              <button onClick={() => setShowExpiredModal(false)} className="flex-1 py-4 bg-slate-100 text-slate-700 rounded-xl font-black text-sm">
+              <button
+                onClick={() => setShowExpiredModal(false)}
+                className="flex-1 py-4 bg-slate-100 text-slate-700 rounded-xl font-black text-sm hover:bg-slate-200 transition-all"
+              >
                 CANCEL
               </button>
-              <button onClick={handleDeleteExpired} className="flex-1 py-4 bg-amber-600 text-white rounded-xl font-black text-sm hover:bg-amber-700">
+              <button
+                onClick={handleDeleteExpired}
+                className="flex-1 py-4 bg-amber-600 text-white rounded-xl font-black text-sm hover:bg-amber-700 transition-all"
+              >
                 DELETE ALL
               </button>
             </div>
@@ -551,14 +632,16 @@ const Appointments = () => {
         </div>
       )}
 
-      {/* View File Modal */}
+      {/* View File Modal - keep as is */}
       {showViewModal && selectedFile && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-          <div className="bg-white rounded-[2.5rem] max-w-4xl w-full p-8 shadow-2xl">
+          <div className="bg-white rounded-[2.5rem] max-w-4xl w-full p-8 shadow-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-6">
               <div>
                 <h2 className="text-2xl font-black text-[#0f172a]">{selectedFile.name}</h2>
-                <p className="text-slate-400 text-sm">{(selectedFile.size / 1024).toFixed(1)} KB</p>
+                <p className="text-slate-400 text-sm">
+                  {(selectedFile.size / 1024).toFixed(1)} KB
+                </p>
               </div>
               <button onClick={() => setShowViewModal(false)} className="text-slate-400 hover:text-slate-600">
                 <X size={24} />
@@ -568,13 +651,20 @@ const Appointments = () => {
             <div className="bg-slate-50 rounded-2xl p-8">
               {selectedFile.fileType === 'image' ? (
                 <div className="flex justify-center">
-                  <img src={selectedFile.data} alt={selectedFile.name} className="max-w-full max-h-[60vh] object-contain rounded-xl" />
+                  <img 
+                    src={selectedFile.data} 
+                    alt={selectedFile.name}
+                    className="max-w-full max-h-[60vh] object-contain rounded-xl"
+                  />
                 </div>
               ) : (
                 <div className="text-center py-12">
                   <FileText size={64} className="mx-auto text-slate-400 mb-4" />
                   <p className="text-slate-600 mb-4">PDF Document</p>
-                  <button onClick={() => handleDownloadFile(selectedFile)} className="bg-teal-600 text-white px-6 py-3 rounded-xl font-black hover:bg-teal-700 transition-all inline-flex items-center gap-2">
+                  <button
+                    onClick={() => handleDownloadFile(selectedFile)}
+                    className="bg-teal-600 text-white px-6 py-3 rounded-xl font-black hover:bg-teal-700 transition-all inline-flex items-center gap-2"
+                  >
                     <Download size={18} /> DOWNLOAD PDF
                   </button>
                 </div>

@@ -35,7 +35,7 @@ const doctorScheduleSchema = new mongoose.Schema({
     },
     status: {
       type: String,
-      enum: ['available', 'booked'],
+      enum: ['available', 'booked','pending'],
       default: 'available'
     },
     bookedBy: {
