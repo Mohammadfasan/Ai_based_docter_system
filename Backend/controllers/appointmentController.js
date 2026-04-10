@@ -185,8 +185,28 @@ export const confirmAppointment = async (req, res) => {
       });
     }
     
-    // Check if user is the doctor
-    if (appointment.doctorId.toString() !== req.user._id.toString() && req.user.role !== 'admin') {
+    // IMPORTANT: Find the doctor record for the logged-in user
+    // The logged-in user is from User collection, need to find corresponding Doctor
+    let doctor = await Doctor.findOne({ email: req.user.email });
+    if (!doctor) {
+      doctor = await Doctor.findOne({ userId: req.user._id });
+    }
+    
+    if (!doctor) {
+      return res.status(404).json({
+        success: false,
+        message: 'Doctor profile not found for this user'
+      });
+    }
+    
+    console.log('🔍 Authorization check:', {
+      appointmentDoctorId: appointment.doctorId.toString(),
+      doctorId: doctor._id.toString(),
+      match: appointment.doctorId.toString() === doctor._id.toString()
+    });
+    
+    // Check if the logged-in user is the doctor (using Doctor collection _id)
+    if (appointment.doctorId.toString() !== doctor._id.toString() && req.user.role !== 'admin') {
       return res.status(403).json({
         success: false,
         message: 'Only the doctor can confirm this appointment'
@@ -207,7 +227,6 @@ export const confirmAppointment = async (req, res) => {
     await appointment.save();
     
     // Now update the slot to booked (prevent double booking)
-    const doctor = await Doctor.findById(appointment.doctorId);
     if (doctor) {
       const schedule = await DoctorSchedule.findOne({ doctorId: doctor.doctorId });
       if (schedule) {
@@ -236,7 +255,6 @@ export const confirmAppointment = async (req, res) => {
     });
   }
 };
-
 // Reject/Cancel a pending appointment
 export const rejectAppointment = async (req, res) => {
   try {
@@ -259,8 +277,21 @@ export const rejectAppointment = async (req, res) => {
       });
     }
     
-    // Check if user is the doctor
-    if (appointment.doctorId.toString() !== req.user._id.toString() && req.user.role !== 'admin') {
+    // Find the doctor record for the logged-in user
+    let doctor = await Doctor.findOne({ email: req.user.email });
+    if (!doctor) {
+      doctor = await Doctor.findOne({ userId: req.user._id });
+    }
+    
+    if (!doctor) {
+      return res.status(404).json({
+        success: false,
+        message: 'Doctor profile not found for this user'
+      });
+    }
+    
+    // Check if the logged-in user is the doctor
+    if (appointment.doctorId.toString() !== doctor._id.toString() && req.user.role !== 'admin') {
       return res.status(403).json({
         success: false,
         message: 'Only the doctor can reject this appointment'
@@ -295,7 +326,6 @@ export const rejectAppointment = async (req, res) => {
     });
   }
 };
-
 // Get my appointments (for patients)
 export const getMyAppointments = async (req, res) => {
   try {

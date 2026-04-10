@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   FaCalendarAlt, FaClock, FaUserCircle,
@@ -9,12 +9,13 @@ import {
   FaFilePdf, FaFileImage, FaFileAlt, FaDownload,
   FaEye, FaPaperclip, FaTrash, FaExclamationCircle,
   FaEnvelope, FaWallet, FaHeart, FaShieldAlt, FaLink,
-  FaUser
+  FaUser, FaPhoneAlt, FaBell, FaSpinner
 } from 'react-icons/fa';
 import { 
   Stethoscope, Award, Users, Calendar as LucideCalendar, 
   Heart, Clock, ShieldCheck, Activity, PlusCircle, Trash2, MapPin,
-  User, Mail, Phone as PhoneIcon, FileText, Video, Download
+  User, Mail, Phone as PhoneIcon, FileText, Video, Download,
+  RefreshCw
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
@@ -27,11 +28,12 @@ const DocAppiments = ({
   userData = {}
 }) => {
   const navigate = useNavigate();
-  const [activeFilter, setActiveFilter] = useState('pending'); // ✅ Changed default to 'pending'
+  const [activeFilter, setActiveFilter] = useState('pending');
   const [searchQuery, setSearchQuery] = useState('');
   const [showFilters, setShowFilters] = useState(false);
   const [appointments, setAppointments] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [selectedAppointment, setSelectedAppointment] = useState(null);
   const [showMedicalModal, setShowMedicalModal] = useState(false);
   const [selectedMedicalRecord, setSelectedMedicalRecord] = useState(null);
@@ -42,59 +44,49 @@ const DocAppiments = ({
   const [showFileViewModal, setShowFileViewModal] = useState(false);
   const [selectedFile, setSelectedFile] = useState(null);
   const [error, setError] = useState('');
-  const [actionLoading, setActionLoading] = useState(null); // Track which appointment is being processed
+  const [successMessage, setSuccessMessage] = useState('');
+  const [actionLoading, setActionLoading] = useState(null);
+  const [lastUpdate, setLastUpdate] = useState(new Date());
+  const [showNotification, setShowNotification] = useState(false);
+  const [notificationMessage, setNotificationMessage] = useState('');
   
-  // Helper function to check if date is expired (before today)
+  // Helper function to check if date is expired
   const isExpired = (dateString) => {
     if (!dateString) return false;
-    
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    
     const appointmentDate = new Date(dateString);
     appointmentDate.setHours(0, 0, 0, 0);
-    
     return appointmentDate < today;
   };
 
-  // Helper function to check if a date is today
   const isToday = (dateString) => {
     if (!dateString) return false;
-    
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    
     const appointmentDate = new Date(dateString);
     appointmentDate.setHours(0, 0, 0, 0);
-    
     return appointmentDate.getTime() === today.getTime();
   };
 
-  // Helper function to check if date is future
   const isFuture = (dateString) => {
     if (!dateString) return false;
-    
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    
     const appointmentDate = new Date(dateString);
     appointmentDate.setHours(0, 0, 0, 0);
-    
     return appointmentDate > today;
   };
   
-  useEffect(() => {
-    loadAppointments();
-    const interval = setInterval(() => {
-      loadAppointments();
-    }, 60000);
-    
-    return () => clearInterval(interval);
-  }, [doctorId, userData]);
-
-  const loadAppointments = async () => {
-    setLoading(true);
+  // Load appointments from MongoDB
+  const loadAppointments = useCallback(async (showRefreshIndicator = false) => {
+    if (showRefreshIndicator) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
     setError('');
+    setSuccessMessage('');
     
     try {
       const token = localStorage.getItem('token');
@@ -107,30 +99,35 @@ const DocAppiments = ({
       
       const actualDoctorId = doctorId || 
                             userData?.userId || 
-                            currentUser?.userId;
+                            currentUser?.userId ||
+                            currentUser?._id ||
+                            currentUser?.doctorId;
       
       if (!actualDoctorId) {
+        console.log('No doctor ID found');
         setLoading(false);
+        setRefreshing(false);
         return;
       }
       
-      // ✅ Fetch appointments from MongoDB
-      const response = await axios.get(`${API_URL}/appointments/doctor/${actualDoctorId}`, {
+      console.log('📥 Fetching appointments for doctor:', actualDoctorId);
+      
+      // ✅ CORRECT ENDPOINT - matches your router
+      const response = await axios.get(`${API_URL}/appointments/doctor/${actualDoctorId}/appointments`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       
-      console.log('📥 Doctor appointments from MongoDB:', response.data);
+      console.log('📥 Response:', response.data);
       
       let allAppointments = [];
-      if (response.data.success) {
+      if (response.data && response.data.success) {
         allAppointments = response.data.data || [];
+      } else if (response.data && Array.isArray(response.data)) {
+        allAppointments = response.data;
       }
       
-      // Log pending appointments count
-      const pendingApps = allAppointments.filter(apt => apt.status === 'pending');
-      console.log(`📋 Found ${pendingApps.length} pending appointments`);
+      console.log(`📋 Found ${allAppointments.length} total appointments`);
       
-      // Separate expired and active
       const expired = allAppointments.filter(apt => isExpired(apt.date));
       setExpiredCount(expired.length);
       
@@ -138,57 +135,62 @@ const DocAppiments = ({
       
       const formattedAppointments = activeAppointments.map(apt => ({
         ...apt,
+        _id: apt._id,
         displayDate: apt.date ? new Date(apt.date).toLocaleDateString('en-US', {
           month: 'short', day: 'numeric', year: 'numeric'
         }) : apt.date,
         patientName: apt.patientName || 'Unknown Patient',
-        symptoms: apt.symptoms || 'General consultation',
+        patientEmail: apt.patientEmail || 'Not provided',
+        patientPhone: apt.patientPhone || 'Not provided',
+        symptoms: apt.notes || apt.symptoms || 'General consultation',
         time: apt.time || '--:--',
-        type: apt.type || 'Clinic Visit',
+        type: apt.type === 'video' ? 'Video Consultation' : (apt.type === 'in-person' ? 'Clinic Visit' : apt.type),
         fee: apt.fee || 2500,
         isToday: isToday(apt.date),
         isFuture: isFuture(apt.date)
       }));
       
       setAppointments(formattedAppointments);
+      setLastUpdate(new Date());
+      
     } catch (error) {
       console.error('❌ Error loading appointments:', error);
-      setError('Failed to load appointments. Please try again.');
+      setError(error.response?.data?.message || 'Failed to load appointments. Make sure backend is running on port 5000');
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
+  }, [doctorId, userData, navigate]);
+
+  // Auto-refresh every 30 seconds
+  useEffect(() => {
+    loadAppointments();
+    const interval = setInterval(() => {
+      console.log('🔄 Auto-refreshing appointments...');
+      loadAppointments(true);
+    }, 30000);
+    
+    return () => clearInterval(interval);
+  }, [loadAppointments]);
+
+  const refreshAppointments = async () => {
+    await loadAppointments(true);
   };
 
-  // ✅ Update appointment status via API
-  const handleConfirm = async (id) => {
-    setActionLoading(id);
-    try {
-      const token = localStorage.getItem('token');
-      
-      const response = await axios.patch(`${API_URL}/appointments/${id}/status`,
-        { status: 'confirmed' },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      
-      if (response.data.success) {
-        console.log('✅ Appointment confirmed');
-        await loadAppointments();
-        // Show success message
-        alert('✅ Appointment confirmed successfully!');
-      } else {
-        throw new Error(response.data.message || 'Failed to confirm');
-      }
-    } catch (error) {
-      console.error('Error confirming appointment:', error);
-      alert(error.response?.data?.message || 'Failed to confirm appointment');
-    } finally {
-      setActionLoading(null);
-    }
+  const showSuccessNotification = (message) => {
+    setNotificationMessage(message);
+    setShowNotification(true);
+    setTimeout(() => {
+      setShowNotification(false);
+    }, 3000);
   };
 
-  const handleCancel = async (id) => {
+  // ✅ CONFIRM APPOINTMENT - Correct endpoint
+  const handleConfirm = async (id, patientEmail, patientName) => {
     setActionLoading(id);
-    if (!window.confirm('Are you sure you want to cancel this appointment?')) {
+    setError('');
+    
+    if (!window.confirm(`Confirm appointment for ${patientName}?`)) {
       setActionLoading(null);
       return;
     }
@@ -196,73 +198,145 @@ const DocAppiments = ({
     try {
       const token = localStorage.getItem('token');
       
-      const response = await axios.patch(`${API_URL}/appointments/${id}/status`,
-        { status: 'cancelled' },
-        { headers: { Authorization: `Bearer ${token}` } }
+      console.log('📤 Confirming appointment:', id);
+      
+      // ✅ Correct endpoint - matches your router
+      const response = await axios.patch(`${API_URL}/appointments/${id}/confirm`,
+        {},
+        { 
+          headers: { 
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          } 
+        }
       );
       
       if (response.data.success) {
-        console.log('❌ Appointment cancelled');
-        await loadAppointments();
-        alert('❌ Appointment cancelled!');
+        console.log('✅ Appointment CONFIRMED');
+        showSuccessNotification(`✅ Appointment CONFIRMED for ${patientName}!`);
+        await loadAppointments(true);
+      } else {
+        throw new Error(response.data.message || 'Failed to confirm');
+      }
+    } catch (error) {
+      console.error('Error confirming:', error);
+      const errorMsg = error.response?.data?.message || error.message || 'Network error. Make sure backend is running.';
+      setError(errorMsg);
+      alert(`Error: ${errorMsg}`);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  // ❌ CANCEL APPOINTMENT
+  const handleCancel = async (id, patientEmail, patientName) => {
+    setActionLoading(id);
+    setError('');
+    
+    const reason = prompt('Reason for cancellation (optional):');
+    
+    if (!window.confirm(`Cancel appointment for ${patientName}?`)) {
+      setActionLoading(null);
+      return;
+    }
+    
+    try {
+      const token = localStorage.getItem('token');
+      
+      console.log('📤 Cancelling appointment:', id);
+      
+      // ✅ Correct endpoint
+      const response = await axios.patch(`${API_URL}/appointments/${id}/reject`,
+        { rejectionReason: reason || 'Cancelled by doctor' },
+        { 
+          headers: { 
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          } 
+        }
+      );
+      
+      if (response.data.success) {
+        console.log('❌ Appointment CANCELLED');
+        showSuccessNotification(`❌ Appointment CANCELLED for ${patientName}!`);
+        await loadAppointments(true);
       } else {
         throw new Error(response.data.message || 'Failed to cancel');
       }
     } catch (error) {
-      console.error('Error cancelling appointment:', error);
-      alert(error.response?.data?.message || 'Failed to cancel appointment');
+      console.error('Error cancelling:', error);
+      const errorMsg = error.response?.data?.message || error.message || 'Network error';
+      setError(errorMsg);
+      alert(`Error: ${errorMsg}`);
     } finally {
       setActionLoading(null);
     }
   };
 
+  // ✅ COMPLETE APPOINTMENT
   const handleComplete = async (id) => {
     setActionLoading(id);
+    
+    if (!window.confirm('Mark this appointment as completed?')) {
+      setActionLoading(null);
+      return;
+    }
+    
     try {
       const token = localStorage.getItem('token');
       
+      console.log('📤 Completing appointment:', id);
+      
+      // ✅ Correct endpoint
       const response = await axios.patch(`${API_URL}/appointments/${id}/status`,
         { status: 'completed' },
-        { headers: { Authorization: `Bearer ${token}` } }
+        { 
+          headers: { 
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          } 
+        }
       );
       
       if (response.data.success) {
-        console.log('✅ Appointment marked as completed');
-        await loadAppointments();
-        alert('✅ Appointment marked as completed!');
+        console.log('✅ Appointment COMPLETED');
+        showSuccessNotification('✅ Appointment marked as completed!');
+        await loadAppointments(true);
       } else {
         throw new Error(response.data.message || 'Failed to complete');
       }
     } catch (error) {
-      console.error('Error completing appointment:', error);
-      alert(error.response?.data?.message || 'Failed to complete appointment');
+      console.error('Error completing:', error);
+      const errorMsg = error.response?.data?.message || error.message || 'Network error';
+      setError(errorMsg);
+      alert(`Error: ${errorMsg}`);
     } finally {
       setActionLoading(null);
     }
   };
 
-  const loadPatientMedicalRecords = (patientId, patientEmail) => {
-    const fetchRecords = async () => {
-      try {
-        const token = localStorage.getItem('token');
-        const response = await axios.get(`${API_URL}/medical-records/my-records`, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        
-        if (response.data.success) {
-          const records = response.data.data.filter(record => 
-            record.patientId === patientId || 
-            record.email === patientEmail
-          );
-          setPatientRecords(records);
-        }
-      } catch (error) {
-        console.error('Error loading medical records:', error);
+  // Load medical records
+  const loadPatientMedicalRecords = async (patientId, patientEmail) => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.get(`${API_URL}/medical-records/my-records`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      if (response.data.success) {
+        const records = response.data.data.filter(record => 
+          record.patientId === patientId || 
+          record.patientEmail === patientEmail ||
+          record.email === patientEmail
+        );
+        setPatientRecords(records);
+      } else {
         setPatientRecords([]);
       }
-    };
-    
-    fetchRecords();
+    } catch (error) {
+      console.error('Error loading medical records:', error);
+      setPatientRecords([]);
+    }
   };
 
   const viewPatientMedicalRecords = (appointment) => {
@@ -292,11 +366,8 @@ const DocAppiments = ({
 
   const handleDownloadAllFiles = (record) => {
     if (!record.files || record.files.length === 0) return;
-    
     record.files.forEach(file => {
-      setTimeout(() => {
-        handleDownloadFile(file);
-      }, 500);
+      setTimeout(() => handleDownloadFile(file), 500);
     });
   };
 
@@ -304,7 +375,7 @@ const DocAppiments = ({
     if (!fileName) return <FaFileAlt className="text-gray-400" />;
     const ext = fileName.split('.').pop().toLowerCase();
     if (ext === 'pdf') return <FaFilePdf className="text-red-500" size={16} />;
-    if (['jpg', 'jpeg', 'png', 'gif', 'bmp'].includes(ext)) return <FaFileImage className="text-blue-500" size={16} />;
+    if (['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'].includes(ext)) return <FaFileImage className="text-blue-500" size={16} />;
     return <FaFileAlt className="text-gray-500" size={16} />;
   };
 
@@ -324,41 +395,27 @@ const DocAppiments = ({
     });
   };
 
+  // Delete expired appointments
   const cleanupExpiredAppointments = async () => {
     try {
       const token = localStorage.getItem('token');
-      const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
-      const doctorIdValue = doctorId || userData?.userId || currentUser?.userId;
-      
-      if (!doctorIdValue) return;
-      
-      const response = await axios.get(`${API_URL}/appointments/doctor/${doctorIdValue}`, {
+      const response = await axios.delete(`${API_URL}/appointments/expired`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       
       if (response.data.success) {
-        const expiredApps = response.data.data.filter(apt => isExpired(apt.date));
-        
-        for (const app of expiredApps) {
-          try {
-            await axios.delete(`${API_URL}/appointments/${app._id}`, {
-              headers: { Authorization: `Bearer ${token}` }
-            });
-          } catch (deleteError) {
-            console.warn(`Failed to delete appointment ${app._id}:`, deleteError.message);
-          }
-        }
-        
-        console.log('🗑️ Expired appointments deleted');
-        await loadAppointments();
+        console.log(`🗑️ Deleted expired appointments`);
+        showSuccessNotification(`🗑️ Deleted expired appointments`);
+        await loadAppointments(true);
       }
     } catch (error) {
-      console.error('Error cleaning expired appointments:', error);
+      console.error('Error cleaning expired:', error);
+      setError('Failed to clean expired appointments');
     }
   };
 
   const handleDeleteExpired = async () => {
-    if (window.confirm(`Delete ${expiredCount} expired appointment(s)?`)) {
+    if (window.confirm(`Delete ${expiredCount} expired appointment(s) from MongoDB?`)) {
       await cleanupExpiredAppointments();
       setShowExpiredModal(false);
     }
@@ -368,40 +425,23 @@ const DocAppiments = ({
     const matchesSearch = searchQuery === '' || 
       (appointment.patientName?.toLowerCase() || '').includes(searchQuery.toLowerCase()) ||
       (appointment.symptoms?.toLowerCase() || '').includes(searchQuery.toLowerCase()) ||
-      (appointment.patientId?.toLowerCase() || '').includes(searchQuery.toLowerCase());
+      (appointment.patientId?.toLowerCase() || '').includes(searchQuery.toLowerCase()) ||
+      (appointment.patientEmail?.toLowerCase() || '').includes(searchQuery.toLowerCase());
     
     let matchesFilter = true;
-    
     switch(activeFilter) {
-      case 'all':
-        matchesFilter = true;
-        break;
-      case 'today':
-        matchesFilter = appointment.isToday;
-        break;
-      case 'future':
-        matchesFilter = appointment.isFuture;
-        break;
-      case 'pending':
-        matchesFilter = appointment.status === 'pending';
-        break;
-      case 'confirmed':
-        matchesFilter = appointment.status === 'confirmed';
-        break;
-      case 'completed':
-        matchesFilter = appointment.status === 'completed';
-        break;
-      case 'cancelled':
-        matchesFilter = appointment.status === 'cancelled';
-        break;
-      default:
-        matchesFilter = true;
+      case 'all': matchesFilter = true; break;
+      case 'today': matchesFilter = appointment.isToday; break;
+      case 'future': matchesFilter = appointment.isFuture; break;
+      case 'pending': matchesFilter = appointment.status === 'pending'; break;
+      case 'confirmed': matchesFilter = appointment.status === 'confirmed'; break;
+      case 'completed': matchesFilter = appointment.status === 'completed'; break;
+      case 'cancelled': matchesFilter = appointment.status === 'cancelled'; break;
+      default: matchesFilter = true;
     }
-    
     return matchesSearch && matchesFilter;
   });
 
-  // Count pending appointments for badge
   const pendingCount = appointments.filter(apt => apt.status === 'pending').length;
   const todayCount = appointments.filter(apt => apt.isToday).length;
   const futureCount = appointments.filter(apt => apt.isFuture).length;
@@ -429,12 +469,26 @@ const DocAppiments = ({
     }
   };
 
+  // Check backend connection on mount
+  useEffect(() => {
+    const checkBackend = async () => {
+      try {
+        const response = await axios.get(`${API_URL}/health`);
+        console.log('✅ Backend connected:', response.data);
+      } catch (err) {
+        console.error('❌ Backend not reachable. Make sure server is running on port 5000');
+        setError('Cannot connect to backend server. Please make sure the server is running on http://localhost:5000');
+      }
+    };
+    checkBackend();
+  }, []);
+
   if (loading) {
     return (
       <div className="min-h-screen bg-[#001b38] flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-16 w-16 border-4 border-cyan-500 border-t-transparent mx-auto"></div>
-          <p className="mt-6 text-cyan-400 font-bold text-sm tracking-widest uppercase">Loading Appointments...</p>
+          <p className="mt-6 text-cyan-400 font-bold text-sm tracking-widest uppercase">Loading from MongoDB...</p>
         </div>
       </div>
     );
@@ -443,54 +497,92 @@ const DocAppiments = ({
   return (
     <div className="min-h-screen bg-[#f0f4f8] pb-20 overflow-x-hidden" style={{ fontFamily: '"Inter", sans-serif' }}>
       
-      {/* HERO DASHBOARD */}
+      {/* Notification Toast */}
+      <AnimatePresence>
+        {showNotification && (
+          <motion.div
+            initial={{ opacity: 0, y: -50 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -50 }}
+            className="fixed top-20 right-6 z-50 bg-green-500 text-white px-6 py-4 rounded-2xl shadow-2xl flex items-center gap-3"
+          >
+            <FaBell size={20} />
+            <span className="font-bold text-sm">{notificationMessage}</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Hero Section */}
       <div className="bg-[#001b38] pt-24 pb-40 px-6 relative">
         <div className="max-w-7xl mx-auto relative z-10">
-          <div className="flex items-center gap-3 mb-6">
-            <span className="bg-cyan-500/20 text-cyan-400 px-4 py-2 rounded-full text-[10px] font-black tracking-widest uppercase border border-cyan-500/30">
-              Appointment Dashboard
-            </span>
-            {pendingCount > 0 && (
-              <span className="bg-amber-500/20 text-amber-400 px-4 py-2 rounded-full text-[10px] font-black tracking-widest uppercase border border-amber-500/30">
-                {pendingCount} Pending Request{pendingCount !== 1 ? 's' : ''}
+          <div className="flex items-center justify-between flex-wrap gap-4 mb-6">
+            <div className="flex items-center gap-3 flex-wrap">
+              <span className="bg-cyan-500/20 text-cyan-400 px-4 py-2 rounded-full text-[10px] font-black tracking-widest uppercase border border-cyan-500/30">
+                MongoDB Live Data
               </span>
-            )}
+              {pendingCount > 0 && (
+                <span className="bg-amber-500/20 text-amber-400 px-4 py-2 rounded-full text-[10px] font-black tracking-widest uppercase border border-amber-500/30 animate-pulse">
+                  🔔 {pendingCount} Pending Request{pendingCount !== 1 ? 's' : ''}
+                </span>
+              )}
+            </div>
+            <button
+              onClick={refreshAppointments}
+              disabled={refreshing}
+              className="bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition-all"
+            >
+              <RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} />
+              Refresh
+            </button>
           </div>
-          <h1 className="text-5xl md:text-7xl font-black text-white tracking-tighter uppercase leading-none mb-6" style={{ fontFamily: '"Montserrat", sans-serif' }}>
+          <h1 className="text-5xl md:text-7xl font-black text-white tracking-tighter uppercase leading-none mb-6">
             Patient <span className="text-cyan-400">Visits</span>
           </h1>
           <p className="text-slate-400 font-medium text-lg max-w-2xl">
-            Manage all your appointments, view patient medical records, and track consultation status.
+            Manage appointments directly from MongoDB database
+          </p>
+          <p className="text-slate-500 text-xs mt-4">
+            Last updated: {lastUpdate.toLocaleTimeString()} • Auto-refreshes every 30 seconds
           </p>
           
           {/* Search Bar */}
           <div className="mt-10 max-w-2xl">
             <div className="relative group">
-              <div className="absolute inset-0 bg-cyan-500/20 blur-xl opacity-0 group-hover:opacity-100 transition-all"></div>
-              <div className="relative bg-white/5 backdrop-blur-2xl border border-white/10 p-2 rounded-2xl flex items-center shadow-2xl">
+              <div className="relative bg-white/5 backdrop-blur-2xl border border-white/10 p-2 rounded-2xl flex items-center">
                 <FaSearch className="ml-5 text-cyan-400" size={20} />
                 <input 
                   type="text" 
-                  placeholder="Search by patient name, ID or symptoms..." 
+                  placeholder="Search by patient name, email, ID or symptoms..." 
                   className="w-full bg-transparent border-none outline-none p-4 text-white placeholder:text-slate-500 font-bold"
                   value={searchQuery} 
                   onChange={(e) => setSearchQuery(e.target.value)} 
                 />
+                {searchQuery && (
+                  <button onClick={() => setSearchQuery('')} className="mr-3 text-slate-400 hover:text-white">
+                    <FaTimes size={16} />
+                  </button>
+                )}
               </div>
             </div>
           </div>
         </div>
-        
-        {/* Background Decor */}
         <div className="absolute top-0 right-0 w-1/2 h-full bg-gradient-to-l from-cyan-500/10 to-transparent pointer-events-none" />
         <Activity className="absolute -bottom-20 -left-10 text-white/5 w-96 h-96" />
       </div>
 
-      {/* Error Alert */}
+      {/* Success/Error Messages */}
+      {successMessage && (
+        <div className="max-w-7xl mx-auto px-6 -mt-20 relative z-20 mb-6">
+          <div className="bg-green-500/20 border border-green-500/30 rounded-2xl p-4">
+            <p className="text-green-400 text-center font-bold">{successMessage}</p>
+          </div>
+        </div>
+      )}
+
       {error && (
         <div className="max-w-7xl mx-auto px-6 -mt-20 relative z-20 mb-6">
-          <div className="bg-red-500/10 border border-red-500/30 rounded-2xl p-4 backdrop-blur-sm">
-            <p className="text-red-400 text-center">{error}</p>
+          <div className="bg-red-500/10 border border-red-500/30 rounded-2xl p-4">
+            <p className="text-red-400 text-center font-bold">{error}</p>
           </div>
         </div>
       )}
@@ -498,14 +590,14 @@ const DocAppiments = ({
       {/* Expired Alert */}
       {expiredCount > 0 && (
         <div className="max-w-7xl mx-auto px-6 -mt-20 relative z-20 mb-6">
-          <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-6 flex items-center justify-between backdrop-blur-sm">
+          <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-6 flex items-center justify-between flex-wrap gap-4">
             <div className="flex items-center gap-4">
               <div className="p-3 bg-amber-500/20 rounded-xl">
                 <FaExclamationCircle className="text-amber-500" size={24} />
               </div>
               <div>
                 <p className="font-black text-amber-500 text-lg">{expiredCount} Expired Appointment(s)</p>
-                <p className="text-sm text-amber-400/70">Past appointments will be automatically deleted</p>
+                <p className="text-sm text-amber-400/70">Past appointments will be deleted from MongoDB</p>
               </div>
             </div>
             <button
@@ -513,40 +605,32 @@ const DocAppiments = ({
               className="px-8 py-4 bg-amber-500 text-[#001b38] rounded-xl font-black text-xs tracking-widest uppercase hover:bg-amber-400 transition-all flex items-center gap-3"
             >
               <FaTrash size={14} />
-              DELETE NOW
+              DELETE FROM DATABASE
             </button>
           </div>
         </div>
       )}
 
-      {/* STATS CARDS */}
-      <div className="max-w-7xl mx-auto px-6 -mt-20 relative z-20 grid grid-cols-1 md:grid-cols-6 gap-4">
+      {/* Stats Cards */}
+      <div className="max-w-7xl mx-auto px-6 -mt-20 relative z-20 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
         {[
-          { label: "Today", val: todayCount, icon: <LucideCalendar className="text-white" />, bg: "bg-cyan-500" },
-          { label: "Future", val: futureCount, icon: <Clock className="text-white" />, bg: "bg-blue-500" },
-          { label: "Pending", val: pendingCount, icon: <FaExclamationTriangle className="text-white" />, bg: "bg-amber-500" },
-          { label: "Confirmed", val: confirmedCount, icon: <FaCheck className="text-white" />, bg: "bg-green-500" },
-          { label: "Completed", val: completedCount, icon: <FaCalendarCheck className="text-white" />, bg: "bg-purple-500" },
-          { label: "Cancelled", val: cancelledCount, icon: <FaTimes className="text-white" />, bg: "bg-red-500" }
+          { label: "Today", val: todayCount, icon: <LucideCalendar className="text-white" />, bg: "bg-cyan-500", filter: "today" },
+          { label: "Future", val: futureCount, icon: <Clock className="text-white" />, bg: "bg-blue-500", filter: "future" },
+          { label: "Pending", val: pendingCount, icon: <FaExclamationTriangle className="text-white" />, bg: "bg-amber-500", filter: "pending", highlight: true },
+          { label: "Confirmed", val: confirmedCount, icon: <FaCheck className="text-white" />, bg: "bg-green-500", filter: "confirmed" },
+          { label: "Completed", val: completedCount, icon: <FaCalendarCheck className="text-white" />, bg: "bg-purple-500", filter: "completed" },
+          { label: "Cancelled", val: cancelledCount, icon: <FaTimes className="text-white" />, bg: "bg-red-500", filter: "cancelled" }
         ].map((item, i) => (
           <motion.div 
             key={i} 
             whileHover={{ y: -5 }} 
-            className="bg-white p-6 rounded-2xl shadow-xl flex items-center gap-4 border border-slate-100 cursor-pointer hover:shadow-2xl transition-all"
-            onClick={() => {
-              if (item.label === 'Pending') setActiveFilter('pending');
-              else if (item.label === 'Confirmed') setActiveFilter('confirmed');
-              else if (item.label === 'Completed') setActiveFilter('completed');
-              else if (item.label === 'Cancelled') setActiveFilter('cancelled');
-              else if (item.label === 'Today') setActiveFilter('today');
-              else if (item.label === 'Future') setActiveFilter('future');
-              else setActiveFilter('all');
-            }}
+            className={`bg-white p-4 rounded-2xl shadow-xl flex items-center gap-3 border transition-all cursor-pointer ${activeFilter === item.filter ? 'ring-2 ring-cyan-500 shadow-lg' : 'border-slate-100'} ${item.highlight && pendingCount > 0 ? 'animate-pulse' : ''}`}
+            onClick={() => setActiveFilter(item.filter)}
           >
-            <div className={`${item.bg} p-4 rounded-xl shadow-lg`}>{item.icon}</div>
+            <div className={`${item.bg} p-3 rounded-xl shadow-lg`}>{item.icon}</div>
             <div>
-              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{item.label}</p>
-              <p className="text-2xl font-black text-[#001b38]" style={{ fontFamily: '"Montserrat", sans-serif' }}>{item.val}</p>
+              <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">{item.label}</p>
+              <p className="text-xl font-black text-[#001b38]">{item.val}</p>
             </div>
           </motion.div>
         ))}
@@ -563,7 +647,7 @@ const DocAppiments = ({
         </button>
       </div>
 
-      {/* FILTERS */}
+      {/* Filters Panel */}
       <AnimatePresence>
         {showFilters && (
           <motion.div 
@@ -574,79 +658,27 @@ const DocAppiments = ({
           >
             <div className="bg-white p-8 rounded-3xl shadow-xl border border-slate-100">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                {/* Date Filters */}
                 <div>
                   <p className="text-xs font-black text-[#001b38] uppercase tracking-widest mb-4 flex items-center gap-2">
                     <LucideCalendar size={16} className="text-cyan-500" />
                     DATE
                   </p>
                   <div className="grid grid-cols-3 gap-3">
-                    <button 
-                      onClick={() => { setActiveFilter('all'); setShowFilters(false); }}
-                      className={`p-4 rounded-xl text-xs font-black transition-all ${
-                        activeFilter === 'all' ? 'bg-[#001b38] text-white' : 'bg-slate-50 text-slate-600 hover:bg-slate-100'
-                      }`}
-                    >
-                      All
-                    </button>
-                    <button 
-                      onClick={() => { setActiveFilter('today'); setShowFilters(false); }}
-                      className={`p-4 rounded-xl text-xs font-black transition-all ${
-                        activeFilter === 'today' ? 'bg-cyan-500 text-white' : 'bg-slate-50 text-slate-600 hover:bg-slate-100'
-                      }`}
-                    >
-                      Today ({todayCount})
-                    </button>
-                    <button 
-                      onClick={() => { setActiveFilter('future'); setShowFilters(false); }}
-                      className={`p-4 rounded-xl text-xs font-black transition-all ${
-                        activeFilter === 'future' ? 'bg-blue-500 text-white' : 'bg-slate-50 text-slate-600 hover:bg-slate-100'
-                      }`}
-                    >
-                      Future ({futureCount})
-                    </button>
+                    <button onClick={() => { setActiveFilter('all'); setShowFilters(false); }} className={`p-4 rounded-xl text-xs font-black transition-all ${activeFilter === 'all' ? 'bg-[#001b38] text-white' : 'bg-slate-50 text-slate-600'}`}>All ({appointments.length})</button>
+                    <button onClick={() => { setActiveFilter('today'); setShowFilters(false); }} className={`p-4 rounded-xl text-xs font-black transition-all ${activeFilter === 'today' ? 'bg-cyan-500 text-white' : 'bg-slate-50 text-slate-600'}`}>Today ({todayCount})</button>
+                    <button onClick={() => { setActiveFilter('future'); setShowFilters(false); }} className={`p-4 rounded-xl text-xs font-black transition-all ${activeFilter === 'future' ? 'bg-blue-500 text-white' : 'bg-slate-50 text-slate-600'}`}>Future ({futureCount})</button>
                   </div>
                 </div>
-
-                {/* Status Filters */}
                 <div>
                   <p className="text-xs font-black text-[#001b38] uppercase tracking-widest mb-4 flex items-center gap-2">
                     <ShieldCheck size={16} className="text-cyan-500" />
                     STATUS
                   </p>
                   <div className="grid grid-cols-4 gap-3">
-                    <button 
-                      onClick={() => { setActiveFilter('pending'); setShowFilters(false); }}
-                      className={`p-4 rounded-xl text-xs font-black transition-all ${
-                        activeFilter === 'pending' ? 'bg-amber-500 text-white' : 'bg-amber-50 text-amber-600 hover:bg-amber-100'
-                      }`}
-                    >
-                      Pending ({pendingCount})
-                    </button>
-                    <button 
-                      onClick={() => { setActiveFilter('confirmed'); setShowFilters(false); }}
-                      className={`p-4 rounded-xl text-xs font-black transition-all ${
-                        activeFilter === 'confirmed' ? 'bg-green-500 text-white' : 'bg-green-50 text-green-600 hover:bg-green-100'
-                      }`}
-                    >
-                      Confirmed ({confirmedCount})
-                    </button>
-                    <button 
-                      onClick={() => { setActiveFilter('completed'); setShowFilters(false); }}
-                      className={`p-4 rounded-xl text-xs font-black transition-all ${
-                        activeFilter === 'completed' ? 'bg-purple-500 text-white' : 'bg-purple-50 text-purple-600 hover:bg-purple-100'
-                      }`}
-                    >
-                      Completed ({completedCount})
-                    </button>
-                    <button 
-                      onClick={() => { setActiveFilter('cancelled'); setShowFilters(false); }}
-                      className={`p-4 rounded-xl text-xs font-black transition-all ${
-                        activeFilter === 'cancelled' ? 'bg-red-500 text-white' : 'bg-red-50 text-red-600 hover:bg-red-100'
-                      }`}
-                    >
-                      Cancelled ({cancelledCount})
-                    </button>
+                    <button onClick={() => { setActiveFilter('pending'); setShowFilters(false); }} className={`p-4 rounded-xl text-xs font-black transition-all ${activeFilter === 'pending' ? 'bg-amber-500 text-white' : 'bg-amber-50 text-amber-600'}`}>Pending ({pendingCount})</button>
+                    <button onClick={() => { setActiveFilter('confirmed'); setShowFilters(false); }} className={`p-4 rounded-xl text-xs font-black transition-all ${activeFilter === 'confirmed' ? 'bg-green-500 text-white' : 'bg-green-50 text-green-600'}`}>Confirmed ({confirmedCount})</button>
+                    <button onClick={() => { setActiveFilter('completed'); setShowFilters(false); }} className={`p-4 rounded-xl text-xs font-black transition-all ${activeFilter === 'completed' ? 'bg-purple-500 text-white' : 'bg-purple-50 text-purple-600'}`}>Completed ({completedCount})</button>
+                    <button onClick={() => { setActiveFilter('cancelled'); setShowFilters(false); }} className={`p-4 rounded-xl text-xs font-black transition-all ${activeFilter === 'cancelled' ? 'bg-red-500 text-white' : 'bg-red-50 text-red-600'}`}>Cancelled ({cancelledCount})</button>
                   </div>
                 </div>
               </div>
@@ -654,22 +686,6 @@ const DocAppiments = ({
           </motion.div>
         )}
       </AnimatePresence>
-
-      {/* Active Filter Indicator */}
-      {activeFilter !== 'all' && (
-        <div className="max-w-7xl mx-auto px-6 mt-6">
-          <div className="bg-cyan-50 text-cyan-700 px-6 py-3 rounded-xl text-sm font-bold inline-flex items-center gap-3 border border-cyan-200">
-            <span>Active Filter:</span>
-            <span className="capitalize px-3 py-1 bg-cyan-200 rounded-lg">{activeFilter}</span>
-            <button 
-              onClick={() => setActiveFilter('all')}
-              className="ml-2 text-cyan-500 hover:text-cyan-700"
-            >
-              ✕ Clear
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* Appointments Grid */}
       <div className="max-w-7xl mx-auto px-6 mt-8">
@@ -682,13 +698,16 @@ const DocAppiments = ({
                   initial={{ opacity: 0, scale: 0.9 }}
                   animate={{ opacity: 1, scale: 1 }}
                   exit={{ opacity: 0, scale: 0.9 }}
-                  key={appointment._id || appointment.id} 
-                  className="bg-white rounded-3xl shadow-xl border border-slate-100 overflow-hidden hover:shadow-2xl transition-all group relative"
+                  key={appointment._id} 
+                  className={`bg-white rounded-3xl shadow-xl border overflow-hidden hover:shadow-2xl transition-all group relative ${
+                    appointment.status === 'pending' ? 'border-l-8 border-l-amber-500' : 
+                    appointment.status === 'confirmed' ? 'border-l-8 border-l-green-500' : 'border-slate-100'
+                  }`}
                 >
-                  {/* Card Header - Patient Info */}
+                  {/* Card Header */}
                   <div className="bg-gradient-to-r from-[#001b38] to-[#002b4e] p-6 text-white">
                     <div className="flex items-center gap-4">
-                      <div className="w-16 h-16 bg-cyan-500 rounded-2xl flex items-center justify-center text-white font-black text-3xl shadow-lg">
+                      <div className="w-16 h-16 bg-gradient-to-br from-cyan-400 to-cyan-600 rounded-2xl flex items-center justify-center text-white font-black text-3xl shadow-lg">
                         {appointment.patientName ? appointment.patientName.charAt(0).toUpperCase() : 'P'}
                       </div>
                       <div className="flex-1">
@@ -696,13 +715,16 @@ const DocAppiments = ({
                           <h3 className="text-xl font-black">{appointment.patientName}</h3>
                           <span className={`px-3 py-1 rounded-full text-[9px] font-black flex items-center gap-1 border ${getStatusColor(appointment.status)}`}>
                             {getStatusIcon(appointment.status)}
-                            {appointment.status ? appointment.status.toUpperCase() : 'PENDING'}
+                            {appointment.status?.toUpperCase()}
                           </span>
                         </div>
-                        <div className="flex items-center gap-4 text-sm text-slate-300">
-                          <span className="flex items-center gap-1"><User size={14} className="text-cyan-400" /> ID: {appointment.patientId || 'N/A'}</span>
-                          {appointment.patientEmail && (
+                        <div className="flex items-center gap-4 text-sm text-slate-300 flex-wrap">
+                          <span className="flex items-center gap-1"><User size={14} className="text-cyan-400" /> ID: {typeof appointment.patientId === 'string' ? appointment.patientId.slice(-8) : 'N/A'}</span>
+                          {appointment.patientEmail && appointment.patientEmail !== 'Not provided' && (
                             <span className="flex items-center gap-1"><Mail size={14} className="text-cyan-400" /> {appointment.patientEmail}</span>
+                          )}
+                          {appointment.patientPhone && appointment.patientPhone !== 'Not provided' && (
+                            <span className="flex items-center gap-1"><FaPhoneAlt size={12} className="text-cyan-400" /> {appointment.patientPhone}</span>
                           )}
                         </div>
                       </div>
@@ -711,221 +733,121 @@ const DocAppiments = ({
 
                   {/* Card Body */}
                   <div className="p-6">
-                    {/* Date & Time */}
                     <div className="grid grid-cols-2 gap-4 mb-6">
                       <div className="flex items-center gap-3 p-4 bg-slate-50 rounded-xl">
-                        <div className="p-2 bg-cyan-100 rounded-lg">
-                          <FaCalendarAlt className="text-cyan-600" size={16} />
-                        </div>
-                        <div>
-                          <p className="text-[9px] font-black text-slate-400 uppercase">Date</p>
-                          <p className="font-black text-[#001b38]">{appointment.displayDate}</p>
-                        </div>
+                        <div className="p-2 bg-cyan-100 rounded-lg"><FaCalendarAlt className="text-cyan-600" size={16} /></div>
+                        <div><p className="text-[9px] font-black text-slate-400 uppercase">Date</p><p className="font-black text-[#001b38]">{appointment.displayDate}</p></div>
                       </div>
                       <div className="flex items-center gap-3 p-4 bg-slate-50 rounded-xl">
-                        <div className="p-2 bg-purple-100 rounded-lg">
-                          <FaClock className="text-purple-600" size={16} />
-                        </div>
-                        <div>
-                          <p className="text-[9px] font-black text-slate-400 uppercase">Time</p>
-                          <p className="font-black text-[#001b38]">{appointment.time}</p>
-                        </div>
+                        <div className="p-2 bg-purple-100 rounded-lg"><FaClock className="text-purple-600" size={16} /></div>
+                        <div><p className="text-[9px] font-black text-slate-400 uppercase">Time</p><p className="font-black text-[#001b38]">{appointment.time}</p></div>
                       </div>
                     </div>
 
-                    {/* Type & Fee */}
                     <div className="grid grid-cols-2 gap-4 mb-6">
-                      <div className={`flex items-center gap-3 p-4 rounded-xl ${
-                        appointment.type?.includes('Video') ? 'bg-purple-50' : 'bg-cyan-50'
-                      }`}>
-                        <div className={`p-2 rounded-lg ${
-                          appointment.type?.includes('Video') ? 'bg-purple-200' : 'bg-cyan-200'
-                        }`}>
-                          {appointment.type?.includes('Video') ? 
-                            <Video size={16} className="text-purple-700" /> : 
-                            <MapPin size={16} className="text-cyan-700" />
-                          }
-                        </div>
-                        <div>
-                          <p className="text-[9px] font-black text-slate-400 uppercase">Type</p>
-                          <p className="font-black text-[#001b38]">{appointment.type || 'Clinic Visit'}</p>
-                        </div>
+                      <div className="flex items-center gap-3 p-4 bg-slate-50 rounded-xl">
+                        <div className="p-2 bg-cyan-100 rounded-lg"><MapPin size={16} className="text-cyan-700" /></div>
+                        <div><p className="text-[9px] font-black text-slate-400 uppercase">Type</p><p className="font-black text-[#001b38]">{appointment.type || 'Clinic Visit'}</p></div>
                       </div>
                       <div className="flex items-center gap-3 p-4 bg-emerald-50 rounded-xl">
-                        <div className="p-2 bg-emerald-200 rounded-lg">
-                          <FaWallet className="text-emerald-700" size={16} />
-                        </div>
-                        <div>
-                          <p className="text-[9px] font-black text-slate-400 uppercase">Fee</p>
-                          <p className="font-black text-[#001b38]">LKR {appointment.fee || 2500}</p>
-                        </div>
+                        <div className="p-2 bg-emerald-200 rounded-lg"><FaWallet className="text-emerald-700" size={16} /></div>
+                        <div><p className="text-[9px] font-black text-slate-400 uppercase">Fee</p><p className="font-black text-[#001b38]">LKR {appointment.fee || 2500}</p></div>
                       </div>
                     </div>
 
-                    {/* Symptoms */}
                     <div className="mb-6 p-4 bg-slate-50 rounded-xl border border-slate-100">
                       <p className="text-[9px] font-black text-slate-400 uppercase mb-2">Symptoms / Reason</p>
                       <p className="text-sm font-medium text-[#001b38]">{appointment.symptoms || 'General consultation'}</p>
                     </div>
-
-                    {/* Location/Video Link */}
-                    {(appointment.location || appointment.videoLink) && (
-                      <div className="mb-6 p-4 bg-slate-50 rounded-xl border border-slate-100">
-                        <p className="text-[9px] font-black text-slate-400 uppercase mb-2">
-                          {appointment.location ? 'Location' : 'Meeting Link'}
-                        </p>
-                        <div className="flex items-center gap-2 text-sm font-bold text-cyan-600">
-                          {appointment.location ? <MapPin size={16} /> : <FaLink size={16} />}
-                          <span className="truncate">{appointment.location || appointment.videoLink}</span>
-                        </div>
-                      </div>
-                    )}
 
                     {/* Action Buttons */}
                     <div className="grid grid-cols-4 gap-3">
                       <button 
                         onClick={() => viewPatientMedicalRecords(appointment)}
                         className="col-span-1 px-3 py-4 bg-blue-50 text-blue-600 rounded-xl text-xs font-black hover:bg-blue-100 transition-all flex items-center justify-center gap-2 border border-blue-200"
-                        title="View Medical Records"
                         disabled={actionLoading === appointment._id}
                       >
                         <FileText size={16} />
                         <span className="hidden sm:inline">Records</span>
                       </button>
                       
-                      {/* PENDING STATUS - Show Confirm & Cancel buttons */}
                       {appointment.status === 'pending' && (
                         <>
                           <button 
-                            onClick={() => handleConfirm(appointment._id)}
+                            onClick={() => handleConfirm(appointment._id, appointment.patientEmail, appointment.patientName)}
                             disabled={actionLoading === appointment._id}
-                            className="col-span-1 px-3 py-4 bg-green-600 text-white rounded-xl text-xs font-black hover:bg-green-700 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="col-span-3 px-3 py-4 bg-green-600 text-white rounded-xl text-xs font-black hover:bg-green-700 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
                           >
                             {actionLoading === appointment._id ? (
-                              <span className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></span>
+                              <FaSpinner className="animate-spin" size={16} />
                             ) : (
                               <FaCheck size={16} />
                             )}
-                            <span className="hidden sm:inline">Confirm</span>
+                            <span>CONFIRM</span>
                           </button>
                           <button 
-                            onClick={() => handleCancel(appointment._id)}
+                            onClick={() => handleCancel(appointment._id, appointment.patientEmail, appointment.patientName)}
                             disabled={actionLoading === appointment._id}
-                            className="col-span-2 px-3 py-4 bg-red-50 text-red-600 rounded-xl text-xs font-black hover:bg-red-100 transition-all flex items-center justify-center gap-2 border border-red-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="col-span-3 px-3 py-4 bg-red-600 text-white rounded-xl text-xs font-black hover:bg-red-700 transition-all flex items-center justify-center gap-2 disabled:opacity-50 mt-2"
                           >
-                            <FaTimes size={16} />
-                            <span className="hidden sm:inline">Cancel</span>
+                            {actionLoading === appointment._id ? (
+                              <FaSpinner className="animate-spin" size={16} />
+                            ) : (
+                              <FaTimes size={16} />
+                            )}
+                            <span>CANCEL</span>
                           </button>
                         </>
                       )}
                       
-                      {/* CONFIRMED STATUS - Show Complete & Cancel buttons */}
                       {appointment.status === 'confirmed' && (
-                        <>
-                          {appointment.type?.includes('Video') && appointment.videoLink && (
-                            <button 
-                              onClick={() => window.open(appointment.videoLink.startsWith('http') ? appointment.videoLink : `https://${appointment.videoLink}`, '_blank')}
-                              className="col-span-1 px-3 py-4 bg-purple-600 text-white rounded-xl text-xs font-black hover:bg-purple-700 transition-all flex items-center justify-center gap-2"
-                            >
-                              <Video size={16} />
-                              <span className="hidden sm:inline">Join</span>
-                            </button>
+                        <button 
+                          onClick={() => handleComplete(appointment._id)}
+                          disabled={actionLoading === appointment._id}
+                          className="col-span-4 px-3 py-4 bg-blue-600 text-white rounded-xl text-xs font-black hover:bg-blue-700 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                        >
+                          {actionLoading === appointment._id ? (
+                            <FaSpinner className="animate-spin" size={16} />
+                          ) : (
+                            <FaCalendarCheck size={16} />
                           )}
-                          <button 
-                            onClick={() => handleComplete(appointment._id)}
-                            disabled={actionLoading === appointment._id}
-                            className={`col-span-1 px-3 py-4 bg-blue-600 text-white rounded-xl text-xs font-black hover:bg-blue-700 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${
-                              !appointment.type?.includes('Video') ? 'col-span-2' : ''
-                            }`}
-                          >
-                            {actionLoading === appointment._id ? (
-                              <span className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></span>
-                            ) : (
-                              <FaCalendarCheck size={16} />
-                            )}
-                            <span className="hidden sm:inline">Complete</span>
-                          </button>
-                          <button 
-                            onClick={() => handleCancel(appointment._id)}
-                            disabled={actionLoading === appointment._id}
-                            className="col-span-1 px-3 py-4 bg-red-50 text-red-600 rounded-xl text-xs font-black hover:bg-red-100 transition-all flex items-center justify-center gap-2 border border-red-200 disabled:opacity-50 disabled:cursor-not-allowed"
-                          >
-                            <FaTimes size={16} />
-                            <span className="hidden sm:inline">Cancel</span>
-                          </button>
-                        </>
+                          MARK AS COMPLETED
+                        </button>
                       )}
 
-                      {/* COMPLETED STATUS - Show Write Prescription */}
                       {appointment.status === 'completed' && (
-                        <>
-                          <button 
-                            onClick={() => handleWritePrescription(appointment)}
-                            className="col-span-3 px-3 py-4 bg-[#001b38] text-white rounded-xl text-xs font-black hover:bg-cyan-600 transition-all flex items-center justify-center gap-2"
-                          >
-                            <FaFileMedical size={16} />
-                            <span>Write Prescription</span>
-                          </button>
-                          <button 
-                            onClick={() => viewPatientMedicalRecords(appointment)}
-                            className="col-span-1 px-3 py-4 bg-blue-50 text-blue-600 rounded-xl text-xs font-black hover:bg-blue-100 transition-all flex items-center justify-center gap-2 border border-blue-200"
-                            title="View Medical Records"
-                          >
-                            <FileText size={16} />
-                          </button>
-                        </>
+                        <div className="col-span-4 px-3 py-4 bg-purple-100 text-purple-600 rounded-xl text-xs font-black text-center">
+                          ✓ Consultation Completed
+                        </div>
                       )}
 
-                      {/* CANCELLED STATUS - Show message */}
                       {appointment.status === 'cancelled' && (
-                        <div className="col-span-4 px-3 py-4 bg-slate-100 text-slate-500 rounded-xl text-xs font-black text-center">
-                          Appointment Cancelled
+                        <div className="col-span-4 px-3 py-4 bg-red-100 text-red-600 rounded-xl text-xs font-black text-center">
+                          ✗ Appointment Cancelled
+                          {appointment.cancellationReason && (
+                            <p className="text-[8px] mt-1">Reason: {appointment.cancellationReason}</p>
+                          )}
                         </div>
                       )}
                     </div>
                   </div>
-
-                  {/* Today/Upcoming Badge */}
-                  {(appointment.isToday || appointment.isFuture) && appointment.status !== 'cancelled' && (
-                    <div className={`absolute top-4 right-4 px-4 py-2 rounded-full text-[9px] font-black uppercase tracking-wider ${
-                      appointment.isToday ? 'bg-cyan-500 text-white' : 'bg-blue-500 text-white'
-                    }`}>
-                      {appointment.isToday ? 'TODAY' : 'UPCOMING'}
-                    </div>
-                  )}
                 </motion.div>
               ))}
             </div>
           ) : (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="col-span-full py-32 bg-white/50 border-2 border-dashed border-slate-200 rounded-3xl text-center"
-            >
+            <motion.div className="col-span-full py-32 bg-white/50 border-2 border-dashed border-slate-200 rounded-3xl text-center">
               <div className="bg-slate-100 w-24 h-24 rounded-full flex items-center justify-center mx-auto mb-6">
                 <LucideCalendar className="text-slate-400" size={48} />
               </div>
               <p className="text-lg font-black uppercase tracking-widest text-slate-400 mb-4">
-                {activeFilter === 'pending' ? 'No Pending Appointments' :
-                 activeFilter === 'confirmed' ? 'No Confirmed Appointments' :
-                 activeFilter === 'completed' ? 'No Completed Appointments' :
-                 activeFilter === 'cancelled' ? 'No Cancelled Appointments' :
-                 activeFilter === 'today' ? 'No Appointments Today' :
-                 activeFilter === 'future' ? 'No Future Appointments' :
-                 'No Appointments Found'}
+                No Appointments Found
               </p>
-              <button 
-                onClick={() => { setSearchQuery(''); setActiveFilter('all'); }}
-                className="px-8 py-4 bg-[#001b38] text-white rounded-full font-black text-xs tracking-widest uppercase hover:bg-cyan-600 transition-all"
-              >
-                View All Appointments
-              </button>
             </motion.div>
           )}
         </AnimatePresence>
       </div>
 
-      {/* Medical Records List Modal - Keep existing */}
+      {/* Medical Records Modal */}
       <AnimatePresence>
         {showMedicalModal && selectedAppointment && (
           <div className="fixed inset-0 bg-[#001b38]/80 backdrop-blur-xl flex items-center justify-center z-50 p-4">
@@ -943,15 +865,11 @@ const DocAppiments = ({
                       {selectedAppointment.patientName} • {patientRecords.length} records
                     </p>
                   </div>
-                  <button 
-                    onClick={() => setShowMedicalModal(false)}
-                    className="p-3 hover:bg-white/10 rounded-xl transition-all"
-                  >
+                  <button onClick={() => setShowMedicalModal(false)} className="p-3 hover:bg-white/10 rounded-xl transition-all">
                     <FaTimes size={20} />
                   </button>
                 </div>
               </div>
-              
               <div className="p-8 overflow-y-auto max-h-[60vh]">
                 {patientRecords.length > 0 ? (
                   <div className="space-y-4">
@@ -978,11 +896,6 @@ const DocAppiments = ({
                             {record.files.length} file(s)
                           </div>
                         )}
-                        {record.notes && (
-                          <p className="text-sm text-slate-600 p-4 bg-slate-50 rounded-xl">
-                            {record.notes.length > 100 ? record.notes.substring(0, 100) + '...' : record.notes}
-                          </p>
-                        )}
                       </motion.div>
                     ))}
                   </div>
@@ -998,7 +911,7 @@ const DocAppiments = ({
         )}
       </AnimatePresence>
 
-      {/* Single Record View Modal - Keep existing */}
+      {/* Single Record View Modal */}
       <AnimatePresence>
         {showRecordViewModal && selectedMedicalRecord && (
           <div className="fixed inset-0 bg-[#001b38]/80 backdrop-blur-xl flex items-center justify-center z-[60] p-4">
@@ -1014,73 +927,23 @@ const DocAppiments = ({
                     <h2 className="text-2xl font-black uppercase tracking-tighter">{selectedMedicalRecord.diagnosis || selectedMedicalRecord.type}</h2>
                     <p className="text-cyan-100 text-sm mt-2">{selectedMedicalRecord.date}</p>
                   </div>
-                  <button 
-                    onClick={() => setShowRecordViewModal(false)}
-                    className="p-3 hover:bg-white/10 rounded-xl transition-all"
-                  >
+                  <button onClick={() => setShowRecordViewModal(false)} className="p-3 hover:bg-white/10 rounded-xl transition-all">
                     <FaTimes size={20} />
                   </button>
                 </div>
               </div>
-              
               <div className="p-8 overflow-y-auto max-h-[60vh]">
                 <div className="space-y-6">
                   <div className="bg-slate-50 p-6 rounded-2xl">
                     <p className="text-[9px] font-black text-slate-400 uppercase mb-2">Doctor</p>
                     <p className="font-black text-[#001b38] text-lg">{selectedMedicalRecord.doctor || 'Unknown'}</p>
                   </div>
-
                   {selectedMedicalRecord.notes && (
                     <div className="bg-slate-50 p-6 rounded-2xl">
                       <p className="text-[9px] font-black text-slate-400 uppercase mb-2">Notes</p>
                       <p className="text-slate-700 whitespace-pre-wrap">{selectedMedicalRecord.notes}</p>
                     </div>
                   )}
-
-                  {selectedMedicalRecord.opDetails && (
-                    <div className="bg-slate-50 p-6 rounded-2xl">
-                      <p className="text-[9px] font-black text-slate-400 uppercase mb-4">Vitals & Details</p>
-                      <div className="grid grid-cols-2 gap-4">
-                        {selectedMedicalRecord.opDetails.opDoctor && (
-                          <div className="p-3 bg-white rounded-xl">
-                            <p className="text-[8px] text-slate-400 uppercase">Doctor</p>
-                            <p className="font-bold text-[#001b38]">{selectedMedicalRecord.opDetails.opDoctor}</p>
-                          </div>
-                        )}
-                        {selectedMedicalRecord.opDetails.opDept && (
-                          <div className="p-3 bg-white rounded-xl">
-                            <p className="text-[8px] text-slate-400 uppercase">Dept</p>
-                            <p className="font-bold text-[#001b38]">{selectedMedicalRecord.opDetails.opDept}</p>
-                          </div>
-                        )}
-                        {selectedMedicalRecord.opDetails.bp && (
-                          <div className="p-3 bg-white rounded-xl">
-                            <p className="text-[8px] text-slate-400 uppercase">BP</p>
-                            <p className="font-bold text-[#001b38]">{selectedMedicalRecord.opDetails.bp}</p>
-                          </div>
-                        )}
-                        {selectedMedicalRecord.opDetails.heartRate && (
-                          <div className="p-3 bg-white rounded-xl">
-                            <p className="text-[8px] text-slate-400 uppercase">HR</p>
-                            <p className="font-bold text-[#001b38]">{selectedMedicalRecord.opDetails.heartRate}</p>
-                          </div>
-                        )}
-                        {selectedMedicalRecord.opDetails.temp && (
-                          <div className="p-3 bg-white rounded-xl">
-                            <p className="text-[8px] text-slate-400 uppercase">Temp</p>
-                            <p className="font-bold text-[#001b38]">{selectedMedicalRecord.opDetails.temp}</p>
-                          </div>
-                        )}
-                        {selectedMedicalRecord.opDetails.oxygen && (
-                          <div className="p-3 bg-white rounded-xl">
-                            <p className="text-[8px] text-slate-400 uppercase">Oxygen</p>
-                            <p className="font-bold text-[#001b38]">{selectedMedicalRecord.opDetails.oxygen}</p>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-
                   {selectedMedicalRecord.files && selectedMedicalRecord.files.length > 0 && (
                     <div className="bg-slate-50 p-6 rounded-2xl">
                       <p className="text-[9px] font-black text-slate-400 uppercase mb-4">Attached Files</p>
@@ -1092,34 +955,16 @@ const DocAppiments = ({
                               <span className="font-bold text-[#001b38]">{file.name}</span>
                             </div>
                             <div className="flex gap-2">
-                              <button 
-                                onClick={() => viewFile(file)}
-                                className="p-2 text-cyan-600 hover:bg-cyan-50 rounded-lg transition-all"
-                                title="View"
-                              >
+                              <button onClick={() => viewFile(file)} className="p-2 text-cyan-600 hover:bg-cyan-50 rounded-lg transition-all">
                                 <FaEye size={14} />
                               </button>
-                              <button 
-                                onClick={() => handleDownloadFile(file)}
-                                className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-all"
-                                title="Download"
-                              >
+                              <button onClick={() => handleDownloadFile(file)} className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-all">
                                 <Download size={14} />
                               </button>
                             </div>
                           </div>
                         ))}
                       </div>
-                      
-                      {selectedMedicalRecord.files.length > 1 && (
-                        <button
-                          onClick={() => handleDownloadAllFiles(selectedMedicalRecord)}
-                          className="mt-4 w-full py-3 bg-cyan-600 text-white rounded-xl font-black text-sm hover:bg-cyan-700 transition-all flex items-center justify-center gap-2"
-                        >
-                          <Download size={16} />
-                          DOWNLOAD ALL ({selectedMedicalRecord.files.length} files)
-                        </button>
-                      )}
                     </div>
                   )}
                 </div>
@@ -1129,7 +974,7 @@ const DocAppiments = ({
         )}
       </AnimatePresence>
 
-      {/* File View Modal - Keep existing */}
+      {/* File View Modal */}
       <AnimatePresence>
         {showFileViewModal && selectedFile && (
           <div className="fixed inset-0 bg-[#001b38]/80 backdrop-blur-xl flex items-center justify-center z-[70] p-4">
@@ -1145,51 +990,31 @@ const DocAppiments = ({
                     {getFileIcon(selectedFile.name)}
                     <div>
                       <h2 className="text-xl font-black">{selectedFile.name}</h2>
-                      <p className="text-cyan-100 text-sm">
-                        {(selectedFile.size / 1024).toFixed(1)} KB
-                      </p>
+                      <p className="text-cyan-100 text-sm">{(selectedFile.size / 1024).toFixed(1)} KB</p>
                     </div>
                   </div>
                   <div className="flex gap-2">
-                    <button 
-                      onClick={() => handleDownloadFile(selectedFile)}
-                      className="p-3 bg-white/20 hover:bg-white/30 rounded-xl transition-all"
-                      title="Download"
-                    >
+                    <button onClick={() => handleDownloadFile(selectedFile)} className="p-3 bg-white/20 hover:bg-white/30 rounded-xl transition-all">
                       <Download size={20} />
                     </button>
-                    <button 
-                      onClick={() => setShowFileViewModal(false)}
-                      className="p-3 bg-white/20 hover:bg-white/30 rounded-xl transition-all"
-                    >
+                    <button onClick={() => setShowFileViewModal(false)} className="p-3 bg-white/20 hover:bg-white/30 rounded-xl transition-all">
                       <FaTimes size={20} />
                     </button>
                   </div>
                 </div>
               </div>
-              
               <div className="p-8 max-h-[70vh] overflow-y-auto bg-[#1a1f2e]">
                 {selectedFile.fileType === 'image' ? (
                   <div className="flex justify-center">
-                    <img 
-                      src={selectedFile.data} 
-                      alt={selectedFile.name}
-                      className="max-w-full max-h-[60vh] object-contain rounded-xl"
-                    />
+                    <img src={selectedFile.data} alt={selectedFile.name} className="max-w-full max-h-[60vh] object-contain rounded-xl" />
                   </div>
                 ) : (
                   <div className="bg-white/5 rounded-2xl p-12 text-center">
                     <FaFilePdf size={64} className="mx-auto text-red-400 mb-4" />
                     <p className="text-white font-bold mb-4">PDF Document</p>
-                    <button
-                      onClick={() => handleDownloadFile(selectedFile)}
-                      className="bg-cyan-600 text-white px-8 py-4 rounded-xl font-black hover:bg-cyan-700 transition-all inline-flex items-center gap-2"
-                    >
+                    <button onClick={() => handleDownloadFile(selectedFile)} className="bg-cyan-600 text-white px-8 py-4 rounded-xl font-black hover:bg-cyan-700 transition-all inline-flex items-center gap-2">
                       <Download size={18} /> DOWNLOAD PDF
                     </button>
-                    <p className="text-slate-400 text-xs mt-4">
-                      PDF viewing is not available in browser. Please download to view.
-                    </p>
                   </div>
                 )}
               </div>
@@ -1198,7 +1023,7 @@ const DocAppiments = ({
         )}
       </AnimatePresence>
 
-      {/* Delete Expired Modal - Keep existing */}
+      {/* Delete Expired Modal */}
       <AnimatePresence>
         {showExpiredModal && (
           <div className="fixed inset-0 bg-[#001b38]/80 backdrop-blur-xl flex items-center justify-center z-[80] p-4">
@@ -1212,23 +1037,16 @@ const DocAppiments = ({
                 <div className="w-20 h-20 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-6">
                   <FaTrash className="text-amber-600" size={32} />
                 </div>
-                <h2 className="text-2xl font-black text-[#001b38] mb-4">Delete Expired?</h2>
+                <h2 className="text-2xl font-black text-[#001b38] mb-4">Delete Expired from MongoDB?</h2>
                 <p className="text-slate-500 mb-6">
                   You have <span className="font-black text-amber-600">{expiredCount}</span> expired appointment(s).
-                  These will be permanently removed from the database.
                 </p>
                 <div className="flex gap-3">
-                  <button
-                    onClick={() => setShowExpiredModal(false)}
-                    className="flex-1 py-4 bg-slate-100 text-slate-700 rounded-xl font-black text-sm hover:bg-slate-200 transition-all"
-                  >
+                  <button onClick={() => setShowExpiredModal(false)} className="flex-1 py-4 bg-slate-100 text-slate-700 rounded-xl font-black text-sm">
                     CANCEL
                   </button>
-                  <button
-                    onClick={handleDeleteExpired}
-                    className="flex-1 py-4 bg-amber-600 text-white rounded-xl font-black text-sm hover:bg-amber-700 transition-all"
-                  >
-                    DELETE ALL
+                  <button onClick={handleDeleteExpired} className="flex-1 py-4 bg-amber-600 text-white rounded-xl font-black text-sm hover:bg-amber-700">
+                    DELETE
                   </button>
                 </div>
               </div>
