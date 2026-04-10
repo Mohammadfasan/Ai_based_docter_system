@@ -7,6 +7,128 @@ import {
   Eye, File, Image, FileIcon, Trash2, ZoomIn
 } from 'lucide-react';
 
+// IndexedDB wrapper for storing large files
+const DB_NAME = 'MedicalRecordsDB';
+const DB_VERSION = 1;
+const STORE_NAME = 'medicalRecords';
+let db = null;
+
+const initDB = () => {
+  return new Promise((resolve, reject) => {
+    if (db && db.name === DB_NAME) {
+      resolve(db);
+      return;
+    }
+
+    const request = indexedDB.open(DB_NAME, DB_VERSION);
+
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => {
+      db = request.result;
+      resolve(db);
+    };
+
+    request.onupgradeneeded = (event) => {
+      const db = event.target.result;
+      if (!db.objectStoreNames.contains(STORE_NAME)) {
+        const store = db.createObjectStore(STORE_NAME, { keyPath: 'id' });
+        store.createIndex('userId', 'userId', { unique: false });
+        store.createIndex('date', 'date', { unique: false });
+        store.createIndex('type', 'type', { unique: false });
+      }
+    };
+  });
+};
+
+// Fixed: Get all records by user ID without transaction conflicts
+const getAllRecordsByUserId = async (userId) => {
+  return new Promise(async (resolve, reject) => {
+    try {
+      const database = await initDB();
+      const transaction = database.transaction([STORE_NAME], 'readonly');
+      const store = transaction.objectStore(STORE_NAME);
+      const index = store.index('userId');
+      const records = [];
+      
+      const cursorRequest = index.openCursor(IDBKeyRange.only(userId));
+      
+      cursorRequest.onerror = () => reject(cursorRequest.error);
+      cursorRequest.onsuccess = (event) => {
+        const cursor = event.target.result;
+        if (cursor) {
+          records.push(cursor.value);
+          cursor.continue();
+        } else {
+          records.sort((a, b) => new Date(b.date) - new Date(a.date));
+          resolve(records);
+        }
+      };
+    } catch (error) {
+      reject(error);
+    }
+  });
+};
+
+// Fixed: Save records without transaction conflicts
+const saveMedicalRecordsToIndexedDB = async (userId, records) => {
+  try {
+    const database = await initDB();
+    
+    // First, get existing records to delete them
+    const existingRecords = await getAllRecordsByUserId(userId);
+    
+    // Use a single transaction for all write operations
+    const transaction = database.transaction([STORE_NAME], 'readwrite');
+    const store = transaction.objectStore(STORE_NAME);
+    
+    // Delete existing records
+    for (const record of existingRecords) {
+      store.delete(record.id);
+    }
+    
+    // Save new records
+    for (const record of records) {
+      store.put(record);
+    }
+    
+    // Wait for transaction to complete
+    return new Promise((resolve, reject) => {
+      transaction.oncomplete = () => resolve(true);
+      transaction.onerror = () => reject(transaction.error);
+      transaction.onabort = () => reject(new Error('Transaction aborted'));
+    });
+  } catch (error) {
+    console.error('Error saving to IndexedDB:', error);
+    throw error;
+  }
+};
+
+const getMedicalRecordsFromIndexedDB = async (userId) => {
+  try {
+    return await getAllRecordsByUserId(userId);
+  } catch (error) {
+    console.error('Error loading from IndexedDB:', error);
+    return [];
+  }
+};
+
+const deleteMedicalRecordFromIndexedDB = async (recordId) => {
+  try {
+    const database = await initDB();
+    const transaction = database.transaction([STORE_NAME], 'readwrite');
+    const store = transaction.objectStore(STORE_NAME);
+    store.delete(recordId);
+    
+    return new Promise((resolve, reject) => {
+      transaction.oncomplete = () => resolve(true);
+      transaction.onerror = () => reject(transaction.error);
+    });
+  } catch (error) {
+    console.error('Error deleting from IndexedDB:', error);
+    throw error;
+  }
+};
+
 const MedicalRecordsPage = () => {
   // --- STATES ---
   const [selectedRecord, setSelectedRecord] = useState(null);
@@ -24,6 +146,7 @@ const MedicalRecordsPage = () => {
   const [selectedFile, setSelectedFile] = useState(null);
   const [currentUser, setCurrentUser] = useState(null);
   const [medicalRecords, setMedicalRecords] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
 
   // OP Details States
   const [opDoctor, setOpDoctor] = useState('');
@@ -34,39 +157,82 @@ const MedicalRecordsPage = () => {
   const [temp, setTemp] = useState('');
   const [oxygen, setOxygen] = useState('');
 
-  // Get current user and load medical records
+  // Get current user and load medical records from IndexedDB
   useEffect(() => {
-    const user = JSON.parse(localStorage.getItem('currentUser') || '{}');
-    setCurrentUser(user);
+    const init = async () => {
+      try {
+        const user = JSON.parse(localStorage.getItem('currentUser') || '{}');
+        setCurrentUser(user);
+        
+        const userId = user?.userId || user?.id;
+        if (userId) {
+          await initDB();
+          const records = await getMedicalRecordsFromIndexedDB(userId);
+          setMedicalRecords(records);
+        } else {
+          setMedicalRecords([]);
+        }
+      } catch (error) {
+        console.error('Error loading records:', error);
+        setMedicalRecords([]);
+      } finally {
+        setIsLoading(false);
+      }
+    };
     
-    // Load medical records for current user
-    const userId = user?.userId || user?.id;
-    if (userId) {
-      const saved = localStorage.getItem(`medical_records_${userId}`);
-      // Only set records if they exist, otherwise keep empty array
-      setMedicalRecords(saved ? JSON.parse(saved) : []);
-    } else {
-      setMedicalRecords([]);
-    }
+    init();
   }, []);
 
-  // Save medical records
-  const saveMedicalRecords = (records) => {
+  // Save medical records to IndexedDB
+  const saveMedicalRecords = async (records) => {
     const user = JSON.parse(localStorage.getItem('currentUser') || '{}');
     const userId = user?.userId || user?.id;
     
     if (userId) {
-      localStorage.setItem(`medical_records_${userId}`, JSON.stringify(records));
+      await saveMedicalRecordsToIndexedDB(userId, records);
       setMedicalRecords(records);
     }
   };
 
-  // Convert file to base64 for storage
-  const fileToBase64 = (file) => {
+  // Compress image before storing (reduces storage usage)
+  const compressImage = (base64String, maxWidth = 1024, quality = 0.7) => {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let width = img.width;
+        let height = img.height;
+        
+        if (width > maxWidth) {
+          height = (height * maxWidth) / width;
+          width = maxWidth;
+        }
+        
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+        
+        const compressed = canvas.toDataURL('image/jpeg', quality);
+        resolve(compressed);
+      };
+      img.src = base64String;
+    });
+  };
+
+  // Convert file to base64 for storage with compression for images
+  const fileToBase64 = async (file) => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.readAsDataURL(file);
-      reader.onload = () => resolve(reader.result);
+      reader.onload = async () => {
+        let result = reader.result;
+        // Compress if it's an image and size is large (> 500KB)
+        if (file.type.startsWith('image/') && result.length > 500 * 1024) {
+          result = await compressImage(result, 800, 0.6);
+        }
+        resolve(result);
+      };
       reader.onerror = error => reject(error);
     });
   };
@@ -82,13 +248,26 @@ const MedicalRecordsPage = () => {
       return;
     }
 
+    // Check total size before uploading
+    let totalSize = 0;
+    for (const file of uploadFiles) {
+      totalSize += file.size;
+    }
+    
+    // Warn if total size > 50MB
+    if (totalSize > 50 * 1024 * 1024) {
+      if (!window.confirm(`Total file size is ${(totalSize / 1024 / 1024).toFixed(1)}MB. Large files may affect performance. Continue?`)) {
+        return;
+      }
+    }
+
     setIsUploading(true);
 
     try {
       // Convert files to base64 for storage
       const filesData = await Promise.all(
-        uploadFiles.map(async (file) => ({
-          id: Date.now() + Math.random(),
+        uploadFiles.map(async (file, index) => ({
+          id: Date.now() + index + Math.random(),
           name: file.name,
           type: file.type,
           size: file.size,
@@ -99,6 +278,9 @@ const MedicalRecordsPage = () => {
 
       const newRecord = {
         id: Date.now(),
+        userId: currentUser?.userId || currentUser?.id,
+        userEmail: currentUser?.email || '',
+        userName: currentUser?.name || '',
         date: recordDate,
         doctor: opDoctor || 'Self-uploaded',
         type: recordType,
@@ -124,7 +306,7 @@ const MedicalRecordsPage = () => {
       };
 
       const updatedRecords = [newRecord, ...medicalRecords];
-      saveMedicalRecords(updatedRecords);
+      await saveMedicalRecords(updatedRecords);
 
       // Reset form
       setShowUploadModal(false);
@@ -144,7 +326,7 @@ const MedicalRecordsPage = () => {
       alert('✅ Medical record uploaded successfully!');
     } catch (error) {
       console.error('Upload error:', error);
-      alert('Error uploading file. Please try again.');
+      alert(`Error uploading file: ${error.message || 'Please try again with smaller files'}`);
     } finally {
       setIsUploading(false);
     }
@@ -156,16 +338,20 @@ const MedicalRecordsPage = () => {
     setShowViewModal(true);
   };
 
-  const handleDeleteRecord = (recordId) => {
+  const handleDeleteRecord = async (recordId) => {
     if (window.confirm('Are you sure you want to delete this record?')) {
-      const updatedRecords = medicalRecords.filter(r => r.id !== recordId);
-      saveMedicalRecords(updatedRecords);
-      alert('Record deleted successfully');
+      try {
+        const updatedRecords = medicalRecords.filter(r => r.id !== recordId);
+        await saveMedicalRecords(updatedRecords);
+        alert('Record deleted successfully');
+      } catch (error) {
+        console.error('Delete error:', error);
+        alert('Error deleting record');
+      }
     }
   };
 
   const handleDownloadFile = (file) => {
-    // Create download link
     const link = document.createElement('a');
     link.href = file.data;
     link.download = file.name;
@@ -195,6 +381,17 @@ const MedicalRecordsPage = () => {
     'Prescription',
     'Checkup'
   ];
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-[#f8fafc] flex items-center justify-center">
+        <div className="text-center">
+          <RefreshCw className="animate-spin mx-auto text-teal-400" size={48} />
+          <p className="text-slate-600 mt-4">Loading your records...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#f8fafc] font-['Plus_Jakarta_Sans'] pb-24">
@@ -400,7 +597,7 @@ const MedicalRecordsPage = () => {
                 </div>
 
                 {showOPDetails && (
-                  <div className="p-6 pt-0 space-y-5 border-t border-white/5 mt-2 animate-in fade-in slide-in-from-top-2 duration-300">
+                  <div className="p-6 pt-0 space-y-5 border-t border-white/5 mt-2">
                     {/* Doctor Info Row */}
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6">
                       <div className="space-y-1">

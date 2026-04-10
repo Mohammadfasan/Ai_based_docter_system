@@ -9,20 +9,20 @@ import {
   FaFilePdf, FaFileImage, FaFileAlt, FaDownload,
   FaEye, FaPaperclip, FaTrash, FaExclamationCircle,
   FaEnvelope, FaWallet, FaHeart, FaShieldAlt, FaLink,
-  FaUser, FaPhoneAlt, FaBell, FaSpinner
+  FaUser, FaPhoneAlt, FaBell, FaSpinner, FaPrescriptionBottle
 } from 'react-icons/fa';
 import { 
   Stethoscope, Award, Users, Calendar as LucideCalendar, 
   Heart, Clock, ShieldCheck, Activity, PlusCircle, Trash2, MapPin,
   User, Mail, Phone as PhoneIcon, FileText, Video, Download,
-  RefreshCw
+  RefreshCw, CheckCircle, XCircle
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 
 const API_URL = 'http://localhost:5000/api';
 
-const DocAppiments = ({ 
+const DocAppointments = ({ 
   doctorId = null,
   doctorEmail = null,
   userData = {}
@@ -49,6 +49,10 @@ const DocAppiments = ({
   const [lastUpdate, setLastUpdate] = useState(new Date());
   const [showNotification, setShowNotification] = useState(false);
   const [notificationMessage, setNotificationMessage] = useState('');
+  const [showCompleteModal, setShowCompleteModal] = useState(false);
+  const [completeAppointmentData, setCompleteAppointmentData] = useState(null);
+  const [consultationNotes, setConsultationNotes] = useState('');
+  const [prescription, setPrescription] = useState('');
   
   // Helper function to check if date is expired
   const isExpired = (dateString) => {
@@ -112,7 +116,6 @@ const DocAppiments = ({
       
       console.log('📥 Fetching appointments for doctor:', actualDoctorId);
       
-      // ✅ CORRECT ENDPOINT - matches your router
       const response = await axios.get(`${API_URL}/appointments/doctor/${actualDoctorId}/appointments`, {
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -185,7 +188,7 @@ const DocAppiments = ({
     }, 3000);
   };
 
-  // ✅ CONFIRM APPOINTMENT - Correct endpoint
+  // ✅ CONFIRM APPOINTMENT
   const handleConfirm = async (id, patientEmail, patientName) => {
     setActionLoading(id);
     setError('');
@@ -200,7 +203,6 @@ const DocAppiments = ({
       
       console.log('📤 Confirming appointment:', id);
       
-      // ✅ Correct endpoint - matches your router
       const response = await axios.patch(`${API_URL}/appointments/${id}/confirm`,
         {},
         { 
@@ -245,7 +247,6 @@ const DocAppiments = ({
       
       console.log('📤 Cancelling appointment:', id);
       
-      // ✅ Correct endpoint
       const response = await axios.patch(`${API_URL}/appointments/${id}/reject`,
         { rejectionReason: reason || 'Cancelled by doctor' },
         { 
@@ -273,23 +274,30 @@ const DocAppiments = ({
     }
   };
 
-  // ✅ COMPLETE APPOINTMENT
-  const handleComplete = async (id) => {
-    setActionLoading(id);
+  // Open complete modal
+  const openCompleteModal = (appointment) => {
+    setCompleteAppointmentData(appointment);
+    setConsultationNotes('');
+    setPrescription('');
+    setShowCompleteModal(true);
+  };
+
+  // ✅ COMPLETE APPOINTMENT with notes
+  const handleComplete = async () => {
+    if (!completeAppointmentData) return;
     
-    if (!window.confirm('Mark this appointment as completed?')) {
-      setActionLoading(null);
-      return;
-    }
+    setActionLoading(completeAppointmentData._id);
     
     try {
       const token = localStorage.getItem('token');
       
-      console.log('📤 Completing appointment:', id);
+      console.log('📤 Completing appointment:', completeAppointmentData._id);
       
-      // ✅ Correct endpoint
-      const response = await axios.patch(`${API_URL}/appointments/${id}/status`,
-        { status: 'completed' },
+      const response = await axios.patch(`${API_URL}/appointments/${completeAppointmentData._id}/complete`,
+        { 
+          consultationNotes: consultationNotes,
+          prescription: prescription
+        },
         { 
           headers: { 
             Authorization: `Bearer ${token}`,
@@ -300,7 +308,8 @@ const DocAppiments = ({
       
       if (response.data.success) {
         console.log('✅ Appointment COMPLETED');
-        showSuccessNotification('✅ Appointment marked as completed!');
+        showSuccessNotification(`✅ Appointment completed for ${completeAppointmentData.patientName}!`);
+        setShowCompleteModal(false);
         await loadAppointments(true);
       } else {
         throw new Error(response.data.message || 'Failed to complete');
@@ -312,6 +321,7 @@ const DocAppiments = ({
       alert(`Error: ${errorMsg}`);
     } finally {
       setActionLoading(null);
+      setCompleteAppointmentData(null);
     }
   };
 
@@ -362,13 +372,6 @@ const DocAppiments = ({
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-  };
-
-  const handleDownloadAllFiles = (record) => {
-    if (!record.files || record.files.length === 0) return;
-    record.files.forEach(file => {
-      setTimeout(() => handleDownloadFile(file), 500);
-    });
   };
 
   const getFileIcon = (fileName) => {
@@ -701,7 +704,8 @@ const DocAppiments = ({
                   key={appointment._id} 
                   className={`bg-white rounded-3xl shadow-xl border overflow-hidden hover:shadow-2xl transition-all group relative ${
                     appointment.status === 'pending' ? 'border-l-8 border-l-amber-500' : 
-                    appointment.status === 'confirmed' ? 'border-l-8 border-l-green-500' : 'border-slate-100'
+                    appointment.status === 'confirmed' ? 'border-l-8 border-l-green-500' : 
+                    appointment.status === 'completed' ? 'border-l-8 border-l-purple-500' : 'border-slate-100'
                   }`}
                 >
                   {/* Card Header */}
@@ -760,8 +764,9 @@ const DocAppiments = ({
                       <p className="text-sm font-medium text-[#001b38]">{appointment.symptoms || 'General consultation'}</p>
                     </div>
 
-                    {/* Action Buttons */}
+                    {/* ACTION BUTTONS - This is the key section */}
                     <div className="grid grid-cols-4 gap-3">
+                      {/* Records Button - Always visible */}
                       <button 
                         onClick={() => viewPatientMedicalRecords(appointment)}
                         className="col-span-1 px-3 py-4 bg-blue-50 text-blue-600 rounded-xl text-xs font-black hover:bg-blue-100 transition-all flex items-center justify-center gap-2 border border-blue-200"
@@ -771,6 +776,7 @@ const DocAppiments = ({
                         <span className="hidden sm:inline">Records</span>
                       </button>
                       
+                      {/* PENDING STATUS - Shows CONFIRM and CANCEL buttons */}
                       {appointment.status === 'pending' && (
                         <>
                           <button 
@@ -788,7 +794,7 @@ const DocAppiments = ({
                           <button 
                             onClick={() => handleCancel(appointment._id, appointment.patientEmail, appointment.patientName)}
                             disabled={actionLoading === appointment._id}
-                            className="col-span-3 px-3 py-4 bg-red-600 text-white rounded-xl text-xs font-black hover:bg-red-700 transition-all flex items-center justify-center gap-2 disabled:opacity-50 mt-2"
+                            className="col-span-3 px-3 py-4 bg-red-600 text-white rounded-xl text-xs font-black hover:bg-red-700 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
                           >
                             {actionLoading === appointment._id ? (
                               <FaSpinner className="animate-spin" size={16} />
@@ -800,27 +806,42 @@ const DocAppiments = ({
                         </>
                       )}
                       
+                      {/* CONFIRMED STATUS - Shows COMPLETE and RX buttons */}
                       {appointment.status === 'confirmed' && (
-                        <button 
-                          onClick={() => handleComplete(appointment._id)}
-                          disabled={actionLoading === appointment._id}
-                          className="col-span-4 px-3 py-4 bg-blue-600 text-white rounded-xl text-xs font-black hover:bg-blue-700 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
-                        >
-                          {actionLoading === appointment._id ? (
-                            <FaSpinner className="animate-spin" size={16} />
-                          ) : (
-                            <FaCalendarCheck size={16} />
-                          )}
-                          MARK AS COMPLETED
-                        </button>
+                        <>
+                          <button 
+                            onClick={() => openCompleteModal(appointment)}
+                            disabled={actionLoading === appointment._id}
+                            className="col-span-2 px-3 py-4 bg-purple-600 text-white rounded-xl text-xs font-black hover:bg-purple-700 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                          >
+                            {actionLoading === appointment._id ? (
+                              <FaSpinner className="animate-spin" size={16} />
+                            ) : (
+                              <FaCalendarCheck size={16} />
+                            )}
+                            <span>COMPLETE</span>
+                          </button>
+                          <button 
+                            onClick={() => handleWritePrescription(appointment)}
+                            className="col-span-2 px-3 py-4 bg-cyan-600 text-white rounded-xl text-xs font-black hover:bg-cyan-700 transition-all flex items-center justify-center gap-2"
+                          >
+                            <FaPrescriptionBottle size={16} />
+                            <span>RX</span>
+                          </button>
+                        </>
                       )}
 
+                      {/* COMPLETED STATUS - Shows completion message */}
                       {appointment.status === 'completed' && (
                         <div className="col-span-4 px-3 py-4 bg-purple-100 text-purple-600 rounded-xl text-xs font-black text-center">
                           ✓ Consultation Completed
+                          {appointment.consultationNotes && (
+                            <p className="text-[8px] mt-1 text-purple-500">{appointment.consultationNotes.substring(0, 50)}...</p>
+                          )}
                         </div>
                       )}
 
+                      {/* CANCELLED STATUS - Shows cancellation message */}
                       {appointment.status === 'cancelled' && (
                         <div className="col-span-4 px-3 py-4 bg-red-100 text-red-600 rounded-xl text-xs font-black text-center">
                           ✗ Appointment Cancelled
@@ -846,6 +867,78 @@ const DocAppiments = ({
           )}
         </AnimatePresence>
       </div>
+
+      {/* Complete Appointment Modal */}
+      <AnimatePresence>
+        {showCompleteModal && completeAppointmentData && (
+          <div className="fixed inset-0 bg-[#001b38]/80 backdrop-blur-xl flex items-center justify-center z-[90] p-4">
+            <motion.div 
+              initial={{ opacity: 0, y: 50 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 50 }}
+              className="bg-white w-full max-w-2xl rounded-[40px] overflow-hidden shadow-2xl"
+            >
+              <div className="bg-gradient-to-r from-purple-600 to-purple-700 p-8 text-white">
+                <div className="flex justify-between items-center">
+                  <div>
+                    <h2 className="text-2xl font-black uppercase tracking-tighter">Complete Consultation</h2>
+                    <p className="text-purple-100 text-sm mt-2">
+                      {completeAppointmentData.patientName} • {completeAppointmentData.displayDate} at {completeAppointmentData.time}
+                    </p>
+                  </div>
+                  <button onClick={() => setShowCompleteModal(false)} className="p-3 hover:bg-white/10 rounded-xl transition-all">
+                    <FaTimes size={20} />
+                  </button>
+                </div>
+              </div>
+              <div className="p-8">
+                <div className="space-y-6">
+                  <div>
+                    <label className="block text-sm font-black text-[#001b38] mb-2">Consultation Notes</label>
+                    <textarea
+                      value={consultationNotes}
+                      onChange={(e) => setConsultationNotes(e.target.value)}
+                      rows="4"
+                      className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none"
+                      placeholder="Enter consultation notes, diagnosis, recommendations..."
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-black text-[#001b38] mb-2">Prescription / Treatment Plan</label>
+                    <textarea
+                      value={prescription}
+                      onChange={(e) => setPrescription(e.target.value)}
+                      rows="4"
+                      className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none"
+                      placeholder="Enter prescription details, medicines, dosage, follow-up instructions..."
+                    />
+                  </div>
+                  <div className="flex gap-3 pt-4">
+                    <button
+                      onClick={() => setShowCompleteModal(false)}
+                      className="flex-1 py-4 bg-slate-100 text-slate-700 rounded-xl font-black text-sm hover:bg-slate-200 transition-all"
+                    >
+                      CANCEL
+                    </button>
+                    <button
+                      onClick={handleComplete}
+                      disabled={actionLoading === completeAppointmentData._id}
+                      className="flex-1 py-4 bg-purple-600 text-white rounded-xl font-black text-sm hover:bg-purple-700 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                    >
+                      {actionLoading === completeAppointmentData._id ? (
+                        <FaSpinner className="animate-spin" size={16} />
+                      ) : (
+                        <FaCalendarCheck size={16} />
+                      )}
+                      COMPLETE CONSULTATION
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* Medical Records Modal */}
       <AnimatePresence>
@@ -1058,4 +1151,4 @@ const DocAppiments = ({
   );
 };
 
-export default DocAppiments;
+export default DocAppointments;

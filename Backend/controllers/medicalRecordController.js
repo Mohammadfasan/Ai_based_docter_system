@@ -2,7 +2,7 @@ import MedicalRecord from '../models/MedicalRecord.js';
 
 // @desc    Get all medical records for a user
 // @route   GET /api/medical-records/:userId
-// @access  Public (add authentication later)
+// @access  Private (add authentication later)
 export const getMedicalRecords = async (req, res) => {
   try {
     const { userId } = req.params;
@@ -35,7 +35,7 @@ export const getMedicalRecords = async (req, res) => {
 
 // @desc    Get single medical record by ID
 // @route   GET /api/medical-records/record/:id
-// @access  Public
+// @access  Private
 export const getMedicalRecordById = async (req, res) => {
   try {
     const { id } = req.params;
@@ -65,7 +65,7 @@ export const getMedicalRecordById = async (req, res) => {
 
 // @desc    Create a new medical record
 // @route   POST /api/medical-records
-// @access  Public
+// @access  Private
 export const createMedicalRecord = async (req, res) => {
   try {
     const recordData = req.body;
@@ -98,7 +98,7 @@ export const createMedicalRecord = async (req, res) => {
 
 // @desc    Update a medical record
 // @route   PUT /api/medical-records/:id
-// @access  Public
+// @access  Private
 export const updateMedicalRecord = async (req, res) => {
   try {
     const { id } = req.params;
@@ -134,7 +134,7 @@ export const updateMedicalRecord = async (req, res) => {
 
 // @desc    Delete a medical record
 // @route   DELETE /api/medical-records/:id
-// @access  Public
+// @access  Private
 export const deleteMedicalRecord = async (req, res) => {
   try {
     const { id } = req.params;
@@ -165,7 +165,7 @@ export const deleteMedicalRecord = async (req, res) => {
 
 // @desc    Get medical records by type
 // @route   GET /api/medical-records/:userId/type/:type
-// @access  Public
+// @access  Private
 export const getMedicalRecordsByType = async (req, res) => {
   try {
     const { userId, type } = req.params;
@@ -194,7 +194,7 @@ export const getMedicalRecordsByType = async (req, res) => {
 
 // @desc    Get medical records by date range
 // @route   GET /api/medical-records/:userId/date-range
-// @access  Public
+// @access  Private
 export const getMedicalRecordsByDateRange = async (req, res) => {
   try {
     const { userId } = req.params;
@@ -230,7 +230,7 @@ export const getMedicalRecordsByDateRange = async (req, res) => {
 
 // @desc    Search medical records
 // @route   GET /api/medical-records/:userId/search
-// @access  Public
+// @access  Private
 export const searchMedicalRecords = async (req, res) => {
   try {
     const { userId } = req.params;
@@ -272,7 +272,7 @@ export const searchMedicalRecords = async (req, res) => {
 
 // @desc    Get medical records statistics
 // @route   GET /api/medical-records/:userId/stats
-// @access  Public
+// @access  Private
 export const getMedicalRecordsStats = async (req, res) => {
   try {
     const { userId } = req.params;
