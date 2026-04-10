@@ -1,9 +1,11 @@
-// Appointments.jsx - Using ONLY MongoDB with auto-refresh
+// Updated Appointments.jsx - Enhanced attachment viewing
+
 import React, { useState, useEffect, useCallback } from 'react';
 import { 
   Calendar, Clock, Stethoscope, RefreshCw, 
   PlusCircle, FileText, Paperclip, ExternalLink, 
-  AlertCircle, Trash2, Eye, Download, X, Clock as ClockIcon
+  AlertCircle, Trash2, Eye, Download, X, Clock as ClockIcon,
+  Image, File, ChevronDown, ChevronUp
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { appointmentAPI } from '../../services/appointmentAPI';
@@ -16,13 +18,16 @@ const Appointments = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [showAttachModal, setShowAttachModal] = useState(false);
   const [activeAppointmentId, setActiveAppointmentId] = useState(null);
+  const [activeAppointment, setActiveAppointment] = useState(null);
   const [showExpiredModal, setShowExpiredModal] = useState(false);
   const [expiredCount, setExpiredCount] = useState(0);
   const [currentUser, setCurrentUser] = useState(null);
   const [showViewModal, setShowViewModal] = useState(false);
   const [selectedFile, setSelectedFile] = useState(null);
+  const [selectedRecord, setSelectedRecord] = useState(null);
   const [error, setError] = useState('');
   const [lastUpdate, setLastUpdate] = useState(new Date());
+  const [expandedAttachments, setExpandedAttachments] = useState({});
 
   // Helper function to check if date is expired
   const isExpired = (dateString) => {
@@ -43,7 +48,7 @@ const Appointments = () => {
     return appointmentDate.getTime() === today.getTime();
   };
 
-  // Get status badge styling based on status
+  // Get status badge styling
   const getStatusBadge = (status, date) => {
     if (isToday(date)) {
       return 'bg-purple-50 text-purple-600 border-purple-100';
@@ -64,7 +69,6 @@ const Appointments = () => {
     }
   };
 
-  // Get status icon based on status
   const getStatusIcon = (status) => {
     switch(status) {
       case 'confirmed':
@@ -80,7 +84,6 @@ const Appointments = () => {
     }
   };
 
-  // Get status text with styling
   const getStatusText = (status) => {
     switch(status) {
       case 'confirmed':
@@ -116,14 +119,14 @@ const Appointments = () => {
       if (response.success) {
         let allApps = response.data || [];
         
-        // Filter for this patient's appointments (already filtered by API)
+        // Filter for this patient's appointments
         let userApps = allApps;
         
-        // Count expired appointments (past dates that are not pending/confirmed)
+        // Count expired appointments
         const expired = userApps.filter(app => isExpired(app.date));
         setExpiredCount(expired.length);
         
-        // Show only today and future appointments (not expired)
+        // Show only today and future appointments
         const activeAppointments = userApps.filter(app => !isExpired(app.date));
         
         // Sort by date (nearest first)
@@ -133,7 +136,7 @@ const Appointments = () => {
         throw new Error(response.message || 'Failed to load appointments');
       }
       
-      // Load medical records from localStorage (keep this as is or move to MongoDB)
+      // Load medical records from IndexedDB (keep as is)
       const patientId = user?.userId || user?.id;
       const records = JSON.parse(localStorage.getItem(`medical_records_${patientId}`) || '[]');
       setMedicalRecords(records);
@@ -147,25 +150,19 @@ const Appointments = () => {
     }
   }, []);
 
-  // Auto-refresh every 30 seconds to get status updates from doctor
   useEffect(() => {
     loadData();
-    
-    // Set up auto-refresh interval (every 30 seconds)
     const interval = setInterval(() => {
-      console.log('🔄 Auto-refreshing appointments to check for status updates...');
+      console.log('🔄 Auto-refreshing appointments...');
       loadData(true);
-    }, 30000); // Refresh every 30 seconds
-    
+    }, 30000);
     return () => clearInterval(interval);
   }, [loadData]);
 
-  // Manual refresh
   const handleManualRefresh = () => {
     loadData(true);
   };
 
-  // Delete expired appointments via API
   const handleDeleteExpired = async () => {
     try {
       const response = await appointmentAPI.deleteExpiredAppointments();
@@ -181,20 +178,41 @@ const Appointments = () => {
     }
   };
 
-  const handleAttachRecord = async (appointmentId, recordId) => {
+  // Improved attach record function with better error handling
+  const handleAttachRecord = async (appointmentId, record) => {
     try {
-      const response = await appointmentAPI.attachRecord(appointmentId, recordId);
+      // Prepare record data for attachment
+      const recordData = {
+        recordId: record.id,
+        recordType: record.type || 'medical_record',
+        recordName: record.diagnosis || record.type || 'Medical Record',
+        recordUrl: record.files?.[0]?.data || '',
+        uploadedBy: currentUser?.name || 'Patient'
+      };
+      
+      const response = await appointmentAPI.attachRecord(appointmentId, record.id, recordData);
       if (response.success) {
         await loadData();
         setShowAttachModal(false);
+        setActiveAppointmentId(null);
+        alert('✅ Medical record attached successfully!');
+      } else {
+        throw new Error(response.message);
       }
     } catch (error) {
       console.error('Error attaching record:', error);
-      alert('Failed to attach record');
+      alert(error.response?.data?.message || 'Failed to attach record');
     }
   };
 
-  const handleViewFile = (record, file) => {
+  // Function to get full record details by ID
+  const getRecordById = (recordId) => {
+    return medicalRecords.find(r => r.id === recordId || r._id === recordId);
+  };
+
+  // View file from attachment
+  const handleViewAttachedFile = (record, file) => {
+    setSelectedRecord(record);
     setSelectedFile(file);
     setShowViewModal(true);
   };
@@ -206,6 +224,20 @@ const Appointments = () => {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  };
+
+  // Toggle expanded attachments view
+  const toggleAttachments = (appointmentId) => {
+    setExpandedAttachments(prev => ({
+      ...prev,
+      [appointmentId]: !prev[appointmentId]
+    }));
+  };
+
+  // Get file icon based on file type
+  const getFileIcon = (fileType) => {
+    if (fileType === 'image') return <Image size={12} />;
+    return <File size={12} />;
   };
 
   if (loading) {
@@ -284,7 +316,25 @@ const Appointments = () => {
               appointments.map((app) => {
                 const isTodayApp = isToday(app.date);
                 const isPending = app.status === 'pending';
-                const isConfirmed = app.status === 'confirmed';
+                
+                // Get attached records with full details
+                const attachedRecords = (app.attachedRecords || []).map(rec => {
+                  // If recordId is stored, try to find full record
+                  if (rec.recordId) {
+                    const fullRecord = getRecordById(rec.recordId);
+                    if (fullRecord) {
+                      return {
+                        ...rec,
+                        ...fullRecord,
+                        files: fullRecord.files || []
+                      };
+                    }
+                  }
+                  return rec;
+                });
+                
+                const hasAttachments = attachedRecords.length > 0;
+                const isExpanded = expandedAttachments[app._id];
                 
                 return (
                   <div 
@@ -310,8 +360,7 @@ const Appointments = () => {
                       </div>
                     )}
 
-                    {/* Status changed notification */}
-                    {app.status === 'confirmed' && app._id && (
+                    {app.status === 'confirmed' && (
                       <div className="mb-4">
                         <span className="px-4 py-2 bg-emerald-500 text-white rounded-full text-xs font-black flex items-center gap-2 w-fit">
                           <Calendar size={12} />
@@ -320,7 +369,7 @@ const Appointments = () => {
                       </div>
                     )}
 
-                    {app.status === 'cancelled' && app._id && (
+                    {app.status === 'cancelled' && (
                       <div className="mb-4">
                         <span className="px-4 py-2 bg-red-500 text-white rounded-full text-xs font-black flex items-center gap-2 w-fit">
                           <AlertCircle size={12} />
@@ -372,28 +421,79 @@ const Appointments = () => {
                           </div>
                         )}
 
-                        {app.attachedRecords && app.attachedRecords.length > 0 && (
+                        {/* ATTACHED REPORTS SECTION - IMPROVED */}
+                        {hasAttachments && (
                           <div className="mt-4">
-                            <p className="text-[10px] font-black text-slate-400 uppercase mb-2">Attached Reports</p>
-                            <div className="flex flex-wrap gap-2">
-                              {app.attachedRecords.map(recId => {
-                                const record = medicalRecords.find(r => r.id === recId);
-                                return record ? (
-                                  <div key={recId} className="flex items-center gap-2 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-xl text-[10px] font-bold border border-blue-100">
-                                    <FileText size={12} />
-                                    <span>{record.diagnosis || record.type}</span>
+                            <button
+                              onClick={() => toggleAttachments(app._id)}
+                              className="flex items-center gap-2 text-[10px] font-black text-teal-600 uppercase hover:text-teal-700 transition-colors"
+                            >
+                              <Paperclip size={12} />
+                              {attachedRecords.length} Attached Report(s)
+                              {isExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                            </button>
+                            
+                            {isExpanded && (
+                              <div className="mt-3 space-y-2">
+                                {attachedRecords.map((record, idx) => (
+                                  <div key={record.recordId || idx} className="bg-teal-50/30 rounded-xl p-3 border border-teal-100">
+                                    <div className="flex items-center justify-between mb-2">
+                                      <div className="flex items-center gap-2">
+                                        <FileText size={14} className="text-teal-600" />
+                                        <span className="font-black text-sm text-slate-800">
+                                          {record.recordName || record.diagnosis || record.type}
+                                        </span>
+                                      </div>
+                                      <span className="text-[8px] font-black text-slate-400">
+                                        {record.uploadedAt ? new Date(record.uploadedAt).toLocaleDateString() : record.date}
+                                      </span>
+                                    </div>
+                                    
+                                    {/* Files in this record */}
                                     {record.files && record.files.length > 0 && (
-                                      <button
-                                        onClick={() => handleViewFile(record, record.files[0])}
-                                        className="ml-1 text-blue-600 hover:text-blue-800"
-                                      >
-                                        <Eye size={10} />
-                                      </button>
+                                      <div className="flex flex-wrap gap-2 mt-2">
+                                        {record.files.map((file, fileIdx) => (
+                                          <button
+                                            key={fileIdx}
+                                            onClick={() => handleViewAttachedFile(record, file)}
+                                            className="flex items-center gap-1.5 bg-white px-3 py-1.5 rounded-lg text-[10px] font-bold text-slate-600 hover:text-teal-600 hover:bg-teal-50 transition-colors shadow-sm"
+                                          >
+                                            {getFileIcon(file.fileType)}
+                                            <span className="max-w-[120px] truncate">{file.name}</span>
+                                            <Eye size={10} className="ml-1" />
+                                          </button>
+                                        ))}
+                                      </div>
+                                    )}
+                                    
+                                    {/* Doctor's notes if any */}
+                                    {record.uploadedByName && (
+                                      <p className="text-[8px] text-slate-400 mt-2">
+                                        Uploaded by: {record.uploadedByName}
+                                      </p>
                                     )}
                                   </div>
-                                ) : null;
-                              })}
-                            </div>
+                                ))}
+                              </div>
+                            )}
+                            
+                            {!isExpanded && (
+                              <div className="mt-2 flex flex-wrap gap-2">
+                                {attachedRecords.slice(0, 2).map((record, idx) => (
+                                  <div key={idx} className="flex items-center gap-1 px-2 py-1 bg-teal-50 rounded-lg">
+                                    <FileText size={10} className="text-teal-500" />
+                                    <span className="text-[9px] font-bold text-teal-700 truncate max-w-[100px]">
+                                      {record.recordName || record.diagnosis}
+                                    </span>
+                                  </div>
+                                ))}
+                                {attachedRecords.length > 2 && (
+                                  <span className="text-[9px] text-slate-400 px-2 py-1">
+                                    +{attachedRecords.length - 2} more
+                                  </span>
+                                )}
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>
@@ -424,6 +524,7 @@ const Appointments = () => {
                           <button 
                             onClick={() => { 
                               setActiveAppointmentId(app._id); 
+                              setActiveAppointment(app);
                               setShowAttachModal(true); 
                             }} 
                             className="px-4 py-3 bg-teal-50 text-teal-600 rounded-xl font-black text-xs hover:bg-teal-100 transition-all flex items-center gap-2"
@@ -499,19 +600,6 @@ const Appointments = () => {
                 </div>
                 
                 <div className="flex justify-between items-center p-4 bg-white/5 rounded-xl">
-                  <span className="text-slate-300">This Week</span>
-                  <span className="text-2xl font-black text-blue-400">
-                    {appointments.filter(a => {
-                      const date = new Date(a.date);
-                      const today = new Date();
-                      const weekLater = new Date(today);
-                      weekLater.setDate(today.getDate() + 7);
-                      return date <= weekLater;
-                    }).length}
-                  </span>
-                </div>
-
-                <div className="flex justify-between items-center p-4 bg-white/5 rounded-xl">
                   <span className="text-slate-300">Total Records</span>
                   <span className="text-2xl font-black text-amber-400">{medicalRecords.length}</span>
                 </div>
@@ -549,40 +637,79 @@ const Appointments = () => {
         </div>
       </main>
 
-      {/* Attach Record Modal - keep as is */}
+      {/* Attach Record Modal - IMPROVED with better record display */}
       {showAttachModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-[2.5rem] max-w-lg w-full p-8 shadow-2xl">
             <div className="flex justify-between items-center mb-6">
-              <h2 className="text-2xl font-black text-[#0f172a]">Select Report</h2>
+              <div>
+                <h2 className="text-2xl font-black text-[#0f172a]">Attach Medical Record</h2>
+                <p className="text-sm text-slate-500 mt-1">
+                  Appointment with {activeAppointment?.doctorName} on {activeAppointment?.date}
+                </p>
+              </div>
               <button onClick={() => setShowAttachModal(false)} className="text-slate-400 hover:text-slate-600">
                 <X size={24} />
               </button>
             </div>
+            
             <div className="space-y-3 max-h-96 overflow-y-auto pr-2">
               {medicalRecords.length > 0 ? (
-                medicalRecords.map(record => (
-                  <div 
-                    key={record.id} 
-                    onClick={() => handleAttachRecord(activeAppointmentId, record.id)} 
-                    className="p-4 border border-slate-100 rounded-2xl hover:bg-teal-50 cursor-pointer flex items-center justify-between transition-all"
-                  >
-                    <div>
-                      <h4 className="font-bold text-slate-900">{record.diagnosis || record.type}</h4>
-                      <p className="text-[10px] text-slate-400 uppercase font-black">{record.date}</p>
-                      {record.files && (
-                        <p className="text-[8px] text-teal-600 mt-1">
-                          {record.files.length} file(s)
-                        </p>
+                medicalRecords.map(record => {
+                  // Check if already attached
+                  const isAlreadyAttached = activeAppointment?.attachedRecords?.some(
+                    r => r.recordId === record.id || r.recordId === record._id
+                  );
+                  
+                  return (
+                    <div 
+                      key={record.id} 
+                      className={`p-4 border rounded-2xl transition-all ${
+                        isAlreadyAttached 
+                          ? 'border-green-200 bg-green-50 opacity-60 cursor-not-allowed' 
+                          : 'border-slate-100 hover:bg-teal-50 cursor-pointer'
+                      }`}
+                      onClick={() => !isAlreadyAttached && handleAttachRecord(activeAppointmentId, record)}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h4 className="font-bold text-slate-900">{record.diagnosis || record.type}</h4>
+                          <p className="text-[10px] text-slate-400 uppercase font-black">{record.date}</p>
+                          {record.files && (
+                            <p className="text-[8px] text-teal-600 mt-1">
+                              📎 {record.files.length} file(s)
+                            </p>
+                          )}
+                        </div>
+                        {isAlreadyAttached ? (
+                          <span className="px-2 py-1 bg-green-100 text-green-600 rounded-lg text-[8px] font-black">
+                            ATTACHED ✓
+                          </span>
+                        ) : (
+                          <PlusCircle size={20} className="text-teal-500" />
+                        )}
+                      </div>
+                      
+                      {/* Preview of files in this record */}
+                      {record.files && record.files.length > 0 && !isAlreadyAttached && (
+                        <div className="flex gap-1 mt-2 flex-wrap">
+                          {record.files.slice(0, 2).map((file, idx) => (
+                            <span key={idx} className="text-[8px] bg-slate-100 px-2 py-0.5 rounded text-slate-500">
+                              {file.name.length > 20 ? file.name.substring(0, 20) + '...' : file.name}
+                            </span>
+                          ))}
+                          {record.files.length > 2 && (
+                            <span className="text-[8px] text-slate-400">+{record.files.length - 2}</span>
+                          )}
+                        </div>
                       )}
                     </div>
-                    <PlusCircle size={20} className="text-teal-500" />
-                  </div>
-                ))
+                  );
+                })
               ) : (
                 <div className="text-center py-8">
                   <FileText className="mx-auto text-slate-300 mb-3" size={40} />
-                  <p className="text-slate-400 text-sm">No records found in vault.</p>
+                  <p className="text-slate-400 text-sm">No records found in your medical vault.</p>
                   <button
                     onClick={() => {
                       setShowAttachModal(false);
@@ -590,16 +717,25 @@ const Appointments = () => {
                     }}
                     className="mt-4 text-teal-600 font-bold text-sm hover:underline"
                   >
-                    Upload Records
+                    Upload Records First →
                   </button>
                 </div>
               )}
+            </div>
+            
+            <div className="mt-6 pt-4 border-t border-slate-100">
+              <button
+                onClick={() => navigate('/medical-records')}
+                className="w-full py-3 bg-slate-100 text-slate-600 rounded-xl font-bold text-sm hover:bg-slate-200 transition-all"
+              >
+                + Add New Record
+              </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Delete Expired Confirmation Modal - keep as is */}
+      {/* Delete Expired Confirmation Modal */}
       {showExpiredModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-[2.5rem] max-w-md w-full p-8 shadow-2xl">
@@ -632,7 +768,7 @@ const Appointments = () => {
         </div>
       )}
 
-      {/* View File Modal - keep as is */}
+      {/* View File Modal - IMPROVED with better navigation */}
       {showViewModal && selectedFile && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
           <div className="bg-white rounded-[2.5rem] max-w-4xl w-full p-8 shadow-2xl max-h-[90vh] overflow-y-auto">
@@ -640,8 +776,14 @@ const Appointments = () => {
               <div>
                 <h2 className="text-2xl font-black text-[#0f172a]">{selectedFile.name}</h2>
                 <p className="text-slate-400 text-sm">
-                  {(selectedFile.size / 1024).toFixed(1)} KB
+                  {(selectedFile.size / 1024).toFixed(1)} KB • 
+                  {selectedRecord && ` ${selectedRecord.date || selectedRecord.uploadedAt}`}
                 </p>
+                {selectedRecord && (
+                  <p className="text-teal-600 text-xs mt-1">
+                    From: {selectedRecord.recordName || selectedRecord.diagnosis}
+                  </p>
+                )}
               </div>
               <button onClick={() => setShowViewModal(false)} className="text-slate-400 hover:text-slate-600">
                 <X size={24} />
@@ -660,15 +802,27 @@ const Appointments = () => {
               ) : (
                 <div className="text-center py-12">
                   <FileText size={64} className="mx-auto text-slate-400 mb-4" />
-                  <p className="text-slate-600 mb-4">PDF Document</p>
+                  <p className="text-slate-600 mb-4">PDF Document - {selectedFile.name}</p>
                   <button
                     onClick={() => handleDownloadFile(selectedFile)}
                     className="bg-teal-600 text-white px-6 py-3 rounded-xl font-black hover:bg-teal-700 transition-all inline-flex items-center gap-2"
                   >
                     <Download size={18} /> DOWNLOAD PDF
                   </button>
+                  <p className="text-slate-400 text-xs mt-4">
+                    Click download to view the complete document
+                  </p>
                 </div>
               )}
+            </div>
+            
+            {/* File metadata */}
+            <div className="mt-4 p-3 bg-slate-50 rounded-xl">
+              <p className="text-[10px] text-slate-400">
+                <span className="font-bold">File Info:</span> {selectedFile.name} • 
+                {(selectedFile.size / 1024).toFixed(1)} KB • 
+                {selectedFile.fileType === 'image' ? 'Image File' : 'PDF Document'}
+              </p>
             </div>
           </div>
         </div>

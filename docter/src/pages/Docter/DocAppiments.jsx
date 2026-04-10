@@ -9,13 +9,15 @@ import {
   FaFilePdf, FaFileImage, FaFileAlt, FaDownload,
   FaEye, FaPaperclip, FaTrash, FaExclamationCircle,
   FaEnvelope, FaWallet, FaHeart, FaShieldAlt, FaLink,
-  FaUser, FaPhoneAlt, FaBell, FaSpinner, FaPrescriptionBottle
+  FaUser, FaPhoneAlt, FaBell, FaSpinner, FaPrescriptionBottle,
+  FaChevronDown, FaChevronUp, FaTimesCircle
 } from 'react-icons/fa';
 import { 
   Stethoscope, Award, Users, Calendar as LucideCalendar, 
   Heart, Clock, ShieldCheck, Activity, PlusCircle, Trash2, MapPin,
   User, Mail, Phone as PhoneIcon, FileText, Video, Download,
-  RefreshCw, CheckCircle, XCircle
+  RefreshCw, CheckCircle, XCircle, Paperclip, Image, File,
+  ZoomIn
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
@@ -53,7 +55,8 @@ const DocAppointments = ({
   const [completeAppointmentData, setCompleteAppointmentData] = useState(null);
   const [consultationNotes, setConsultationNotes] = useState('');
   const [prescription, setPrescription] = useState('');
-  
+  const [expandedAttachments, setExpandedAttachments] = useState({});
+
   // Helper function to check if date is expired
   const isExpired = (dateString) => {
     if (!dateString) return false;
@@ -150,7 +153,8 @@ const DocAppointments = ({
         type: apt.type === 'video' ? 'Video Consultation' : (apt.type === 'in-person' ? 'Clinic Visit' : apt.type),
         fee: apt.fee || 2500,
         isToday: isToday(apt.date),
-        isFuture: isFuture(apt.date)
+        isFuture: isFuture(apt.date),
+        attachedRecords: apt.attachedRecords || []
       }));
       
       setAppointments(formattedAppointments);
@@ -188,6 +192,14 @@ const DocAppointments = ({
     }, 3000);
   };
 
+  // Toggle expanded attachments view
+  const toggleAttachments = (appointmentId) => {
+    setExpandedAttachments(prev => ({
+      ...prev,
+      [appointmentId]: !prev[appointmentId]
+    }));
+  };
+
   // ✅ CONFIRM APPOINTMENT
   const handleConfirm = async (id, patientEmail, patientName) => {
     setActionLoading(id);
@@ -201,8 +213,6 @@ const DocAppointments = ({
     try {
       const token = localStorage.getItem('token');
       
-      console.log('📤 Confirming appointment:', id);
-      
       const response = await axios.patch(`${API_URL}/appointments/${id}/confirm`,
         {},
         { 
@@ -214,7 +224,6 @@ const DocAppointments = ({
       );
       
       if (response.data.success) {
-        console.log('✅ Appointment CONFIRMED');
         showSuccessNotification(`✅ Appointment CONFIRMED for ${patientName}!`);
         await loadAppointments(true);
       } else {
@@ -222,7 +231,7 @@ const DocAppointments = ({
       }
     } catch (error) {
       console.error('Error confirming:', error);
-      const errorMsg = error.response?.data?.message || error.message || 'Network error. Make sure backend is running.';
+      const errorMsg = error.response?.data?.message || error.message || 'Network error.';
       setError(errorMsg);
       alert(`Error: ${errorMsg}`);
     } finally {
@@ -245,8 +254,6 @@ const DocAppointments = ({
     try {
       const token = localStorage.getItem('token');
       
-      console.log('📤 Cancelling appointment:', id);
-      
       const response = await axios.patch(`${API_URL}/appointments/${id}/reject`,
         { rejectionReason: reason || 'Cancelled by doctor' },
         { 
@@ -258,7 +265,6 @@ const DocAppointments = ({
       );
       
       if (response.data.success) {
-        console.log('❌ Appointment CANCELLED');
         showSuccessNotification(`❌ Appointment CANCELLED for ${patientName}!`);
         await loadAppointments(true);
       } else {
@@ -282,7 +288,7 @@ const DocAppointments = ({
     setShowCompleteModal(true);
   };
 
-  // ✅ COMPLETE APPOINTMENT with notes
+  // ✅ COMPLETE APPOINTMENT
   const handleComplete = async () => {
     if (!completeAppointmentData) return;
     
@@ -290,8 +296,6 @@ const DocAppointments = ({
     
     try {
       const token = localStorage.getItem('token');
-      
-      console.log('📤 Completing appointment:', completeAppointmentData._id);
       
       const response = await axios.patch(`${API_URL}/appointments/${completeAppointmentData._id}/complete`,
         { 
@@ -307,7 +311,6 @@ const DocAppointments = ({
       );
       
       if (response.data.success) {
-        console.log('✅ Appointment COMPLETED');
         showSuccessNotification(`✅ Appointment completed for ${completeAppointmentData.patientName}!`);
         setShowCompleteModal(false);
         await loadAppointments(true);
@@ -325,61 +328,54 @@ const DocAppointments = ({
     }
   };
 
-  // Load medical records
-  const loadPatientMedicalRecords = async (patientId, patientEmail) => {
-    try {
-      const token = localStorage.getItem('token');
-      const response = await axios.get(`${API_URL}/medical-records/my-records`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      
-      if (response.data.success) {
-        const records = response.data.data.filter(record => 
-          record.patientId === patientId || 
-          record.patientEmail === patientEmail ||
-          record.email === patientEmail
-        );
-        setPatientRecords(records);
-      } else {
-        setPatientRecords([]);
-      }
-    } catch (error) {
-      console.error('Error loading medical records:', error);
-      setPatientRecords([]);
-    }
-  };
-
-  const viewPatientMedicalRecords = (appointment) => {
+  // Load patient's attached medical records
+  const loadPatientAttachedRecords = (appointment) => {
     setSelectedAppointment(appointment);
-    loadPatientMedicalRecords(appointment.patientId, appointment.patientEmail);
+    const attachedRecords = appointment.attachedRecords || [];
+    setPatientRecords(attachedRecords);
     setShowMedicalModal(true);
   };
 
+  // View a single medical record
   const viewMedicalRecord = (record) => {
     setSelectedMedicalRecord(record);
     setShowRecordViewModal(true);
   };
 
+  // View a file (image or PDF)
   const viewFile = (file) => {
     setSelectedFile(file);
     setShowFileViewModal(true);
   };
 
+  // Download file
   const handleDownloadFile = (file) => {
-    const link = document.createElement('a');
-    link.href = file.data;
-    link.download = file.name;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    if (file.data) {
+      const link = document.createElement('a');
+      link.href = file.data;
+      link.download = file.name;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } else if (file.url) {
+      window.open(file.url, '_blank');
+    }
   };
 
+  // Get file icon based on file extension
   const getFileIcon = (fileName) => {
-    if (!fileName) return <FaFileAlt className="text-gray-400" />;
+    if (!fileName) return <FaFileAlt className="text-gray-400" size={16} />;
     const ext = fileName.split('.').pop().toLowerCase();
     if (ext === 'pdf') return <FaFilePdf className="text-red-500" size={16} />;
-    if (['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'].includes(ext)) return <FaFileImage className="text-blue-500" size={16} />;
+    if (['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg'].includes(ext)) return <FaFileImage className="text-blue-500" size={16} />;
     return <FaFileAlt className="text-gray-500" size={16} />;
+  };
+
+  // Check if file is an image
+  const isImageFile = (fileName) => {
+    if (!fileName) return false;
+    const ext = fileName.split('.').pop().toLowerCase();
+    return ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg'].includes(ext);
   };
 
   const handleWritePrescription = (appointment) => {
@@ -407,7 +403,6 @@ const DocAppointments = ({
       });
       
       if (response.data.success) {
-        console.log(`🗑️ Deleted expired appointments`);
         showSuccessNotification(`🗑️ Deleted expired appointments`);
         await loadAppointments(true);
       }
@@ -479,7 +474,7 @@ const DocAppointments = ({
         const response = await axios.get(`${API_URL}/health`);
         console.log('✅ Backend connected:', response.data);
       } catch (err) {
-        console.error('❌ Backend not reachable. Make sure server is running on port 5000');
+        console.error('❌ Backend not reachable');
         setError('Cannot connect to backend server. Please make sure the server is running on http://localhost:5000');
       }
     };
@@ -521,7 +516,7 @@ const DocAppointments = ({
           <div className="flex items-center justify-between flex-wrap gap-4 mb-6">
             <div className="flex items-center gap-3 flex-wrap">
               <span className="bg-cyan-500/20 text-cyan-400 px-4 py-2 rounded-full text-[10px] font-black tracking-widest uppercase border border-cyan-500/30">
-                MongoDB Live Data
+                Doctor Portal
               </span>
               {pendingCount > 0 && (
                 <span className="bg-amber-500/20 text-amber-400 px-4 py-2 rounded-full text-[10px] font-black tracking-widest uppercase border border-amber-500/30 animate-pulse">
@@ -542,7 +537,7 @@ const DocAppointments = ({
             Patient <span className="text-cyan-400">Visits</span>
           </h1>
           <p className="text-slate-400 font-medium text-lg max-w-2xl">
-            Manage appointments directly from MongoDB database
+            Manage appointments and view patient medical records
           </p>
           <p className="text-slate-500 text-xs mt-4">
             Last updated: {lastUpdate.toLocaleTimeString()} • Auto-refreshes every 30 seconds
@@ -695,165 +690,291 @@ const DocAppointments = ({
         <AnimatePresence>
           {filteredAppointments.length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {filteredAppointments.map((appointment) => (
-                <motion.div
-                  layout
-                  initial={{ opacity: 0, scale: 0.9 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.9 }}
-                  key={appointment._id} 
-                  className={`bg-white rounded-3xl shadow-xl border overflow-hidden hover:shadow-2xl transition-all group relative ${
-                    appointment.status === 'pending' ? 'border-l-8 border-l-amber-500' : 
-                    appointment.status === 'confirmed' ? 'border-l-8 border-l-green-500' : 
-                    appointment.status === 'completed' ? 'border-l-8 border-l-purple-500' : 'border-slate-100'
-                  }`}
-                >
-                  {/* Card Header */}
-                  <div className="bg-gradient-to-r from-[#001b38] to-[#002b4e] p-6 text-white">
-                    <div className="flex items-center gap-4">
-                      <div className="w-16 h-16 bg-gradient-to-br from-cyan-400 to-cyan-600 rounded-2xl flex items-center justify-center text-white font-black text-3xl shadow-lg">
-                        {appointment.patientName ? appointment.patientName.charAt(0).toUpperCase() : 'P'}
-                      </div>
-                      <div className="flex-1">
-                        <div className="flex items-center gap-3 mb-1 flex-wrap">
-                          <h3 className="text-xl font-black">{appointment.patientName}</h3>
-                          <span className={`px-3 py-1 rounded-full text-[9px] font-black flex items-center gap-1 border ${getStatusColor(appointment.status)}`}>
-                            {getStatusIcon(appointment.status)}
-                            {appointment.status?.toUpperCase()}
-                          </span>
+              {filteredAppointments.map((appointment) => {
+                const hasAttachments = appointment.attachedRecords && appointment.attachedRecords.length > 0;
+                const isExpanded = expandedAttachments[appointment._id];
+                
+                return (
+                  <motion.div
+                    layout
+                    initial={{ opacity: 0, scale: 0.9 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.9 }}
+                    key={appointment._id} 
+                    className={`bg-white rounded-3xl shadow-xl border overflow-hidden hover:shadow-2xl transition-all group relative ${
+                      appointment.status === 'pending' ? 'border-l-8 border-l-amber-500' : 
+                      appointment.status === 'confirmed' ? 'border-l-8 border-l-green-500' : 
+                      appointment.status === 'completed' ? 'border-l-8 border-l-purple-500' : 'border-slate-100'
+                    }`}
+                  >
+                    {/* Card Header */}
+                    <div className="bg-gradient-to-r from-[#001b38] to-[#002b4e] p-6 text-white">
+                      <div className="flex items-center gap-4">
+                        <div className="w-16 h-16 bg-gradient-to-br from-cyan-400 to-cyan-600 rounded-2xl flex items-center justify-center text-white font-black text-3xl shadow-lg">
+                          {appointment.patientName ? appointment.patientName.charAt(0).toUpperCase() : 'P'}
                         </div>
-                        <div className="flex items-center gap-4 text-sm text-slate-300 flex-wrap">
-                          <span className="flex items-center gap-1"><User size={14} className="text-cyan-400" /> ID: {typeof appointment.patientId === 'string' ? appointment.patientId.slice(-8) : 'N/A'}</span>
-                          {appointment.patientEmail && appointment.patientEmail !== 'Not provided' && (
-                            <span className="flex items-center gap-1"><Mail size={14} className="text-cyan-400" /> {appointment.patientEmail}</span>
-                          )}
-                          {appointment.patientPhone && appointment.patientPhone !== 'Not provided' && (
-                            <span className="flex items-center gap-1"><FaPhoneAlt size={12} className="text-cyan-400" /> {appointment.patientPhone}</span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Card Body */}
-                  <div className="p-6">
-                    <div className="grid grid-cols-2 gap-4 mb-6">
-                      <div className="flex items-center gap-3 p-4 bg-slate-50 rounded-xl">
-                        <div className="p-2 bg-cyan-100 rounded-lg"><FaCalendarAlt className="text-cyan-600" size={16} /></div>
-                        <div><p className="text-[9px] font-black text-slate-400 uppercase">Date</p><p className="font-black text-[#001b38]">{appointment.displayDate}</p></div>
-                      </div>
-                      <div className="flex items-center gap-3 p-4 bg-slate-50 rounded-xl">
-                        <div className="p-2 bg-purple-100 rounded-lg"><FaClock className="text-purple-600" size={16} /></div>
-                        <div><p className="text-[9px] font-black text-slate-400 uppercase">Time</p><p className="font-black text-[#001b38]">{appointment.time}</p></div>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-4 mb-6">
-                      <div className="flex items-center gap-3 p-4 bg-slate-50 rounded-xl">
-                        <div className="p-2 bg-cyan-100 rounded-lg"><MapPin size={16} className="text-cyan-700" /></div>
-                        <div><p className="text-[9px] font-black text-slate-400 uppercase">Type</p><p className="font-black text-[#001b38]">{appointment.type || 'Clinic Visit'}</p></div>
-                      </div>
-                      <div className="flex items-center gap-3 p-4 bg-emerald-50 rounded-xl">
-                        <div className="p-2 bg-emerald-200 rounded-lg"><FaWallet className="text-emerald-700" size={16} /></div>
-                        <div><p className="text-[9px] font-black text-slate-400 uppercase">Fee</p><p className="font-black text-[#001b38]">LKR {appointment.fee || 2500}</p></div>
-                      </div>
-                    </div>
-
-                    <div className="mb-6 p-4 bg-slate-50 rounded-xl border border-slate-100">
-                      <p className="text-[9px] font-black text-slate-400 uppercase mb-2">Symptoms / Reason</p>
-                      <p className="text-sm font-medium text-[#001b38]">{appointment.symptoms || 'General consultation'}</p>
-                    </div>
-
-                    {/* ACTION BUTTONS - This is the key section */}
-                    <div className="grid grid-cols-4 gap-3">
-                      {/* Records Button - Always visible */}
-                      <button 
-                        onClick={() => viewPatientMedicalRecords(appointment)}
-                        className="col-span-1 px-3 py-4 bg-blue-50 text-blue-600 rounded-xl text-xs font-black hover:bg-blue-100 transition-all flex items-center justify-center gap-2 border border-blue-200"
-                        disabled={actionLoading === appointment._id}
-                      >
-                        <FileText size={16} />
-                        <span className="hidden sm:inline">Records</span>
-                      </button>
-                      
-                      {/* PENDING STATUS - Shows CONFIRM and CANCEL buttons */}
-                      {appointment.status === 'pending' && (
-                        <>
-                          <button 
-                            onClick={() => handleConfirm(appointment._id, appointment.patientEmail, appointment.patientName)}
-                            disabled={actionLoading === appointment._id}
-                            className="col-span-3 px-3 py-4 bg-green-600 text-white rounded-xl text-xs font-black hover:bg-green-700 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
-                          >
-                            {actionLoading === appointment._id ? (
-                              <FaSpinner className="animate-spin" size={16} />
-                            ) : (
-                              <FaCheck size={16} />
+                        <div className="flex-1">
+                          <div className="flex items-center gap-3 mb-1 flex-wrap">
+                            <h3 className="text-xl font-black">{appointment.patientName}</h3>
+                            <span className={`px-3 py-1 rounded-full text-[9px] font-black flex items-center gap-1 border ${getStatusColor(appointment.status)}`}>
+                              {getStatusIcon(appointment.status)}
+                              {appointment.status?.toUpperCase()}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-4 text-sm text-slate-300 flex-wrap">
+                            <span className="flex items-center gap-1"><User size={14} className="text-cyan-400" /> ID: {typeof appointment.patientId === 'string' ? appointment.patientId.slice(-8) : 'N/A'}</span>
+                            {appointment.patientEmail && appointment.patientEmail !== 'Not provided' && (
+                              <span className="flex items-center gap-1"><Mail size={14} className="text-cyan-400" /> {appointment.patientEmail}</span>
                             )}
-                            <span>CONFIRM</span>
-                          </button>
-                          <button 
-                            onClick={() => handleCancel(appointment._id, appointment.patientEmail, appointment.patientName)}
-                            disabled={actionLoading === appointment._id}
-                            className="col-span-3 px-3 py-4 bg-red-600 text-white rounded-xl text-xs font-black hover:bg-red-700 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
-                          >
-                            {actionLoading === appointment._id ? (
-                              <FaSpinner className="animate-spin" size={16} />
-                            ) : (
-                              <FaTimes size={16} />
+                            {appointment.patientPhone && appointment.patientPhone !== 'Not provided' && (
+                              <span className="flex items-center gap-1"><FaPhoneAlt size={12} className="text-cyan-400" /> {appointment.patientPhone}</span>
                             )}
-                            <span>CANCEL</span>
-                          </button>
-                        </>
-                      )}
-                      
-                      {/* CONFIRMED STATUS - Shows COMPLETE and RX buttons */}
-                      {appointment.status === 'confirmed' && (
-                        <>
-                          <button 
-                            onClick={() => openCompleteModal(appointment)}
-                            disabled={actionLoading === appointment._id}
-                            className="col-span-2 px-3 py-4 bg-purple-600 text-white rounded-xl text-xs font-black hover:bg-purple-700 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
-                          >
-                            {actionLoading === appointment._id ? (
-                              <FaSpinner className="animate-spin" size={16} />
-                            ) : (
-                              <FaCalendarCheck size={16} />
-                            )}
-                            <span>COMPLETE</span>
-                          </button>
-                          <button 
-                            onClick={() => handleWritePrescription(appointment)}
-                            className="col-span-2 px-3 py-4 bg-cyan-600 text-white rounded-xl text-xs font-black hover:bg-cyan-700 transition-all flex items-center justify-center gap-2"
-                          >
-                            <FaPrescriptionBottle size={16} />
-                            <span>RX</span>
-                          </button>
-                        </>
-                      )}
-
-                      {/* COMPLETED STATUS - Shows completion message */}
-                      {appointment.status === 'completed' && (
-                        <div className="col-span-4 px-3 py-4 bg-purple-100 text-purple-600 rounded-xl text-xs font-black text-center">
-                          ✓ Consultation Completed
-                          {appointment.consultationNotes && (
-                            <p className="text-[8px] mt-1 text-purple-500">{appointment.consultationNotes.substring(0, 50)}...</p>
-                          )}
+                          </div>
                         </div>
-                      )}
-
-                      {/* CANCELLED STATUS - Shows cancellation message */}
-                      {appointment.status === 'cancelled' && (
-                        <div className="col-span-4 px-3 py-4 bg-red-100 text-red-600 rounded-xl text-xs font-black text-center">
-                          ✗ Appointment Cancelled
-                          {appointment.cancellationReason && (
-                            <p className="text-[8px] mt-1">Reason: {appointment.cancellationReason}</p>
-                          )}
-                        </div>
-                      )}
+                      </div>
                     </div>
-                  </div>
-                </motion.div>
-              ))}
+
+                    {/* Card Body */}
+                    <div className="p-6">
+                      <div className="grid grid-cols-2 gap-4 mb-6">
+                        <div className="flex items-center gap-3 p-4 bg-slate-50 rounded-xl">
+                          <div className="p-2 bg-cyan-100 rounded-lg"><FaCalendarAlt className="text-cyan-600" size={16} /></div>
+                          <div><p className="text-[9px] font-black text-slate-400 uppercase">Date</p><p className="font-black text-[#001b38]">{appointment.displayDate}</p></div>
+                        </div>
+                        <div className="flex items-center gap-3 p-4 bg-slate-50 rounded-xl">
+                          <div className="p-2 bg-purple-100 rounded-lg"><FaClock className="text-purple-600" size={16} /></div>
+                          <div><p className="text-[9px] font-black text-slate-400 uppercase">Time</p><p className="font-black text-[#001b38]">{appointment.time}</p></div>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4 mb-6">
+                        <div className="flex items-center gap-3 p-4 bg-slate-50 rounded-xl">
+                          <div className="p-2 bg-cyan-100 rounded-lg"><MapPin size={16} className="text-cyan-700" /></div>
+                          <div><p className="text-[9px] font-black text-slate-400 uppercase">Type</p><p className="font-black text-[#001b38]">{appointment.type || 'Clinic Visit'}</p></div>
+                        </div>
+                        <div className="flex items-center gap-3 p-4 bg-emerald-50 rounded-xl">
+                          <div className="p-2 bg-emerald-200 rounded-lg"><FaWallet className="text-emerald-700" size={16} /></div>
+                          <div><p className="text-[9px] font-black text-slate-400 uppercase">Fee</p><p className="font-black text-[#001b38]">LKR {appointment.fee || 2500}</p></div>
+                        </div>
+                      </div>
+
+                      <div className="mb-6 p-4 bg-slate-50 rounded-xl border border-slate-100">
+                        <p className="text-[9px] font-black text-slate-400 uppercase mb-2">Symptoms / Reason</p>
+                        <p className="text-sm font-medium text-[#001b38]">{appointment.symptoms || 'General consultation'}</p>
+                      </div>
+
+                      {/* ATTACHED MEDICAL RECORDS SECTION - IMPROVED */}
+                      {hasAttachments && (
+                        <div className="mb-6 p-4 bg-cyan-50 rounded-xl border border-cyan-200">
+                          <button
+                            onClick={() => toggleAttachments(appointment._id)}
+                            className="flex items-center justify-between w-full"
+                          >
+                            <div className="flex items-center gap-2">
+                              <FaFileMedical className="text-cyan-600" size={16} />
+                              <span className="text-xs font-black text-cyan-700 uppercase">
+                                {appointment.attachedRecords.length} Medical Record(s) Attached
+                              </span>
+                            </div>
+                            {isExpanded ? <FaChevronUp size={14} className="text-cyan-600" /> : <FaChevronDown size={14} className="text-cyan-600" />}
+                          </button>
+                          
+                          {isExpanded && (
+                            <div className="mt-3 space-y-3">
+                              {appointment.attachedRecords.map((record, idx) => (
+                                <div 
+                                  key={record.recordId || idx} 
+                                  className="bg-white rounded-xl p-4 border border-cyan-100 cursor-pointer hover:shadow-md transition-all"
+                                  onClick={() => viewMedicalRecord(record)}
+                                >
+                                  <div className="flex items-center justify-between mb-2">
+                                    <div className="flex items-center gap-2">
+                                      <FaFileMedical className="text-cyan-600" size={14} />
+                                      <span className="font-black text-sm text-[#001b38]">
+                                        {record.recordName || 'Medical Record'}
+                                      </span>
+                                    </div>
+                                    <span className="text-[8px] font-black text-slate-400">
+                                      {record.uploadedAt ? new Date(record.uploadedAt).toLocaleDateString() : ''}
+                                    </span>
+                                  </div>
+                                  
+                                  <p className="text-[10px] text-slate-500 mb-2">
+                                    Uploaded by: {record.uploadedByName || 'Patient'}
+                                  </p>
+                                  
+                                  {record.recordType && (
+                                    <span className="inline-block px-2 py-1 bg-cyan-100 text-cyan-700 rounded-lg text-[8px] font-black">
+                                      {record.recordType}
+                                    </span>
+                                  )}
+                                  
+                                  {/* Show file info with view/download buttons */}
+                                  {record.files && record.files.length > 0 && (
+                                    <div className="mt-3 space-y-2">
+                                      <p className="text-[8px] font-black text-slate-400 uppercase">Attached Files:</p>
+                                      {record.files.map((file, fileIdx) => (
+                                        <div key={fileIdx} className="flex items-center justify-between p-2 bg-slate-50 rounded-lg">
+                                          <div className="flex items-center gap-2">
+                                            {getFileIcon(file.name)}
+                                            <span className="text-xs font-medium text-slate-700 truncate max-w-[150px]">
+                                              {file.name}
+                                            </span>
+                                          </div>
+                                          <div className="flex gap-1">
+                                            <button
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                viewFile(file);
+                                              }}
+                                              className="p-1.5 text-cyan-600 hover:bg-cyan-100 rounded-lg transition-all"
+                                              title="View"
+                                            >
+                                              <FaEye size={12} />
+                                            </button>
+                                            <button
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleDownloadFile(file);
+                                              }}
+                                              className="p-1.5 text-green-600 hover:bg-green-100 rounded-lg transition-all"
+                                              title="Download"
+                                            >
+                                              <FaDownload size={12} />
+                                            </button>
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          
+                          {!isExpanded && (
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              {appointment.attachedRecords.slice(0, 2).map((record, idx) => (
+                                <div 
+                                  key={idx} 
+                                  className="flex items-center gap-1 px-2 py-1 bg-white rounded-lg border border-cyan-100 text-[8px] font-bold text-cyan-700"
+                                >
+                                  <FaFileMedical size={8} />
+                                  <span className="truncate max-w-[100px]">
+                                    {record.recordName || 'Medical Record'}
+                                  </span>
+                                </div>
+                              ))}
+                              {appointment.attachedRecords.length > 2 && (
+                                <span className="text-[8px] text-slate-400 px-2 py-1">
+                                  +{appointment.attachedRecords.length - 2} more
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* ACTION BUTTONS */}
+                      <div className="grid grid-cols-4 gap-3">
+                        {/* Records Button - View attached records */}
+                        <button 
+                          onClick={() => loadPatientAttachedRecords(appointment)}
+                          className={`col-span-1 px-3 py-4 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-2 ${
+                            hasAttachments 
+                              ? 'bg-cyan-500 text-white hover:bg-cyan-600' 
+                              : 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                          }`}
+                          disabled={!hasAttachments}
+                        >
+                          <FileText size={16} />
+                          <span className="hidden sm:inline">Records</span>
+                          {hasAttachments && appointment.attachedRecords.length > 0 && (
+                            <span className="ml-1 bg-white/20 px-1.5 py-0.5 rounded-full text-[8px]">
+                              {appointment.attachedRecords.length}
+                            </span>
+                          )}
+                        </button>
+                        
+                        {/* PENDING STATUS - Shows CONFIRM and CANCEL buttons */}
+                        {appointment.status === 'pending' && (
+                          <>
+                            <button 
+                              onClick={() => handleConfirm(appointment._id, appointment.patientEmail, appointment.patientName)}
+                              disabled={actionLoading === appointment._id}
+                              className="col-span-3 px-3 py-4 bg-green-600 text-white rounded-xl text-xs font-black hover:bg-green-700 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                            >
+                              {actionLoading === appointment._id ? (
+                                <FaSpinner className="animate-spin" size={16} />
+                              ) : (
+                                <FaCheck size={16} />
+                              )}
+                              <span>CONFIRM</span>
+                            </button>
+                            <button 
+                              onClick={() => handleCancel(appointment._id, appointment.patientEmail, appointment.patientName)}
+                              disabled={actionLoading === appointment._id}
+                              className="col-span-3 px-3 py-4 bg-red-600 text-white rounded-xl text-xs font-black hover:bg-red-700 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                            >
+                              {actionLoading === appointment._id ? (
+                                <FaSpinner className="animate-spin" size={16} />
+                              ) : (
+                                <FaTimes size={16} />
+                              )}
+                              <span>CANCEL</span>
+                            </button>
+                          </>
+                        )}
+                        
+                        {/* CONFIRMED STATUS - Shows COMPLETE and RX buttons */}
+                        {appointment.status === 'confirmed' && (
+                          <>
+                            <button 
+                              onClick={() => openCompleteModal(appointment)}
+                              disabled={actionLoading === appointment._id}
+                              className="col-span-2 px-3 py-4 bg-purple-600 text-white rounded-xl text-xs font-black hover:bg-purple-700 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                            >
+                              {actionLoading === appointment._id ? (
+                                <FaSpinner className="animate-spin" size={16} />
+                              ) : (
+                                <FaCalendarCheck size={16} />
+                              )}
+                              <span>COMPLETE</span>
+                            </button>
+                            <button 
+                              onClick={() => handleWritePrescription(appointment)}
+                              className="col-span-2 px-3 py-4 bg-cyan-600 text-white rounded-xl text-xs font-black hover:bg-cyan-700 transition-all flex items-center justify-center gap-2"
+                            >
+                              <FaPrescriptionBottle size={16} />
+                              <span>RX</span>
+                            </button>
+                          </>
+                        )}
+
+                        {/* COMPLETED STATUS */}
+                        {appointment.status === 'completed' && (
+                          <div className="col-span-4 px-3 py-4 bg-purple-100 text-purple-600 rounded-xl text-xs font-black text-center">
+                            ✓ Consultation Completed
+                            {appointment.consultationNotes && (
+                              <p className="text-[8px] mt-1 text-purple-500">{appointment.consultationNotes.substring(0, 50)}...</p>
+                            )}
+                          </div>
+                        )}
+
+                        {/* CANCELLED STATUS */}
+                        {appointment.status === 'cancelled' && (
+                          <div className="col-span-4 px-3 py-4 bg-red-100 text-red-600 rounded-xl text-xs font-black text-center">
+                            ✗ Appointment Cancelled
+                            {appointment.cancellationReason && (
+                              <p className="text-[8px] mt-1">Reason: {appointment.cancellationReason}</p>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </motion.div>
+                );
+              })}
             </div>
           ) : (
             <motion.div className="col-span-full py-32 bg-white/50 border-2 border-dashed border-slate-200 rounded-3xl text-center">
@@ -940,7 +1061,7 @@ const DocAppointments = ({
         )}
       </AnimatePresence>
 
-      {/* Medical Records Modal */}
+      {/* Medical Records Modal - Shows all attached records for the appointment */}
       <AnimatePresence>
         {showMedicalModal && selectedAppointment && (
           <div className="fixed inset-0 bg-[#001b38]/80 backdrop-blur-xl flex items-center justify-center z-50 p-4">
@@ -948,14 +1069,14 @@ const DocAppointments = ({
               initial={{ opacity: 0, y: 50 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 50 }}
-              className="bg-white w-full max-w-2xl rounded-[40px] overflow-hidden shadow-2xl"
+              className="bg-white w-full max-w-3xl rounded-[40px] overflow-hidden shadow-2xl"
             >
-              <div className="bg-gradient-to-r from-[#001b38] to-[#002b4e] p-8 text-white">
+              <div className="bg-gradient-to-r from-cyan-600 to-cyan-700 p-8 text-white">
                 <div className="flex justify-between items-center">
                   <div>
-                    <h2 className="text-2xl font-black uppercase tracking-tighter">Medical Records</h2>
-                    <p className="text-cyan-400 text-sm mt-2">
-                      {selectedAppointment.patientName} • {patientRecords.length} records
+                    <h2 className="text-2xl font-black uppercase tracking-tighter">Attached Medical Records</h2>
+                    <p className="text-cyan-100 text-sm mt-2">
+                      {selectedAppointment.patientName} • {patientRecords.length} record(s) attached
                     </p>
                   </div>
                   <button onClick={() => setShowMedicalModal(false)} className="p-3 hover:bg-white/10 rounded-xl transition-all">
@@ -963,39 +1084,63 @@ const DocAppointments = ({
                   </button>
                 </div>
               </div>
-              <div className="p-8 overflow-y-auto max-h-[60vh]">
+              <div className="p-8 overflow-y-auto max-h-[65vh]">
                 {patientRecords.length > 0 ? (
                   <div className="space-y-4">
                     {patientRecords.map((record, index) => (
                       <motion.div 
-                        key={index}
-                        whileHover={{ scale: 1.02 }}
-                        className="border-2 border-slate-100 rounded-2xl p-6 hover:border-cyan-200 transition-all cursor-pointer"
+                        key={record.recordId || index}
+                        whileHover={{ scale: 1.01 }}
+                        className="border-2 border-slate-100 rounded-2xl p-5 hover:border-cyan-300 transition-all cursor-pointer"
                         onClick={() => viewMedicalRecord(record)}
                       >
-                        <div className="flex justify-between items-start mb-4">
+                        <div className="flex justify-between items-start mb-3">
                           <div className="flex items-center gap-3">
-                            {getFileIcon(record.files?.[0]?.name)}
-                            <h3 className="font-black text-lg text-[#001b38]">{record.diagnosis || record.type}</h3>
+                            <FaFileMedical className="text-cyan-600" size={20} />
+                            <div>
+                              <h3 className="font-black text-lg text-[#001b38]">{record.recordName || 'Medical Record'}</h3>
+                              <p className="text-xs text-slate-500 mt-1">
+                                Uploaded by: {record.uploadedByName || 'Patient'} • 
+                                {record.uploadedAt ? new Date(record.uploadedAt).toLocaleString() : 'Date unknown'}
+                              </p>
+                            </div>
                           </div>
-                          <span className="text-xs bg-cyan-100 text-cyan-700 px-4 py-2 rounded-full font-black">
-                            {record.type}
+                          <span className="text-xs bg-cyan-100 text-cyan-700 px-3 py-1.5 rounded-full font-black">
+                            {record.recordType || 'Document'}
                           </span>
                         </div>
-                        <p className="text-xs text-slate-400 font-bold mb-3">Dr. {record.doctor || 'Unknown'} • {record.date}</p>
+                        
                         {record.files && record.files.length > 0 && (
-                          <div className="mt-3 flex items-center gap-2 text-xs text-cyan-600">
-                            <FaPaperclip size={12} />
-                            {record.files.length} file(s)
+                          <div className="mt-3 pt-3 border-t border-slate-100">
+                            <p className="text-[9px] font-black text-slate-400 uppercase mb-2 flex items-center gap-1">
+                              <FaPaperclip size={10} /> {record.files.length} File(s)
+                            </p>
+                            <div className="flex flex-wrap gap-2">
+                              {record.files.slice(0, 3).map((file, fileIdx) => (
+                                <div key={fileIdx} className="flex items-center gap-1 px-2 py-1 bg-slate-50 rounded-lg text-[10px]">
+                                  {getFileIcon(file.name)}
+                                  <span className="truncate max-w-[120px]">{file.name}</span>
+                                </div>
+                              ))}
+                              {record.files.length > 3 && (
+                                <span className="text-[10px] text-slate-400">+{record.files.length - 3} more</span>
+                              )}
+                            </div>
                           </div>
                         )}
+                        
+                        <div className="mt-3 flex justify-end">
+                          <span className="text-[10px] text-cyan-600 flex items-center gap-1">
+                            <FaEye size={10} /> Click to view details
+                          </span>
+                        </div>
                       </motion.div>
                     ))}
                   </div>
                 ) : (
                   <div className="text-center py-16">
-                    <FileText className="mx-auto text-slate-300 mb-4" size={48} />
-                    <p className="text-slate-400 font-black">No medical records found</p>
+                    <FaFileMedical className="mx-auto text-slate-300 mb-4" size={48} />
+                    <p className="text-slate-400 font-black">No medical records attached to this appointment</p>
                   </div>
                 )}
               </div>
@@ -1004,7 +1149,7 @@ const DocAppointments = ({
         )}
       </AnimatePresence>
 
-      {/* Single Record View Modal */}
+      {/* Single Record View Modal - Detailed view with files */}
       <AnimatePresence>
         {showRecordViewModal && selectedMedicalRecord && (
           <div className="fixed inset-0 bg-[#001b38]/80 backdrop-blur-xl flex items-center justify-center z-[60] p-4">
@@ -1012,47 +1157,85 @@ const DocAppointments = ({
               initial={{ opacity: 0, y: 50 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 50 }}
-              className="bg-white w-full max-w-2xl rounded-[40px] overflow-hidden shadow-2xl"
+              className="bg-white w-full max-w-3xl rounded-[40px] overflow-hidden shadow-2xl"
             >
               <div className="bg-gradient-to-r from-cyan-600 to-cyan-700 p-8 text-white">
                 <div className="flex justify-between items-center">
                   <div>
-                    <h2 className="text-2xl font-black uppercase tracking-tighter">{selectedMedicalRecord.diagnosis || selectedMedicalRecord.type}</h2>
-                    <p className="text-cyan-100 text-sm mt-2">{selectedMedicalRecord.date}</p>
+                    <h2 className="text-2xl font-black uppercase tracking-tighter">{selectedMedicalRecord.recordName || 'Medical Record'}</h2>
+                    <p className="text-cyan-100 text-sm mt-2">
+                      Uploaded: {selectedMedicalRecord.uploadedAt ? new Date(selectedMedicalRecord.uploadedAt).toLocaleString() : 'N/A'}
+                    </p>
                   </div>
                   <button onClick={() => setShowRecordViewModal(false)} className="p-3 hover:bg-white/10 rounded-xl transition-all">
                     <FaTimes size={20} />
                   </button>
                 </div>
               </div>
-              <div className="p-8 overflow-y-auto max-h-[60vh]">
+              <div className="p-8 overflow-y-auto max-h-[65vh]">
                 <div className="space-y-6">
-                  <div className="bg-slate-50 p-6 rounded-2xl">
-                    <p className="text-[9px] font-black text-slate-400 uppercase mb-2">Doctor</p>
-                    <p className="font-black text-[#001b38] text-lg">{selectedMedicalRecord.doctor || 'Unknown'}</p>
+                  {/* Uploader Info */}
+                  <div className="bg-slate-50 p-5 rounded-2xl">
+                    <p className="text-[9px] font-black text-slate-400 uppercase mb-2 flex items-center gap-1">
+                      <FaUser size={10} /> Uploaded By
+                    </p>
+                    <p className="font-black text-[#001b38] text-lg">{selectedMedicalRecord.uploadedByName || 'Patient'}</p>
                   </div>
-                  {selectedMedicalRecord.notes && (
-                    <div className="bg-slate-50 p-6 rounded-2xl">
-                      <p className="text-[9px] font-black text-slate-400 uppercase mb-2">Notes</p>
-                      <p className="text-slate-700 whitespace-pre-wrap">{selectedMedicalRecord.notes}</p>
+                  
+                  {/* Record Type */}
+                  <div className="bg-slate-50 p-5 rounded-2xl">
+                    <p className="text-[9px] font-black text-slate-400 uppercase mb-2 flex items-center gap-1">
+                      <FaFileMedical size={10} /> Record Type
+                    </p>
+                    <p className="font-black text-[#001b38]">{selectedMedicalRecord.recordType || 'Medical Document'}</p>
+                  </div>
+                  
+                  {/* Record URL if exists */}
+                  {selectedMedicalRecord.recordUrl && (
+                    <div className="bg-slate-50 p-5 rounded-2xl">
+                      <p className="text-[9px] font-black text-slate-400 uppercase mb-2 flex items-center gap-1">
+                        <FaLink size={10} /> Record URL
+                      </p>
+                      <a href={selectedMedicalRecord.recordUrl} target="_blank" rel="noopener noreferrer" className="text-cyan-600 text-sm break-all hover:underline">
+                        {selectedMedicalRecord.recordUrl}
+                      </a>
                     </div>
                   )}
+                  
+                  {/* Attached Files Section with View/Download */}
                   {selectedMedicalRecord.files && selectedMedicalRecord.files.length > 0 && (
-                    <div className="bg-slate-50 p-6 rounded-2xl">
-                      <p className="text-[9px] font-black text-slate-400 uppercase mb-4">Attached Files</p>
-                      <div className="space-y-2">
+                    <div className="bg-slate-50 p-5 rounded-2xl">
+                      <p className="text-[9px] font-black text-slate-400 uppercase mb-4 flex items-center gap-1">
+                        <FaPaperclip size={10} /> Attached Files ({selectedMedicalRecord.files.length})
+                      </p>
+                      <div className="space-y-3">
                         {selectedMedicalRecord.files.map((file, idx) => (
-                          <div key={idx} className="flex items-center justify-between p-4 bg-white rounded-xl border border-slate-100">
-                            <div className="flex items-center gap-3">
+                          <div key={idx} className="flex items-center justify-between p-4 bg-white rounded-xl border border-slate-200 shadow-sm">
+                            <div className="flex items-center gap-3 flex-1 min-w-0">
                               {getFileIcon(file.name)}
-                              <span className="font-bold text-[#001b38]">{file.name}</span>
+                              <div className="flex-1 min-w-0">
+                                <p className="font-bold text-[#001b38] text-sm truncate">{file.name}</p>
+                                <p className="text-[9px] text-slate-400">
+                                  {(file.size / 1024).toFixed(1)} KB • {file.fileType === 'image' ? 'Image' : 'Document'}
+                                </p>
+                              </div>
                             </div>
                             <div className="flex gap-2">
-                              <button onClick={() => viewFile(file)} className="p-2 text-cyan-600 hover:bg-cyan-50 rounded-lg transition-all">
+                              <button 
+                                onClick={() => viewFile(file)} 
+                                className="p-2.5 text-cyan-600 hover:bg-cyan-50 rounded-xl transition-all flex items-center gap-1"
+                                title="View"
+                              >
                                 <FaEye size={14} />
+                                <span className="text-[10px] hidden sm:inline">View</span>
                               </button>
-                              <button onClick={() => handleDownloadFile(file)} className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-all">
-                                <Download size={14} />
+                              <button 
+                                onClick={() => handleDownloadFile(file)} 
+                                className="p-2.5 text-green-600 hover:bg-green-50 rounded-xl transition-all flex items-center gap-1"
+                                title="Download"
+                              >
+                                <FaDownload size={14} />
+                                <span className="text-[10px] hidden sm:inline">Download</span>
                               </button>
                             </div>
                           </div>
@@ -1067,15 +1250,15 @@ const DocAppointments = ({
         )}
       </AnimatePresence>
 
-      {/* File View Modal */}
+      {/* File View Modal - For viewing images and PDFs */}
       <AnimatePresence>
         {showFileViewModal && selectedFile && (
-          <div className="fixed inset-0 bg-[#001b38]/80 backdrop-blur-xl flex items-center justify-center z-[70] p-4">
+          <div className="fixed inset-0 bg-[#001b38]/90 backdrop-blur-xl flex items-center justify-center z-[70] p-4">
             <motion.div 
-              initial={{ opacity: 0, y: 50 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 50 }}
-              className="bg-white w-full max-w-4xl rounded-[40px] overflow-hidden shadow-2xl"
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              className="bg-white w-full max-w-5xl rounded-[40px] overflow-hidden shadow-2xl"
             >
               <div className="bg-gradient-to-r from-cyan-600 to-cyan-700 p-6 text-white">
                 <div className="flex justify-between items-center">
@@ -1087,27 +1270,46 @@ const DocAppointments = ({
                     </div>
                   </div>
                   <div className="flex gap-2">
-                    <button onClick={() => handleDownloadFile(selectedFile)} className="p-3 bg-white/20 hover:bg-white/30 rounded-xl transition-all">
-                      <Download size={20} />
+                    <button 
+                      onClick={() => handleDownloadFile(selectedFile)} 
+                      className="p-3 bg-white/20 hover:bg-white/30 rounded-xl transition-all"
+                      title="Download"
+                    >
+                      <FaDownload size={20} />
                     </button>
-                    <button onClick={() => setShowFileViewModal(false)} className="p-3 bg-white/20 hover:bg-white/30 rounded-xl transition-all">
+                    <button 
+                      onClick={() => setShowFileViewModal(false)} 
+                      className="p-3 bg-white/20 hover:bg-white/30 rounded-xl transition-all"
+                      title="Close"
+                    >
                       <FaTimes size={20} />
                     </button>
                   </div>
                 </div>
               </div>
-              <div className="p-8 max-h-[70vh] overflow-y-auto bg-[#1a1f2e]">
-                {selectedFile.fileType === 'image' ? (
-                  <div className="flex justify-center">
-                    <img src={selectedFile.data} alt={selectedFile.name} className="max-w-full max-h-[60vh] object-contain rounded-xl" />
+              <div className="p-8 max-h-[75vh] overflow-y-auto bg-[#1a1f2e] flex items-center justify-center">
+                {selectedFile.fileType === 'image' || isImageFile(selectedFile.name) ? (
+                  <div className="flex justify-center items-center min-h-[400px]">
+                    <img 
+                      src={selectedFile.data} 
+                      alt={selectedFile.name} 
+                      className="max-w-full max-h-[65vh] object-contain rounded-xl shadow-lg" 
+                    />
                   </div>
                 ) : (
-                  <div className="bg-white/5 rounded-2xl p-12 text-center">
-                    <FaFilePdf size={64} className="mx-auto text-red-400 mb-4" />
-                    <p className="text-white font-bold mb-4">PDF Document</p>
-                    <button onClick={() => handleDownloadFile(selectedFile)} className="bg-cyan-600 text-white px-8 py-4 rounded-xl font-black hover:bg-cyan-700 transition-all inline-flex items-center gap-2">
-                      <Download size={18} /> DOWNLOAD PDF
+                  <div className="bg-white/10 rounded-2xl p-12 text-center max-w-md">
+                    <FaFilePdf size={80} className="mx-auto text-red-400 mb-6" />
+                    <p className="text-white font-bold text-lg mb-4">{selectedFile.name}</p>
+                    <p className="text-slate-300 text-sm mb-6">PDF Document - {(selectedFile.size / 1024).toFixed(1)} KB</p>
+                    <button 
+                      onClick={() => handleDownloadFile(selectedFile)} 
+                      className="bg-cyan-600 text-white px-8 py-4 rounded-xl font-black hover:bg-cyan-700 transition-all inline-flex items-center gap-3"
+                    >
+                      <FaDownload size={18} /> DOWNLOAD PDF
                     </button>
+                    <p className="text-slate-400 text-xs mt-4">
+                      Click download to view the complete PDF document
+                    </p>
                   </div>
                 )}
               </div>
