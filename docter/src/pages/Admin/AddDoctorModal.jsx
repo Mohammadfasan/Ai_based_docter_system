@@ -4,7 +4,6 @@ import {
 } from 'react-icons/fa';
 import { doctorAPI, validateDoctorForm, formatDoctorData } from '../../services/api';
 
-// Memoized modal component for state isolation
 const AddDoctorModal = memo(({ isOpen, onClose, onSuccess, showNotification }) => {
   const [modalLoading, setModalLoading] = useState(false);
   const [formErrors, setFormErrors] = useState({});
@@ -12,10 +11,8 @@ const AddDoctorModal = memo(({ isOpen, onClose, onSuccess, showNotification }) =
   const [selectedImage, setSelectedImage] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
   
-  // Ref-based form handling - prevents re-renders on file selection
   const fileInputRef = useRef(null);
   
-  // Form State
   const [newDoctor, setNewDoctor] = useState({
     name: '',
     email: '',
@@ -38,21 +35,19 @@ const AddDoctorModal = memo(({ isOpen, onClose, onSuccess, showNotification }) =
     aiSummary: ''
   });
 
-  // Memoized lists
   const specializations = useMemo(() => [
     'Cardiologist', 'Dermatologist', 'Pediatrician', 'General Physician',
     'Neurologist', 'Orthopedic', 'Dentist', 'ENT Specialist',
     'Ophthalmologist', 'Psychiatrist', 'Gynecologist', 'Oncologist'
   ], []);
 
-  const languageOptions = useMemo(() => ['English', 'Sinhala', 'Tamil'], []);
+  const languageOptions = useMemo(() => ['English', 'Sinhala', 'Tamil', 'Arabic', 'Hindi'], []);
   
   const locations = useMemo(() => [
     'Colombo', 'Kandy', 'Galle', 'Jaffna', 'Negombo',
     'Batticaloa', 'Kurunegala', 'Ratnapura', 'Badulla', 'Matara'
   ], []);
 
-  // Handle input change
   const handleInputChange = useCallback((e) => {
     const { name, value, type, checked } = e.target;
     setNewDoctor(prev => ({
@@ -60,13 +55,11 @@ const AddDoctorModal = memo(({ isOpen, onClose, onSuccess, showNotification }) =
       [name]: type === 'checkbox' ? checked : value
     }));
     
-    // Clear error for this field
     if (formErrors[name]) {
       setFormErrors(prev => ({ ...prev, [name]: '' }));
     }
   }, [formErrors]);
 
-  // Handle language selection
   const handleLanguageChange = useCallback((language) => {
     setNewDoctor(prev => ({
       ...prev,
@@ -76,19 +69,17 @@ const AddDoctorModal = memo(({ isOpen, onClose, onSuccess, showNotification }) =
     }));
   }, []);
 
-  // Handle image selection
   const handleImageSelect = useCallback((e) => {
     const file = e.target.files[0];
     if (file) {
-      // Check file size (max 5MB)
       if (file.size > 5 * 1024 * 1024) {
         showNotification('Image size should be less than 5MB', 'error');
         return;
       }
       
-      // Check file type
-      if (!file.type.startsWith('image/')) {
-        showNotification('Please select an image file', 'error');
+      const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
+      if (!allowedTypes.includes(file.type)) {
+        showNotification('Only JPG, PNG, GIF, and WEBP images are allowed', 'error');
         return;
       }
       
@@ -101,11 +92,9 @@ const AddDoctorModal = memo(({ isOpen, onClose, onSuccess, showNotification }) =
     }
   }, [showNotification]);
 
-  // Handle form submission
   const handleSubmit = async (e) => {
     e.preventDefault();
     
-    // Validate form
     const { isValid, errors } = validateDoctorForm(newDoctor);
     
     if (!isValid) {
@@ -117,7 +106,6 @@ const AddDoctorModal = memo(({ isOpen, onClose, onSuccess, showNotification }) =
     setModalLoading(true);
     
     try {
-      // Check if email exists
       const emailCheck = await doctorAPI.checkEmail(newDoctor.email);
       
       if (emailCheck.success && emailCheck.exists) {
@@ -129,7 +117,6 @@ const AddDoctorModal = memo(({ isOpen, onClose, onSuccess, showNotification }) =
       
       let doctorData = { ...newDoctor };
       
-      // Upload image if selected
       if (selectedImage) {
         try {
           setUploadProgress(0);
@@ -140,6 +127,7 @@ const AddDoctorModal = memo(({ isOpen, onClose, onSuccess, showNotification }) =
           
           if (uploadResult.success) {
             doctorData.image = uploadResult.imageUrl;
+            console.log('✅ Image uploaded:', uploadResult.imageUrl);
           } else {
             showNotification(uploadResult.message, 'error');
             setModalLoading(false);
@@ -147,13 +135,12 @@ const AddDoctorModal = memo(({ isOpen, onClose, onSuccess, showNotification }) =
           }
         } catch (uploadError) {
           console.error('Upload error:', uploadError);
-          showNotification('Failed to upload image', 'error');
+          showNotification('Failed to upload image. Please check Cloudinary configuration.', 'error');
           setModalLoading(false);
           return;
         }
       }
       
-      // Format and create doctor
       const formattedData = formatDoctorData(doctorData);
       const result = await doctorAPI.createDoctor(formattedData);
       
@@ -177,7 +164,6 @@ const AddDoctorModal = memo(({ isOpen, onClose, onSuccess, showNotification }) =
     }
   };
 
-  // Reset form
   const resetForm = useCallback(() => {
     setNewDoctor({
       name: '',
@@ -214,7 +200,6 @@ const AddDoctorModal = memo(({ isOpen, onClose, onSuccess, showNotification }) =
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 overflow-y-auto">
       <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
-        {/* Modal Header */}
         <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex justify-between items-center">
           <h2 className="text-2xl font-bold text-gray-900">Add New Doctor</h2>
           <button
@@ -228,10 +213,8 @@ const AddDoctorModal = memo(({ isOpen, onClose, onSuccess, showNotification }) =
           </button>
         </div>
 
-        {/* Modal Form */}
         <form onSubmit={handleSubmit} className="p-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Left Column */}
             <div className="space-y-4">
               {/* Profile Image Upload */}
               <div>
@@ -266,7 +249,7 @@ const AddDoctorModal = memo(({ isOpen, onClose, onSuccess, showNotification }) =
                     <div className="flex-1">
                       <div className="w-full bg-gray-200 rounded-full h-2">
                         <div
-                          className="bg-teal-600 h-2 rounded-full"
+                          className="bg-teal-600 h-2 rounded-full transition-all duration-300"
                           style={{ width: `${uploadProgress}%` }}
                         ></div>
                       </div>
@@ -414,7 +397,6 @@ const AddDoctorModal = memo(({ isOpen, onClose, onSuccess, showNotification }) =
               </div>
             </div>
 
-            {/* Right Column */}
             <div className="space-y-4">
               {/* Hospital */}
               <div>
@@ -600,7 +582,6 @@ const AddDoctorModal = memo(({ isOpen, onClose, onSuccess, showNotification }) =
             </div>
           </div>
 
-          {/* Form Actions */}
           <div className="flex justify-end space-x-3 mt-8 pt-4 border-t">
             <button
               type="button"

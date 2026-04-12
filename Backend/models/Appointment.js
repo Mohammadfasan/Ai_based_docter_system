@@ -1,4 +1,3 @@
-// models/Appointment.js
 import mongoose from 'mongoose';
 
 const appointmentSchema = new mongoose.Schema({
@@ -33,6 +32,7 @@ const appointmentSchema = new mongoose.Schema({
     recordName: String,
     recordUrl: String,
     uploadedBy: mongoose.Schema.Types.ObjectId,
+    uploadedByName: String,
     uploadedAt: Date
   }],
   cancelledAt: Date,
@@ -42,5 +42,10 @@ const appointmentSchema = new mongoose.Schema({
   createdAt: Date,
   updatedAt: Date
 });
+
+// Add index for better query performance
+appointmentSchema.index({ patientId: 1, date: -1 });
+appointmentSchema.index({ doctorId: 1, date: -1 });
+appointmentSchema.index({ status: 1 });
 
 export default mongoose.model('Appointment', appointmentSchema);
