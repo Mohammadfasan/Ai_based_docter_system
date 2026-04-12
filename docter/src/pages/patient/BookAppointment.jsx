@@ -1,4 +1,3 @@
-// BookAppointment.jsx - Using ONLY MongoDB (no localStorage)
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { 
