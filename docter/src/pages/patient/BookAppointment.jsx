@@ -40,7 +40,6 @@ const BookAppointment = () => {
     try {
       console.log('🔍 Loading doctor with ID:', doctorId);
       
-      // Load doctor details from API
       const doctorResponse = await doctorAPI.getDoctorById(doctorId);
       
       let doctorData = null;
@@ -89,7 +88,6 @@ const BookAppointment = () => {
         throw new Error(doctorResponse.message || 'Doctor not found');
       }
       
-      // Load available slots from API
       await refreshSlots();
       
     } catch (error) {
@@ -105,7 +103,6 @@ const BookAppointment = () => {
     try {
       console.log('🔄 Refreshing available slots from MongoDB...');
       
-      // Get slots from API only (no localStorage)
       const slotsResponse = await doctorScheduleService.getAvailableSlots(doctorId);
       
       let slots = [];
@@ -117,13 +114,12 @@ const BookAppointment = () => {
         slots = slotsResponse.data;
       }
       
-      // Filter for future slots only and available status
+      // ✅ Filter for future slots only - ONLY AVAILABLE STATUS
       const today = new Date().toISOString().split('T')[0];
       const available = slots.filter(slot => 
         slot.date >= today && slot.status === 'available'
       );
       
-      // Sort by date
       available.sort((a, b) => a.date.localeCompare(b.date));
       
       console.log('✅ Available slots from MongoDB:', available.length);
@@ -133,7 +129,6 @@ const BookAppointment = () => {
         setSelectedDate(available[0].date);
       }
       
-      // Clear selected slot if it's no longer available
       if (selectedSlot) {
         const stillAvailable = available.find(s => 
           s.date === selectedSlot.date && s.time === selectedSlot.time
@@ -193,7 +188,6 @@ const BookAppointment = () => {
       return;
     }
 
-    // Verify slot is still available
     const isValid = await verifySlotBeforeBooking();
     if (!isValid) return;
 
@@ -212,7 +206,6 @@ const BookAppointment = () => {
     const patientEmail = currentUser.email || '';
     const patientPhone = currentUser.phone || currentUser.mobile || currentUser.contactNumber || 'Not provided';
 
-    // Create appointment object matching controller expectations
     const appointmentData = {
       doctorId: doctorId,
       doctorName: doctor.name,
@@ -229,17 +222,17 @@ const BookAppointment = () => {
       notes: symptoms.trim() || 'General consultation'
     };
 
-    console.log('📝 Creating appointment in MongoDB with PENDING status:', appointmentData);
+    console.log('📝 Creating appointment with slot marked as PENDING:', appointmentData);
 
     try {
       const response = await appointmentAPI.createAppointment(appointmentData);
       
       if (response.success) {
-        console.log('✅ Appointment saved to MongoDB with PENDING status');
+        console.log('✅ Appointment saved with slot marked as PENDING');
         setBooking(response.data);
         setBookingSuccess(true);
         
-        // Refresh slots to update availability
+        // ✅ Refresh slots to remove the booked slot from available list
         await refreshSlots();
       } else {
         throw new Error(response.message || 'Failed to book appointment');
@@ -247,10 +240,8 @@ const BookAppointment = () => {
     } catch (error) {
       console.error('❌ Booking failed:', error);
       
-      // Handle 409 conflict (slot already booked)
       if (error.response?.status === 409) {
         setBookingError(error.response?.data?.message || 'This time slot is no longer available. Please select another slot.');
-        // Refresh slots to remove the booked slot
         await refreshSlots();
         setSelectedSlot(null);
       } else {
@@ -419,7 +410,7 @@ const BookAppointment = () => {
                     </p>
                   </div>
                   <p className="text-amber-600 text-xs mb-4">
-                    You will receive a notification once the doctor confirms your appointment.
+                    You will receive a notification once the doctor confirms your appointment. The slot is now reserved and won't appear for other patients.
                   </p>
                   <div className="flex gap-3">
                     <button
@@ -584,7 +575,7 @@ const BookAppointment = () => {
                       <AlertCircle size={16} className="text-amber-600 mt-0.5 flex-shrink-0" />
                       <div className="text-xs text-amber-700">
                         <p className="font-bold mb-1">⏳ Pending Confirmation</p>
-                        <p>Your appointment request will be pending until confirmed by the doctor. You'll receive a notification once confirmed.</p>
+                        <p>Your appointment will be pending until the doctor confirms it. Once booked, the slot will be marked as reserved and unavailable for other patients.</p>
                       </div>
                     </div>
                   </div>

@@ -1,4 +1,3 @@
-// DoctorSchedule.jsx - Fixed version with proper doctor info sync
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -7,7 +6,8 @@ import {
 } from 'react-icons/fa';
 import { 
   Stethoscope, Calendar as LucideCalendar, 
-  Clock, ShieldCheck, Activity, PlusCircle, Trash2, MapPin, User
+  Clock, ShieldCheck, Activity, PlusCircle, Trash2, MapPin, User,
+  AlertCircle, CheckCircle, Clock as ClockIcon
 } from 'lucide-react';
 import { doctorScheduleService } from '../../services/doctorScheduleService';
 import { doctorAPI } from '../../services/api';
@@ -40,20 +40,19 @@ const DoctorSchedule = ({ userData }) => {
     totalSlots: 0,
     bookedSlots: 0,
     availableSlots: 0,
-    upcomingSlots: 0
+    upcomingSlots: 0,
+    pendingSlots: 0
   });
 
-  // Fetch complete doctor profile from API using email or userId
+  // Fetch complete doctor profile from API
   const fetchDoctorProfile = async (email, userId) => {
     try {
       console.log('🔍 Fetching doctor profile for:', email || userId);
       
-      // First try to get all doctors and find by email or ID
       const response = await doctorAPI.getAllDoctors();
       console.log('📋 All doctors response:', response);
       
       if (response.success && response.data) {
-        // Handle different response structures
         let doctors = [];
         if (Array.isArray(response.data)) {
           doctors = response.data;
@@ -65,7 +64,6 @@ const DoctorSchedule = ({ userData }) => {
         
         console.log('📋 Doctors list:', doctors);
         
-        // Find doctor by email or userId
         let doctor = doctors.find(d => 
           d.email?.toLowerCase() === email?.toLowerCase() || 
           d.doctorId === userId || 
@@ -73,7 +71,6 @@ const DoctorSchedule = ({ userData }) => {
           d.email === email
         );
         
-        // If still not found and we have userData, try that
         if (!doctor && userData) {
           doctor = doctors.find(d => 
             d.email?.toLowerCase() === userData.email?.toLowerCase() ||
@@ -85,7 +82,6 @@ const DoctorSchedule = ({ userData }) => {
         if (doctor) {
           console.log('✅ Found doctor profile:', doctor);
           
-          // Parse fees if it's a string with LKR
           let feeAmount = 2500;
           if (doctor.fees) {
             const feeStr = doctor.fees.toString();
@@ -112,7 +108,6 @@ const DoctorSchedule = ({ userData }) => {
         }
       }
       
-      // Try to get doctor by ID directly
       if (userId) {
         try {
           const doctorById = await doctorAPI.getDoctorById(userId);
@@ -167,14 +162,12 @@ const DoctorSchedule = ({ userData }) => {
       return;
     }
     
-    // Update doctor info from stored user
     const loadDoctorData = async () => {
       try {
         const user = JSON.parse(storedUser);
         console.log('👨‍⚕️ User from storage:', user);
         
         if (user.userType === 'doctor') {
-          // Set initial doctor info from stored user
           let doctorInfo = {
             id: user.userId || user._id || '',
             name: user.name || 'Loading...',
@@ -191,7 +184,6 @@ const DoctorSchedule = ({ userData }) => {
             status: user.status || 'active'
           };
           
-          // Fetch complete profile from API
           const fullProfile = await fetchDoctorProfile(user.email, user.userId || user._id);
           if (fullProfile) {
             doctorInfo = { ...doctorInfo, ...fullProfile };
@@ -231,7 +223,6 @@ const DoctorSchedule = ({ userData }) => {
         throw new Error('No authentication token found');
       }
       
-      // Use the 'me' endpoint for logged-in doctor
       const response = await doctorScheduleService.getMySchedule();
       
       console.log('📥 Schedule response:', response);
@@ -286,7 +277,6 @@ const DoctorSchedule = ({ userData }) => {
       return;
     }
     
-    // Check for duplicate slot
     const slotExists = slots.some(s => s.date === selectedDate && s.time === newSlot.time);
     if (slotExists) {
       alert("Slot already exists for this time on the selected date!");
@@ -344,7 +334,13 @@ const DoctorSchedule = ({ userData }) => {
     }
   };
 
-  const handleDeleteSlot = async (slotId) => {
+  const handleDeleteSlot = async (slotId, slotStatus) => {
+    // ✅ PREVENT DELETION OF PENDING/BOOKED SLOTS
+    if (slotStatus === 'pending' || slotStatus === 'booked') {
+      alert(`Cannot delete ${slotStatus} slot. Please contact admin if needed.`);
+      return;
+    }
+
     if (!window.confirm('Are you sure you want to delete this slot?')) return;
     
     try {
@@ -377,10 +373,19 @@ const DoctorSchedule = ({ userData }) => {
   , [slots, selectedDate]);
 
   const getDailyRevenue = () => {
-    return filteredSlots.filter(s => s.status !== 'booked').length * (currentDoctor.fee || 2500);
+    return filteredSlots.filter(s => s.status === 'available').length * (currentDoctor.fee || 2500);
   };
 
-  // Show login required message
+  // Calculate slot statistics
+  const slotStats = useMemo(() => {
+    const total = filteredSlots.length;
+    const booked = filteredSlots.filter(s => s.status === 'booked').length;
+    const available = filteredSlots.filter(s => s.status === 'available').length;
+    const pending = filteredSlots.filter(s => s.status === 'pending').length;
+    
+    return { total, booked, available, pending };
+  }, [filteredSlots]);
+
   if (authError) {
     return (
       <div className="min-h-screen bg-[#f0f4f8] flex items-center justify-center">
@@ -502,21 +507,66 @@ const DoctorSchedule = ({ userData }) => {
       </div>
 
       {/* STATS OVERLAY */}
-      <div className="max-w-7xl mx-auto px-6 -mt-20 relative z-20 grid grid-cols-1 md:grid-cols-4 gap-6">
-        {[
-          { label: "Daily Slots", val: filteredSlots.filter(s => s.status !== 'booked').length, icon: <LucideCalendar className="text-white" />, bg: "bg-blue-600" },
-          { label: "Daily Revenue", val: `LKR ${getDailyRevenue().toLocaleString()}`, icon: <FaWallet className="text-white" />, bg: "bg-emerald-500" },
-          { label: "Total Slots", val: stats.totalSlots, icon: <Clock className="text-white" />, bg: "bg-purple-500" },
-          { label: "Available", val: stats.availableSlots, icon: <ShieldCheck className="text-white" />, bg: "bg-amber-500" }
-        ].map((item, i) => (
-          <motion.div key={i} whileHover={{ y: -5 }} className="bg-white p-6 rounded-2xl shadow-xl flex items-center gap-5 border border-slate-100">
-            <div className={`${item.bg} p-4 rounded-xl shadow-lg`}>{item.icon}</div>
-            <div>
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{item.label}</p>
-              <p className="text-xl font-black text-[#001b38]" style={{ fontFamily: '"Montserrat", sans-serif' }}>{item.val}</p>
-            </div>
-          </motion.div>
-        ))}
+      <div className="max-w-7xl mx-auto px-6 -mt-20 relative z-20 grid grid-cols-1 md:grid-cols-5 gap-6">
+        <motion.div whileHover={{ y: -5 }} className="bg-white p-6 rounded-2xl shadow-xl flex items-center gap-5 border border-slate-100">
+          <div className="bg-blue-600 p-4 rounded-xl shadow-lg">
+            <LucideCalendar className="text-white" />
+          </div>
+          <div>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Daily Slots</p>
+            <p className="text-xl font-black text-[#001b38]" style={{ fontFamily: '"Montserrat", sans-serif' }}>
+              {slotStats.available}
+            </p>
+          </div>
+        </motion.div>
+
+        <motion.div whileHover={{ y: -5 }} className="bg-white p-6 rounded-2xl shadow-xl flex items-center gap-5 border border-slate-100">
+          <div className="bg-emerald-500 p-4 rounded-xl shadow-lg">
+            <FaWallet className="text-white" />
+          </div>
+          <div>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Daily Revenue</p>
+            <p className="text-xl font-black text-[#001b38]" style={{ fontFamily: '"Montserrat", sans-serif' }}>
+              LKR {getDailyRevenue().toLocaleString()}
+            </p>
+          </div>
+        </motion.div>
+
+        <motion.div whileHover={{ y: -5 }} className="bg-white p-6 rounded-2xl shadow-xl flex items-center gap-5 border border-slate-100">
+          <div className="bg-purple-500 p-4 rounded-xl shadow-lg">
+            <Clock className="text-white" />
+          </div>
+          <div>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Total Slots</p>
+            <p className="text-xl font-black text-[#001b38]" style={{ fontFamily: '"Montserrat", sans-serif' }}>
+              {stats.totalSlots}
+            </p>
+          </div>
+        </motion.div>
+
+        <motion.div whileHover={{ y: -5 }} className="bg-white p-6 rounded-2xl shadow-xl flex items-center gap-5 border border-slate-100">
+          <div className="bg-amber-500 p-4 rounded-xl shadow-lg">
+            <ClockIcon className="text-white" />
+          </div>
+          <div>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Pending</p>
+            <p className="text-xl font-black text-[#001b38]" style={{ fontFamily: '"Montserrat", sans-serif' }}>
+              {stats.pendingSlots || slotStats.pending}
+            </p>
+          </div>
+        </motion.div>
+
+        <motion.div whileHover={{ y: -5 }} className="bg-white p-6 rounded-2xl shadow-xl flex items-center gap-5 border border-slate-100">
+          <div className="bg-red-500 p-4 rounded-xl shadow-lg">
+            <ShieldCheck className="text-white" />
+          </div>
+          <div>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Booked</p>
+            <p className="text-xl font-black text-[#001b38]" style={{ fontFamily: '"Montserrat", sans-serif' }}>
+              {stats.bookedSlots || slotStats.booked}
+            </p>
+          </div>
+        </motion.div>
       </div>
 
       {/* MAIN SCHEDULE AREA */}
@@ -535,7 +585,29 @@ const DoctorSchedule = ({ userData }) => {
               <p className="text-[11px] text-slate-400 font-medium px-2 italic text-center">Manage slots for the selected date above.</p>
               
               <div className="mt-6 pt-6 border-t border-slate-100">
-                <h4 className="text-xs font-bold text-slate-500 mb-3">Quick Stats</h4>
+                <h4 className="text-xs font-bold text-slate-500 mb-4">Day Summary</h4>
+                <div className="space-y-3 text-sm">
+                  <div className="flex justify-between items-center p-3 bg-blue-50 rounded-xl border border-blue-100">
+                    <span className="text-slate-600 font-bold">Available:</span>
+                    <span className="font-black text-blue-600">{slotStats.available}</span>
+                  </div>
+                  <div className="flex justify-between items-center p-3 bg-amber-50 rounded-xl border border-amber-100">
+                    <span className="text-slate-600 font-bold">Pending:</span>
+                    <span className="font-black text-amber-600 animate-pulse">{slotStats.pending}</span>
+                  </div>
+                  <div className="flex justify-between items-center p-3 bg-red-50 rounded-xl border border-red-100">
+                    <span className="text-slate-600 font-bold">Booked:</span>
+                    <span className="font-black text-red-600">{slotStats.booked}</span>
+                  </div>
+                  <div className="flex justify-between items-center p-3 bg-slate-50 rounded-xl border border-slate-100">
+                    <span className="text-slate-600 font-bold">Total:</span>
+                    <span className="font-black text-slate-800">{slotStats.total}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-6 pt-6 border-t border-slate-100">
+                <h4 className="text-xs font-bold text-slate-500 mb-3">Overall Stats</h4>
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between">
                     <span className="text-slate-500">Total Slots:</span>
@@ -544,6 +616,10 @@ const DoctorSchedule = ({ userData }) => {
                   <div className="flex justify-between">
                     <span className="text-slate-500">Booked Slots:</span>
                     <span className="font-bold text-red-500">{stats.bookedSlots}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Pending Slots:</span>
+                    <span className="font-bold text-amber-500">{stats.pendingSlots || 0}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-slate-500">Available:</span>
@@ -576,24 +652,49 @@ const DoctorSchedule = ({ userData }) => {
                   exit={{ opacity: 0, scale: 0.9 }}
                   key={slot.id} 
                   className={`bg-white p-5 rounded-2xl shadow-sm border flex justify-between items-center group hover:shadow-md transition-all border-l-8 ${
-                    slot.status === 'booked' ? 'border-l-red-500 opacity-60' : 'border-l-[#001b38]'
+                    slot.status === 'booked' ? 'border-l-red-500 opacity-60' : 
+                    slot.status === 'pending' ? 'border-l-amber-500 opacity-75' :
+                    'border-l-[#001b38]'
                   }`}
                 >
-                  <div className="flex items-center gap-5">
-                    <div className="p-3 bg-slate-50 rounded-xl">
-                      <Clock size={20} className="text-cyan-500" />
+                  <div className="flex items-center gap-5 flex-1">
+                    <div className={`p-3 rounded-xl ${
+                      slot.status === 'booked' ? 'bg-red-50' :
+                      slot.status === 'pending' ? 'bg-amber-50' :
+                      'bg-slate-50'
+                    }`}>
+                      <Clock size={20} className={`${
+                        slot.status === 'booked' ? 'text-red-500' :
+                        slot.status === 'pending' ? 'text-amber-500' :
+                        'text-cyan-500'
+                      }`} />
                     </div>
-                    <div>
-                      <div className="flex items-center gap-2">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-lg font-black text-[#001b38]">{slot.time}</span>
                         <span className={`text-[9px] font-bold px-2 py-0.5 rounded-md uppercase tracking-tighter ${
                           slot.type === 'video' ? 'bg-purple-100 text-purple-600' : 'bg-cyan-100 text-cyan-600'
                         }`}>
                           {slot.type}
                         </span>
+                        
+                        {/* ✅ STATUS BADGES */}
+                        {slot.status === 'pending' && (
+                          <span className="text-[9px] font-bold px-2 py-0.5 rounded-md bg-amber-100 text-amber-600 animate-pulse flex items-center gap-1">
+                            <ClockIcon size={10} />
+                            PENDING
+                          </span>
+                        )}
                         {slot.status === 'booked' && (
-                          <span className="text-[9px] font-bold px-2 py-0.5 rounded-md bg-red-100 text-red-600">
-                            Booked
+                          <span className="text-[9px] font-bold px-2 py-0.5 rounded-md bg-red-100 text-red-600 flex items-center gap-1">
+                            <CheckCircle size={10} />
+                            BOOKED
+                          </span>
+                        )}
+                        {slot.status === 'available' && (
+                          <span className="text-[9px] font-bold px-2 py-0.5 rounded-md bg-green-100 text-green-600 flex items-center gap-1">
+                            <CheckCircle size={10} />
+                            AVAILABLE
                           </span>
                         )}
                       </div>
@@ -604,15 +705,30 @@ const DoctorSchedule = ({ userData }) => {
                       <p className="text-[10px] text-teal-600 font-medium mt-1">
                         Fee: LKR {slot.fee?.toLocaleString() || currentDoctor.fee.toLocaleString()}
                       </p>
+                      {slot.status === 'booked' && slot.bookedBy && (
+                        <p className="text-[9px] text-red-500 font-bold mt-1">
+                          Booked at: {new Date(slot.bookedAt).toLocaleTimeString()}
+                        </p>
+                      )}
                     </div>
                   </div>
-                  {slot.status !== 'booked' && (
+
+                  {/* ✅ DELETE BUTTON - ONLY FOR AVAILABLE SLOTS */}
+                  {slot.status === 'available' && (
                     <button 
-                      onClick={() => handleDeleteSlot(slot.id)}
+                      onClick={() => handleDeleteSlot(slot.id, slot.status)}
                       className="p-3 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all"
+                      title="Delete available slot"
                     >
                       <Trash2 size={18}/>
                     </button>
+                  )}
+                  
+                  {/* LOCKED ICON - FOR PENDING/BOOKED SLOTS */}
+                  {(slot.status === 'pending' || slot.status === 'booked') && (
+                    <div className="p-3 text-slate-300 cursor-not-allowed" title={`${slot.status} slot - cannot delete`}>
+                      <ShieldCheck size={18} className="opacity-50" />
+                    </div>
                   )}
                 </motion.div>
               )) : (
