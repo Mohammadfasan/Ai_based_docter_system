@@ -10,9 +10,26 @@ import {
   searchMedicalRecords,
   getMedicalRecordsStats
 } from '../controllers/medicalRecordController.js';
+import {
+  uploadMedicalRecordWithFiles,
+  getMedicalRecordWithFiles,
+  deleteMedicalRecordWithFiles
+} from '../controllers/medicalRecordUploadController.js';
+import { uploadMultiple } from '../middleware/uploadMiddleware.js';
 
 const router = express.Router();
 
+// ========== CLOUDINARY UPLOAD ROUTES ==========
+// Upload medical record with files to Cloudinary
+router.post('/upload', uploadMultiple.array('files', 10), uploadMedicalRecordWithFiles);
+
+// Get medical record with Cloudinary file URLs
+router.get('/cloudinary/:id', getMedicalRecordWithFiles);
+
+// Delete medical record and remove files from Cloudinary
+router.delete('/cloudinary/:id', deleteMedicalRecordWithFiles);
+
+// ========== EXISTING ROUTES ==========
 // Stats route (must be before :userId routes to avoid conflicts)
 router.get('/stats/:userId', getMedicalRecordsStats);
 

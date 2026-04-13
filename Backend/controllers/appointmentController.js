@@ -590,6 +590,7 @@ export const deleteExpiredAppointments = async (req, res) => {
 };
 
 // Attach medical record to appointment
+// Attach medical record to appointment
 export const attachRecordToAppointment = async (req, res) => {
   try {
     const { id } = req.params;
@@ -629,7 +630,10 @@ export const attachRecordToAppointment = async (req, res) => {
     }
 
     // Check if record already attached
-    const alreadyAttached = appointment.attachedRecords.some(r => r.recordId === recordId);
+    const alreadyAttached = appointment.attachedRecords.some(r => {
+      return r.recordId.toString() === recordId.toString();
+    });
+    
     if (alreadyAttached) {
       return res.status(400).json({
         success: false,
@@ -639,7 +643,7 @@ export const attachRecordToAppointment = async (req, res) => {
 
     // Add new record
     const newRecord = {
-      recordId: recordId || `REC${Date.now()}${Math.floor(Math.random() * 1000)}`,
+      recordId: recordId, // Use the MongoDB _id directly
       recordType: recordType || 'document',
       recordName: recordName || 'Medical Record',
       recordUrl: recordUrl || '',
@@ -651,6 +655,8 @@ export const attachRecordToAppointment = async (req, res) => {
     appointment.attachedRecords.push(newRecord);
     appointment.updatedAt = new Date();
     await appointment.save();
+
+    console.log('✅ Medical record attached:', recordId, 'to appointment:', appointment._id);
 
     res.json({
       success: true,
@@ -666,7 +672,6 @@ export const attachRecordToAppointment = async (req, res) => {
     });
   }
 };
-
 // Remove attached record from appointment
 export const removeAttachedRecord = async (req, res) => {
   try {

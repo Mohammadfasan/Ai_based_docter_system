@@ -21,6 +21,14 @@ const fileSchema = new mongoose.Schema({
     type: String,
     required: true
   },
+  cloudinaryUrl: {
+    type: String,
+    default: null
+  },
+  publicId: {
+    type: String,
+    default: null
+  },
   fileType: {
     type: String,
     enum: ['image', 'pdf'],

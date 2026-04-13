@@ -14,9 +14,13 @@ export const getMedicalRecords = async (req, res) => {
       });
     }
 
+    console.log('📋 Fetching medical records for userId:', userId);
+
     const records = await MedicalRecord.find({ userId })
       .sort({ uploadedAt: -1 })
       .lean();
+
+    console.log('✅ Found', records.length, 'records');
 
     res.status(200).json({
       success: true,

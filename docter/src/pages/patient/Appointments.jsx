@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback } from 'react';
 import { 
   Calendar, Clock, Stethoscope, RefreshCw, 
@@ -8,6 +7,8 @@ import {
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { appointmentAPI } from '../../services/appointmentAPI';
+
+const API_BASE_URL = 'http://localhost:5000/api';
 
 const Appointments = () => {
   const navigate = useNavigate();
@@ -27,6 +28,8 @@ const Appointments = () => {
   const [error, setError] = useState('');
   const [lastUpdate, setLastUpdate] = useState(new Date());
   const [expandedAttachments, setExpandedAttachments] = useState({});
+  const [attachingRecordId, setAttachingRecordId] = useState(null);
+  const [attachingError, setAttachingError] = useState('');
 
   // Helper function to check if date is expired
   const isExpired = (dateString) => {
@@ -100,7 +103,7 @@ const Appointments = () => {
     }
   };
 
-  // ✅ MAIN LOAD DATA FUNCTION - FIXED
+  // ✅ MAIN LOAD DATA FUNCTION - FIXED WITH BACKEND API
   const loadData = useCallback(async (showRefreshIndicator = false) => {
     if (showRefreshIndicator) {
       setRefreshing(true);
@@ -187,11 +190,36 @@ const Appointments = () => {
 
       console.groupEnd();
 
-      // ✅ STEP 5: Load medical records from localStorage
+      // ✅ STEP 5: Load medical records from BACKEND API (FIXED)
       const patientId = user?.userId || user?._id;
-      const records = JSON.parse(localStorage.getItem(`medical_records_${patientId}`) || '[]');
-      setMedicalRecords(records);
-      console.log('Medical records loaded:', records.length);
+      console.log('📋 Fetching medical records from backend for patient:', patientId);
+      
+      try {
+        const recordsResponse = await fetch(`${API_BASE_URL}/medical-records/${patientId}`, {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        });
+
+        if (!recordsResponse.ok) {
+          throw new Error(`Failed to fetch records: ${recordsResponse.status}`);
+        }
+
+        const recordsData = await recordsResponse.json();
+        
+        if (recordsData.success && Array.isArray(recordsData.data)) {
+          console.log('✅ Medical records loaded from backend:', recordsData.data.length);
+          setMedicalRecords(recordsData.data);
+        } else {
+          console.warn('⚠️ Failed to load records from backend:', recordsData.message);
+          setMedicalRecords([]);
+        }
+      } catch (recordError) {
+        console.warn('⚠️ Error loading medical records:', recordError.message);
+        setMedicalRecords([]);
+      }
       
     } catch (error) {
       console.error('❌ Error loading data:', error);
@@ -245,33 +273,51 @@ const Appointments = () => {
     }
   };
 
+  // ✅ UPDATED: Handle attach record with proper error handling
   const handleAttachRecord = async (appointmentId, record) => {
+    setAttachingRecordId(record._id);
+    setAttachingError('');
+
     try {
+      // Get the first file's Cloudinary URL
+      const recordUrl = record.files?.[0]?.cloudinaryUrl || 
+                        record.files?.[0]?.data || 
+                        '';
+
       const recordData = {
-        recordId: record.id,
+        recordId: record._id, // Use MongoDB _id from backend
         recordType: record.type || 'medical_record',
         recordName: record.diagnosis || record.type || 'Medical Record',
-        recordUrl: record.files?.[0]?.data || '',
+        recordUrl: recordUrl,
         uploadedBy: currentUser?.name || 'Patient'
       };
       
-      const response = await appointmentAPI.attachRecord(appointmentId, record.id, recordData);
+      console.log('📎 Attaching record:', recordData);
+      
+      const response = await appointmentAPI.attachRecord(appointmentId, record._id, recordData);
+      
       if (response.success) {
+        console.log('✅ Record attached successfully');
         await loadData();
         setShowAttachModal(false);
         setActiveAppointmentId(null);
         alert('✅ Medical record attached successfully!');
       } else {
-        throw new Error(response.message);
+        throw new Error(response.message || 'Failed to attach record');
       }
     } catch (error) {
       console.error('❌ Error attaching record:', error);
-      alert(error.response?.data?.message || 'Failed to attach record');
+      const errorMsg = error.response?.data?.message || error.message || 'Failed to attach record';
+      setAttachingError(errorMsg);
+      alert('Error: ' + errorMsg);
+    } finally {
+      setAttachingRecordId(null);
     }
   };
 
+  // ✅ FIXED: Get record by MongoDB _id
   const getRecordById = (recordId) => {
-    return medicalRecords.find(r => r.id === recordId || r._id === recordId);
+    return medicalRecords.find(r => r._id === recordId || r.id === recordId);
   };
 
   const handleViewAttachedFile = (record, file) => {
@@ -281,12 +327,17 @@ const Appointments = () => {
   };
 
   const handleDownloadFile = (file) => {
-    const link = document.createElement('a');
-    link.href = file.data;
-    link.download = file.name;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    // For Cloudinary URLs, open in new tab
+    if (file.cloudinaryUrl) {
+      window.open(file.cloudinaryUrl, '_blank');
+    } else if (file.data) {
+      const link = document.createElement('a');
+      link.href = file.data;
+      link.download = file.name;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
   };
 
   const toggleAttachments = (appointmentId) => {
@@ -753,50 +804,65 @@ const Appointments = () => {
         </div>
       </main>
 
-      {/* Attach Record Modal */}
+      {/* ✅ UPDATED: Attach Record Modal with Backend Records */}
       {showAttachModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-[2.5rem] max-w-lg w-full p-8 shadow-2xl">
+          <div className="bg-white rounded-[2.5rem] max-w-lg w-full p-8 shadow-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-6">
               <div>
                 <h2 className="text-2xl font-black text-[#0f172a]">Attach Medical Record</h2>
                 <p className="text-sm text-slate-500 mt-1">
-                  Appointment with {activeAppointment?.doctorName} on {activeAppointment?.date}
+                  Appointment with <strong>{activeAppointment?.doctorName}</strong> on <strong>{activeAppointment?.date}</strong>
                 </p>
               </div>
               <button onClick={() => setShowAttachModal(false)} className="text-slate-400 hover:text-slate-600">
                 <X size={24} />
               </button>
             </div>
+
+            {attachingError && (
+              <div className="mb-4 bg-red-50 border border-red-200 rounded-lg p-3 text-red-600 text-sm">
+                <p className="font-bold">Error attaching record</p>
+                <p>{attachingError}</p>
+              </div>
+            )}
             
             <div className="space-y-3 max-h-96 overflow-y-auto pr-2">
               {medicalRecords.length > 0 ? (
                 medicalRecords.map(record => {
                   const isAlreadyAttached = activeAppointment?.attachedRecords?.some(
-                    r => r.recordId === record.id || r.recordId === record._id
+                    r => r.recordId === record._id || r.recordId === record.id
                   );
+                  const isAttaching = attachingRecordId === record._id;
                   
                   return (
                     <div 
-                      key={record.id} 
+                      key={record._id} 
                       className={`p-4 border rounded-2xl transition-all ${
                         isAlreadyAttached 
                           ? 'border-green-200 bg-green-50 opacity-60 cursor-not-allowed' 
                           : 'border-slate-100 hover:bg-teal-50 cursor-pointer'
                       }`}
-                      onClick={() => !isAlreadyAttached && handleAttachRecord(activeAppointmentId, record)}
+                      onClick={() => !isAlreadyAttached && !isAttaching && handleAttachRecord(activeAppointmentId, record)}
                     >
                       <div className="flex items-center justify-between">
-                        <div>
+                        <div className="flex-1">
                           <h4 className="font-bold text-slate-900">{record.diagnosis || record.type}</h4>
                           <p className="text-[10px] text-slate-400 uppercase font-black">{record.date}</p>
-                          {record.files && (
+                          {record.files && record.files.length > 0 && (
                             <p className="text-[8px] text-teal-600 mt-1">
                               📎 {record.files.length} file(s)
                             </p>
                           )}
+                          {record.doctor && (
+                            <p className="text-[9px] text-slate-500 mt-1">
+                              👨‍⚕️ {record.doctor}
+                            </p>
+                          )}
                         </div>
-                        {isAlreadyAttached ? (
+                        {isAttaching ? (
+                          <RefreshCw className="animate-spin text-teal-500" size={20} />
+                        ) : isAlreadyAttached ? (
                           <span className="px-2 py-1 bg-green-100 text-green-600 rounded-lg text-[8px] font-black">
                             ATTACHED ✓
                           </span>
@@ -810,26 +876,27 @@ const Appointments = () => {
               ) : (
                 <div className="text-center py-8">
                   <FileText className="mx-auto text-slate-300 mb-3" size={40} />
-                  <p className="text-slate-400 text-sm">No records found in your medical vault.</p>
-                  <button
-                    onClick={() => {
-                      setShowAttachModal(false);
-                      navigate('/medical-records');
-                    }}
-                    className="mt-4 text-teal-600 font-bold text-sm hover:underline"
-                  >
-                    Upload Records First →
-                  </button>
+                  <p className="text-slate-400 text-sm font-bold">No records found in your medical vault.</p>
+                  <p className="text-slate-400 text-xs mt-2">Upload records from the Medical Records page to attach them here.</p>
                 </div>
               )}
             </div>
             
             <div className="mt-6 pt-4 border-t border-slate-100">
               <button
-                onClick={() => navigate('/medical-records')}
-                className="w-full py-3 bg-slate-100 text-slate-600 rounded-xl font-bold text-sm hover:bg-slate-200 transition-all"
+                onClick={() => {
+                  setShowAttachModal(false);
+                  navigate('/medical-records');
+                }}
+                className="w-full py-3 bg-teal-50 text-teal-600 rounded-xl font-bold text-sm hover:bg-teal-100 transition-all flex items-center justify-center gap-2"
               >
-                + Add New Record
+                <PlusCircle size={16} /> Upload New Record
+              </button>
+              <button
+                onClick={() => setShowAttachModal(false)}
+                className="w-full mt-2 py-3 bg-slate-100 text-slate-600 rounded-xl font-bold text-sm hover:bg-slate-200 transition-all"
+              >
+                Close
               </button>
             </div>
           </div>
@@ -889,7 +956,7 @@ const Appointments = () => {
               {selectedFile.fileType === 'image' ? (
                 <div className="flex justify-center">
                   <img 
-                    src={selectedFile.data} 
+                    src={selectedFile.cloudinaryUrl || selectedFile.data} 
                     alt={selectedFile.name}
                     className="max-w-full max-h-[60vh] object-contain rounded-xl"
                   />
@@ -902,7 +969,7 @@ const Appointments = () => {
                     onClick={() => handleDownloadFile(selectedFile)}
                     className="bg-teal-600 text-white px-6 py-3 rounded-xl font-black hover:bg-teal-700 transition-all inline-flex items-center gap-2"
                   >
-                    <Download size={18} /> DOWNLOAD PDF
+                    <Download size={18} /> OPEN PDF
                   </button>
                 </div>
               )}
