@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback } from 'react';
 import { 
   Calendar, Clock, Stethoscope, RefreshCw, 
@@ -196,7 +197,7 @@ const Appointments = () => {
       console.error('❌ Error loading data:', error);
       console.groupEnd();
       setError(error.message || 'Failed to load appointments');
-      setAppointments([]); // ✅ Clear on error
+      setAppointments([]);
       setMedicalRecords([]);
     } finally {
       setLoading(false);
@@ -613,7 +614,9 @@ const Appointments = () => {
                               <ExternalLink size={14} /> JOIN CALL
                             </a>
                           )}
-                          {app.status === 'confirmed' && (
+                          
+                          {/* ✅ ATTACH BUTTON - ONLY FOR PENDING */}
+                          {app.status === 'pending' && (
                             <button 
                               onClick={() => { 
                                 setActiveAppointmentId(app._id); 
@@ -625,6 +628,8 @@ const Appointments = () => {
                               <Paperclip size={14} /> ATTACH
                             </button>
                           )}
+
+                          {/* ✅ DELETE BUTTON - FOR PENDING & CONFIRMED */}
                           {(app.status === 'pending' || app.status === 'confirmed') && !isExpiredApp && (
                             <button 
                               onClick={() => handleDeleteAppointment(app._id)}
@@ -748,7 +753,7 @@ const Appointments = () => {
         </div>
       </main>
 
-      {/* Modals */}
+      {/* Attach Record Modal */}
       {showAttachModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-[2.5rem] max-w-lg w-full p-8 shadow-2xl">
@@ -831,6 +836,7 @@ const Appointments = () => {
         </div>
       )}
 
+      {/* Delete Expired Modal */}
       {showExpiredModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-[2.5rem] max-w-md w-full p-8 shadow-2xl">
@@ -863,6 +869,7 @@ const Appointments = () => {
         </div>
       )}
 
+      {/* View File Modal */}
       {showViewModal && selectedFile && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
           <div className="bg-white rounded-[2.5rem] max-w-4xl w-full p-8 shadow-2xl max-h-[90vh] overflow-y-auto">
