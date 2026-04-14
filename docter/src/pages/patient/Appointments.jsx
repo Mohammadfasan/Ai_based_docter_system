@@ -1,9 +1,11 @@
+// Appointments.jsx - COMPLETE UPDATED VERSION WITH PRESCRIPTION DISPLAY
 import React, { useState, useEffect, useCallback } from 'react';
 import { 
   Calendar, Clock, Stethoscope, RefreshCw, 
   PlusCircle, FileText, Paperclip, ExternalLink, 
   AlertCircle, Trash2, Eye, Download, X, Clock as ClockIcon,
-  Image, File, ChevronDown, ChevronUp, CheckCircle, Clock as PendingIcon
+  Image, File, ChevronDown, ChevronUp, CheckCircle, Clock as PendingIcon,
+  FileText as PrescriptionIcon, Pill
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { appointmentAPI } from '../../services/appointmentAPI';
@@ -28,6 +30,7 @@ const Appointments = () => {
   const [error, setError] = useState('');
   const [lastUpdate, setLastUpdate] = useState(new Date());
   const [expandedAttachments, setExpandedAttachments] = useState({});
+  const [expandedPrescription, setExpandedPrescription] = useState({});
   const [attachingRecordId, setAttachingRecordId] = useState(null);
   const [attachingError, setAttachingError] = useState('');
 
@@ -103,7 +106,15 @@ const Appointments = () => {
     }
   };
 
-  // ✅ MAIN LOAD DATA FUNCTION - FIXED WITH BACKEND API
+  // Toggle prescription expansion
+  const togglePrescription = (appointmentId) => {
+    setExpandedPrescription(prev => ({
+      ...prev,
+      [appointmentId]: !prev[appointmentId]
+    }));
+  };
+
+  // ✅ MAIN LOAD DATA FUNCTION
   const loadData = useCallback(async (showRefreshIndicator = false) => {
     if (showRefreshIndicator) {
       setRefreshing(true);
@@ -113,7 +124,6 @@ const Appointments = () => {
     setError('');
     
     try {
-      // ✅ STEP 1: Get current user from localStorage
       const currentUserData = localStorage.getItem('currentUser');
       const token = localStorage.getItem('token');
 
@@ -138,7 +148,7 @@ const Appointments = () => {
         userType: user.userType
       });
 
-      // ✅ STEP 2: Fetch appointments using API (which uses the token to filter)
+      // Fetch appointments using API
       console.log('📋 Fetching appointments for this patient...');
       const response = await appointmentAPI.getMyAppointments();
 
@@ -152,11 +162,10 @@ const Appointments = () => {
         throw new Error(response.message || 'Failed to load appointments');
       }
 
-      // ✅ STEP 3: Validate appointments belong to current user
       const allApps = response.data || [];
       console.log('Total appointments received:', allApps.length);
 
-      // ✅ CRITICAL: Filter to ensure ALL appointments belong to this patient
+      // Filter to ensure ALL appointments belong to this patient
       const validatedAppointments = allApps.filter(app => {
         const appPatientId = app.patientId?._id || app.patientId || '';
         const currentPatientId = user._id || user.userId;
@@ -177,12 +186,16 @@ const Appointments = () => {
 
       console.log('✅ Validated appointments:', validatedAppointments.length, 'out of', allApps.length);
 
-      // ✅ STEP 4: Count expired and sort
+      // Count expired and sort
       const expired = validatedAppointments.filter(app => isExpired(app.date));
       const sorted = validatedAppointments.sort((a, b) => new Date(a.date) - new Date(b.date));
 
       console.log('Expired count:', expired.length);
       console.log('Sorted appointments:', sorted.length);
+      
+      // Log prescriptions found
+      const withPrescriptions = sorted.filter(a => a.prescription || a.prescriptionId);
+      console.log('📋 Appointments with prescriptions:', withPrescriptions.length);
 
       setExpiredCount(expired.length);
       setAppointments(sorted);
@@ -190,7 +203,7 @@ const Appointments = () => {
 
       console.groupEnd();
 
-      // ✅ STEP 5: Load medical records from BACKEND API (FIXED)
+      // Load medical records from BACKEND API
       const patientId = user?.userId || user?._id;
       console.log('📋 Fetching medical records from backend for patient:', patientId);
       
@@ -233,7 +246,7 @@ const Appointments = () => {
     }
   }, [navigate]);
 
-  // ✅ Load data on mount
+  // Load data on mount
   useEffect(() => {
     console.log('📍 Appointments component mounted');
     loadData();
@@ -273,19 +286,17 @@ const Appointments = () => {
     }
   };
 
-  // ✅ UPDATED: Handle attach record with proper error handling
   const handleAttachRecord = async (appointmentId, record) => {
     setAttachingRecordId(record._id);
     setAttachingError('');
 
     try {
-      // Get the first file's Cloudinary URL
       const recordUrl = record.files?.[0]?.cloudinaryUrl || 
                         record.files?.[0]?.data || 
                         '';
 
       const recordData = {
-        recordId: record._id, // Use MongoDB _id from backend
+        recordId: record._id,
         recordType: record.type || 'medical_record',
         recordName: record.diagnosis || record.type || 'Medical Record',
         recordUrl: recordUrl,
@@ -315,7 +326,6 @@ const Appointments = () => {
     }
   };
 
-  // ✅ FIXED: Get record by MongoDB _id
   const getRecordById = (recordId) => {
     return medicalRecords.find(r => r._id === recordId || r.id === recordId);
   };
@@ -327,7 +337,6 @@ const Appointments = () => {
   };
 
   const handleDownloadFile = (file) => {
-    // For Cloudinary URLs, open in new tab
     if (file.cloudinaryUrl) {
       window.open(file.cloudinaryUrl, '_blank');
     } else if (file.data) {
@@ -369,6 +378,19 @@ const Appointments = () => {
       console.error('❌ Error deleting appointment:', error);
       alert('Failed to delete appointment');
     }
+  };
+
+  // ✅ Function to view full prescription
+  const handleViewFullPrescription = (appointment) => {
+    navigate('/prescriptions', { 
+      state: { 
+        prescriptionId: appointment.prescriptionId,
+        appointment: appointment,
+        viewSpecificPrescription: true,
+        patientId: appointment.patientId,
+        patientName: appointment.patientName
+      } 
+    });
   };
 
   if (loading) {
@@ -454,6 +476,7 @@ const Appointments = () => {
                 const isPending = app.status === 'pending';
                 const isConfirmed = app.status === 'confirmed';
                 const isCancelled = app.status === 'cancelled';
+                const isCompleted = app.status === 'completed';
                 const isExpiredApp = isExpired(app.date);
                 
                 const attachedRecords = (app.attachedRecords || []).map(rec => {
@@ -471,7 +494,9 @@ const Appointments = () => {
                 });
                 
                 const hasAttachments = attachedRecords.length > 0;
+                const hasPrescription = app.prescription || app.prescriptionId;
                 const isExpanded = expandedAttachments[app._id];
+                const isPrescriptionExpanded = expandedPrescription[app._id];
                 
                 return (
                   <div 
@@ -479,7 +504,9 @@ const Appointments = () => {
                     className={`bg-white rounded-[2.5rem] p-8 shadow-xl border hover:border-teal-200 transition-all group ${
                       isExpiredApp ? 'opacity-75 border-gray-200' :
                       isTodayApp ? 'border-purple-300 bg-purple-50/30' : 'border-white'
-                    } ${isPending ? 'border-l-8 border-l-amber-400' : ''}`}
+                    } ${isPending ? 'border-l-8 border-l-amber-400' : ''} ${
+                      isCompleted ? 'border-l-8 border-l-blue-400' : ''
+                    }`}
                   >
                     {/* Status Badges */}
                     {isExpiredApp && (
@@ -512,6 +539,15 @@ const Appointments = () => {
                         <span className="px-4 py-2 bg-emerald-500 text-white rounded-full text-xs font-black flex items-center gap-2 w-fit">
                           <CheckCircle size={12} />
                           CONFIRMED BY DOCTOR
+                        </span>
+                      </div>
+                    )}
+
+                    {isCompleted && (
+                      <div className="mb-4">
+                        <span className="px-4 py-2 bg-blue-500 text-white rounded-full text-xs font-black flex items-center gap-2 w-fit">
+                          <CheckCircle size={12} />
+                          CONSULTATION COMPLETED
                         </span>
                       </div>
                     )}
@@ -569,6 +605,107 @@ const Appointments = () => {
                             <p className="text-xs text-slate-500">
                               <span className="font-bold">Reason:</span> {app.notes}
                             </p>
+                          </div>
+                        )}
+
+                        {/* ✅ PRESCRIPTION SECTION - FOR COMPLETED APPOINTMENTS */}
+                        {isCompleted && hasPrescription && (
+                          <div className="mt-4 p-4 bg-blue-50 rounded-xl border border-blue-200">
+                            <button
+                              onClick={() => togglePrescription(app._id)}
+                              className="flex items-center justify-between w-full"
+                            >
+                              <div className="flex items-center gap-2">
+                                <PrescriptionIcon size={16} className="text-blue-600" />
+                                <span className="text-xs font-black text-blue-700 uppercase">
+                                  📋 PRESCRIPTION ATTACHED
+                                </span>
+                              </div>
+                              {isPrescriptionExpanded ? 
+                                <ChevronUp size={14} className="text-blue-600" /> : 
+                                <ChevronDown size={14} className="text-blue-600" />
+                              }
+                            </button>
+                            
+                            {isPrescriptionExpanded && (
+                              <div className="mt-4 space-y-3">
+                                {/* Consultation Notes */}
+                                {app.consultationNotes && (
+                                  <div className="bg-white p-3 rounded-lg">
+                                    <p className="text-[10px] font-black text-slate-400 uppercase mb-1">Consultation Notes</p>
+                                    <p className="text-sm text-slate-700">{app.consultationNotes}</p>
+                                  </div>
+                                )}
+                                
+                                {/* Prescription Details */}
+                                {app.prescription && (
+                                  <div className="bg-white p-3 rounded-lg">
+                                    <p className="text-[10px] font-black text-slate-400 uppercase mb-2">Prescription Details</p>
+                                    {typeof app.prescription === 'string' ? (
+                                      <p className="text-sm text-slate-700 whitespace-pre-wrap">{app.prescription}</p>
+                                    ) : (
+                                      <>
+                                        {app.prescription.diagnosis && (
+                                          <div className="mb-2">
+                                            <span className="text-xs font-bold text-slate-600">Diagnosis:</span>
+                                            <p className="text-sm text-slate-700">{app.prescription.diagnosis}</p>
+                                          </div>
+                                        )}
+                                        {app.prescription.medicines && app.prescription.medicines.length > 0 && (
+                                          <div className="mb-2">
+                                            <span className="text-xs font-bold text-slate-600">Medicines:</span>
+                                            <div className="flex flex-wrap gap-1 mt-1">
+                                              {app.prescription.medicines.map((med, idx) => (
+                                                <span key={idx} className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full">
+                                                  {med.name} {med.dosage}
+                                                </span>
+                                              ))}
+                                            </div>
+                                          </div>
+                                        )}
+                                        {app.prescription.instructions && (
+                                          <div>
+                                            <span className="text-xs font-bold text-slate-600">Instructions:</span>
+                                            <p className="text-sm text-slate-700">{app.prescription.instructions}</p>
+                                          </div>
+                                        )}
+                                      </>
+                                    )}
+                                  </div>
+                                )}
+                                
+                                {/* View Full Prescription Button */}
+                                {app.prescriptionId && (
+                                  <button
+                                    onClick={() => handleViewFullPrescription(app)}
+                                    className="w-full py-3 bg-blue-500 text-white rounded-xl font-bold text-xs hover:bg-blue-600 transition-all flex items-center justify-center gap-2"
+                                  >
+                                    <Eye size={14} />
+                                    VIEW FULL PRESCRIPTION
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                            
+                            {!isPrescriptionExpanded && app.prescription && (
+                              <div className="mt-2">
+                                {typeof app.prescription === 'string' ? (
+                                  <p className="text-xs text-slate-600 line-clamp-2">
+                                    {app.prescription.substring(0, 100)}
+                                    {app.prescription.length > 100 && '...'}
+                                  </p>
+                                ) : (
+                                  <p className="text-xs text-slate-600">
+                                    <span className="font-bold">Diagnosis:</span> {app.prescription.diagnosis || 'N/A'}
+                                    {app.prescription.medicines && (
+                                      <span className="ml-2 text-blue-600">
+                                        • {app.prescription.medicines.length} medicine(s)
+                                      </span>
+                                    )}
+                                  </p>
+                                )}
+                              </div>
+                            )}
                           </div>
                         )}
 
@@ -666,7 +803,7 @@ const Appointments = () => {
                             </a>
                           )}
                           
-                          {/* ✅ ATTACH BUTTON - ONLY FOR PENDING */}
+                          {/* ATTACH BUTTON - ONLY FOR PENDING */}
                           {app.status === 'pending' && (
                             <button 
                               onClick={() => { 
@@ -680,7 +817,7 @@ const Appointments = () => {
                             </button>
                           )}
 
-                          {/* ✅ DELETE BUTTON - FOR PENDING & CONFIRMED */}
+                          {/* DELETE BUTTON - FOR PENDING & CONFIRMED */}
                           {(app.status === 'pending' || app.status === 'confirmed') && !isExpiredApp && (
                             <button 
                               onClick={() => handleDeleteAppointment(app._id)}
@@ -700,6 +837,11 @@ const Appointments = () => {
                         {app.status === 'confirmed' && (
                           <p className="text-[10px] text-emerald-500 mt-3 text-center">
                             ✓ Appointment confirmed by doctor
+                          </p>
+                        )}
+                        {app.status === 'completed' && (
+                          <p className="text-[10px] text-blue-500 mt-3 text-center">
+                            ✓ Consultation completed
                           </p>
                         )}
                         {app.status === 'cancelled' && (
@@ -753,6 +895,13 @@ const Appointments = () => {
                 </div>
                 
                 <div className="flex justify-between items-center p-4 bg-white/5 rounded-xl hover:bg-white/10 transition-all">
+                  <span className="text-slate-300">Completed</span>
+                  <span className="text-2xl font-black text-blue-400">
+                    {appointments.filter(a => a.status === 'completed').length}
+                  </span>
+                </div>
+                
+                <div className="flex justify-between items-center p-4 bg-white/5 rounded-xl hover:bg-white/10 transition-all">
                   <span className="text-slate-300">Today</span>
                   <span className="text-2xl font-black text-purple-400">
                     {appointments.filter(a => isToday(a.date)).length}
@@ -770,6 +919,13 @@ const Appointments = () => {
                   <span className="text-slate-300">Total Records</span>
                   <span className="text-2xl font-black text-amber-400">{medicalRecords.length}</span>
                 </div>
+                
+                <div className="flex justify-between items-center p-4 bg-white/5 rounded-xl hover:bg-white/10 transition-all">
+                  <span className="text-slate-300">Prescriptions</span>
+                  <span className="text-2xl font-black text-blue-400">
+                    {appointments.filter(a => a.prescription || a.prescriptionId).length}
+                  </span>
+                </div>
 
                 {currentUser && (
                   <div className="flex justify-between items-center p-4 bg-white/5 rounded-xl hover:bg-white/10 transition-all">
@@ -784,6 +940,14 @@ const Appointments = () => {
                 className="w-full py-4 bg-teal-500 text-[#0f172a] rounded-2xl font-black text-xs hover:bg-teal-400 transition-all"
               >
                 VIEW MEDICAL VAULT ({medicalRecords.length})
+              </button>
+              
+              <button 
+                onClick={() => navigate('/prescriptions')} 
+                className="w-full mt-3 py-4 bg-blue-500 text-white rounded-2xl font-black text-xs hover:bg-blue-400 transition-all flex items-center justify-center gap-2"
+              >
+                <PrescriptionIcon size={16} />
+                VIEW PRESCRIPTIONS ({appointments.filter(a => a.prescription || a.prescriptionId).length})
               </button>
 
               <button
@@ -804,7 +968,7 @@ const Appointments = () => {
         </div>
       </main>
 
-      {/* ✅ UPDATED: Attach Record Modal with Backend Records */}
+      {/* Attach Record Modal */}
       {showAttachModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-[2.5rem] max-w-lg w-full p-8 shadow-2xl max-h-[90vh] overflow-y-auto">
