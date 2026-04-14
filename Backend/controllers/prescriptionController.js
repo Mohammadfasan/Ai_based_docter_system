@@ -1,4 +1,4 @@
-// prescriptionController.js (Complete updated version)
+// controllers/prescriptionController.js
 import Prescription from '../models/Prescription.js';
 import Appointment from '../models/Appointment.js';
 import User from '../models/User.js';
@@ -109,18 +109,22 @@ export const createPrescription = async (req, res) => {
 
     console.log('✅ Prescription created with ID:', prescription.prescriptionId);
 
-    // If prescription is linked to an appointment, update appointment status
+    // If prescription is linked to an appointment, update appointment
     if (appointmentId) {
       try {
         await Appointment.findByIdAndUpdate(
           appointmentId,
           { 
-            status: 'completed',
-            prescriptionId: prescription._id 
+            prescriptionId: prescription._id,
+            prescription: {
+              diagnosis: prescription.diagnosis,
+              medicines: prescription.medicines,
+              instructions: prescription.instructions
+            }
           },
           { new: true }
         );
-        console.log('✅ Appointment updated:', appointmentId);
+        console.log('✅ Appointment updated with prescription:', appointmentId);
       } catch (apptError) {
         console.warn('⚠️ Could not update appointment:', apptError.message);
       }
@@ -158,11 +162,9 @@ export const getPatientPrescriptions = async (req, res) => {
     // Create search conditions for patient
     const patientConditions = [];
     
-    // Add condition using patient.userId (string ID)
     patientConditions.push({ 'patient.userId': patientId });
     patientConditions.push({ 'patient.id': patientId });
     
-    // Try to find patient by ObjectId
     if (mongoose.Types.ObjectId.isValid(patientId)) {
       patientConditions.push({ 'patient.id': new mongoose.Types.ObjectId(patientId) });
     }
@@ -263,7 +265,7 @@ export const getPatientPrescriptions = async (req, res) => {
 export const getDoctorPrescriptions = async (req, res) => {
   try {
     const { doctorId } = req.params;
-    const { status, search, page = 1, limit = 10 } = req.query;
+    const { status, search, page = 1, limit = 100 } = req.query;
 
     console.log('📋 Fetching prescriptions for doctorId:', doctorId);
     console.log('📋 Authenticated user:', req.user?._id, req.user?.userId, req.user?.email);
@@ -274,11 +276,9 @@ export const getDoctorPrescriptions = async (req, res) => {
     // Create search conditions for doctor
     const doctorConditions = [];
     
-    // Add condition using doctor.userId (string ID like DOC-C00E-MFX)
     doctorConditions.push({ 'doctor.userId': doctorId });
     doctorConditions.push({ 'doctor.id': doctorId });
     
-    // Try to find doctor by email if available
     if (req.user?.email) {
       doctorConditions.push({ 'doctor.email': req.user.email });
     }
@@ -496,12 +496,10 @@ export const updatePrescriptionStatus = async (req, res) => {
     const userStringId = req.user.userId;
     const userEmail = req.user.email;
     
-    // Check if user is patient
     const isPatient = prescription.patient.userId === userStringId ||
                      prescription.patient.id?.toString() === userId ||
                      prescription.patient.email === userEmail;
     
-    // Check if user is doctor
     const isDoctor = prescription.doctor.userId === userStringId ||
                     prescription.doctor.id?.toString() === userId ||
                     prescription.doctor.email === userEmail;

@@ -1,4 +1,4 @@
-// PrescriptionManager.jsx - Complete updated version with working PDF
+// PrescriptionManager.jsx - Complete updated version with specific prescription viewing
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -14,10 +14,10 @@ import {
   FaSpinner, FaSync, FaChevronRight, FaChevronDown
 } from 'react-icons/fa';
 import toast, { Toaster } from 'react-hot-toast';
-
-// Import jsPDF and autoTable correctly
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+
+const API_URL = 'http://localhost:5000/api';
 
 const PrescriptionManager = ({ userType, userData }) => {
   const location = useLocation();
@@ -32,7 +32,6 @@ const PrescriptionManager = ({ userType, userData }) => {
   // State declarations
   const [searchTerm, setSearchTerm] = useState('');
   const [filter, setFilter] = useState('all');
-  const [showUndoToast, setShowUndoToast] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showViewModal, setShowViewModal] = useState(false);
   const [selectedPrescription, setSelectedPrescription] = useState(null);
@@ -40,14 +39,21 @@ const PrescriptionManager = ({ userType, userData }) => {
   const [selectedPatientId, setSelectedPatientId] = useState('all');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [deletedPrescription, setDeletedPrescription] = useState(null);
   const [expandedPrescription, setExpandedPrescription] = useState(null);
+  const [prescriptions, setPrescriptions] = useState([]);
+  const [viewSpecificPrescriptionId, setViewSpecificPrescriptionId] = useState(null); // ✅ NEW
+  const [stats, setStats] = useState({
+    total: 0,
+    active: 0,
+    completed: 0,
+    cancelled: 0
+  });
   
   const [currentPatient, setCurrentPatient] = useState({
     id: appointmentData.patientId || '',
     name: appointmentData.patientName || '',
     email: appointmentData.patientEmail || '',
-    appointmentDate: appointmentData.appointmentDate || new Date().toISOString().split('T')[0],
+    appointmentDate: appointmentData.appointmentDate || appointmentData.appointment?.date || new Date().toISOString().split('T')[0],
     appointmentTime: appointmentData.appointment?.time || appointmentData.appointmentTime || '',
     symptoms: appointmentData.appointment?.symptoms || appointmentData.symptoms || ''
   });
@@ -59,14 +65,6 @@ const PrescriptionManager = ({ userType, userData }) => {
     refills: 0,
     medicines: [{ name: '', dosage: '', frequency: '', duration: '' }],
     notes: ''
-  });
-
-  const [prescriptions, setPrescriptions] = useState([]);
-  const [stats, setStats] = useState({
-    total: 0,
-    active: 0,
-    completed: 0,
-    cancelled: 0
   });
 
   // Load prescriptions from API
@@ -102,13 +100,12 @@ const PrescriptionManager = ({ userType, userData }) => {
         return;
       }
       
-      // Build query params
       const params = new URLSearchParams();
       if (filter !== 'all') params.append('status', filter);
       if (searchTerm) params.append('search', searchTerm);
       params.append('limit', '100');
       
-      const url = `http://localhost:5000/api/prescriptions/doctor/${doctorId}?${params.toString()}`;
+      const url = `${API_URL}/prescriptions/doctor/${doctorId}?${params.toString()}`;
       
       console.log('Fetching prescriptions from:', url);
       
@@ -125,7 +122,6 @@ const PrescriptionManager = ({ userType, userData }) => {
           const prescriptionsData = data.data || [];
           setPrescriptions(prescriptionsData);
           
-          // Calculate stats
           setStats({
             total: prescriptionsData.length,
             active: prescriptionsData.filter(p => p.status === 'active').length,
@@ -154,11 +150,10 @@ const PrescriptionManager = ({ userType, userData }) => {
     }
   }, [filter, searchTerm, userData]);
 
-  // Initial load - runs once
+  // Initial load
   useEffect(() => {
     isMounted.current = true;
     
-    // Set current user
     const user = JSON.parse(localStorage.getItem('currentUser') || '{}');
     setCurrentUser(user);
     
@@ -167,12 +162,66 @@ const PrescriptionManager = ({ userType, userData }) => {
       loadPrescriptions();
     }
     
+    // Auto-open create modal if coming from appointment
+    if (appointmentData.fromAppointment && appointmentData.patientId) {
+      setShowCreateModal(true);
+    }
+    
+    // ✅ NEW: View specific prescription if prescriptionId is passed
+    if (appointmentData.viewSpecificPrescription && appointmentData.prescriptionId) {
+      console.log('📋 Viewing specific prescription:', appointmentData.prescriptionId);
+      setViewSpecificPrescriptionId(appointmentData.prescriptionId);
+    }
+    
     return () => {
       isMounted.current = false;
     };
   }, []);
 
-  // Reload when filter or search changes (debounced)
+  // ✅ NEW: Auto-expand and scroll to specific prescription when loaded
+  useEffect(() => {
+    if (viewSpecificPrescriptionId && prescriptions.length > 0 && !loading) {
+      console.log('🔍 Looking for prescription:', viewSpecificPrescriptionId);
+      
+      // Find the prescription in the list
+      const targetPrescription = prescriptions.find(p => 
+        p._id === viewSpecificPrescriptionId || 
+        p.prescriptionId === viewSpecificPrescriptionId
+      );
+      
+      if (targetPrescription) {
+        const presId = targetPrescription._id || targetPrescription.id;
+        console.log('✅ Found prescription, expanding:', presId);
+        
+        // Expand the prescription
+        setExpandedPrescription(presId);
+        
+        // Scroll to it after a short delay
+        setTimeout(() => {
+          const element = document.getElementById(`prescription-${presId}`);
+          if (element) {
+            element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            // Highlight it
+            element.classList.add('ring-4', 'ring-cyan-500', 'ring-offset-2', 'transition-all', 'duration-300');
+            setTimeout(() => {
+              element.classList.remove('ring-4', 'ring-cyan-500', 'ring-offset-2');
+            }, 2000);
+            
+            toast.success(`📋 Viewing prescription for ${targetPrescription.patient?.name || 'patient'}`);
+          }
+        }, 300);
+        
+        // Clear the flag
+        setViewSpecificPrescriptionId(null);
+      } else {
+        console.log('❌ Prescription not found in list');
+        toast.error('Prescription not found');
+        setViewSpecificPrescriptionId(null);
+      }
+    }
+  }, [viewSpecificPrescriptionId, prescriptions, loading]);
+
+  // Reload when filter or search changes
   useEffect(() => {
     if (!initialLoadDone.current) return;
     
@@ -237,6 +286,7 @@ const PrescriptionManager = ({ userType, userData }) => {
     setNewPrescription({ ...newPrescription, medicines: updated });
   };
 
+  // CREATE PRESCRIPTION AND LINK TO APPOINTMENT
   const handleCreatePrescription = async () => {
     if (!newPrescription.diagnosis) {
       toast.error('Please enter a diagnosis');
@@ -253,6 +303,10 @@ const PrescriptionManager = ({ userType, userData }) => {
       return;
     }
 
+    const appointmentId = appointmentData.appointment?._id || 
+                          appointmentData.appointment?.id || 
+                          appointmentData.appointmentId;
+
     const prescriptionData = {
       patientId: currentPatient.id,
       diagnosis: newPrescription.diagnosis,
@@ -261,7 +315,7 @@ const PrescriptionManager = ({ userType, userData }) => {
       refills: parseInt(newPrescription.refills) || 0,
       notes: newPrescription.notes,
       medicines: newPrescription.medicines.filter(m => m.name && m.name.trim() !== ''),
-      appointmentId: appointmentData.appointment?.id,
+      appointmentId: appointmentId,
       appointmentTime: currentPatient.appointmentTime
     };
 
@@ -273,7 +327,7 @@ const PrescriptionManager = ({ userType, userData }) => {
         return;
       }
       
-      const response = await fetch('http://localhost:5000/api/prescriptions', {
+      const response = await fetch(`${API_URL}/prescriptions`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -285,10 +339,47 @@ const PrescriptionManager = ({ userType, userData }) => {
       const data = await response.json();
       
       if (data.success) {
+        const newPrescriptionData = data.data;
+        
+        if (appointmentId) {
+          try {
+            console.log('📎 Linking prescription to appointment:', appointmentId);
+            
+            const linkResponse = await fetch(`${API_URL}/appointments/${appointmentId}/prescription`, {
+              method: 'PATCH',
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({
+                prescriptionId: newPrescriptionData._id,
+                prescriptionData: {
+                  diagnosis: newPrescriptionData.diagnosis,
+                  medicines: newPrescriptionData.medicines,
+                  instructions: newPrescriptionData.instructions,
+                  notes: newPrescriptionData.notes
+                }
+              })
+            });
+            
+            const linkData = await linkResponse.json();
+            if (linkData.success) {
+              console.log('✅ Prescription linked to appointment successfully');
+              toast.success('Prescription linked to appointment!');
+            }
+          } catch (linkError) {
+            console.warn('⚠️ Could not link prescription:', linkError);
+          }
+        }
+        
         toast.success('Prescription created successfully!');
         resetForm();
         setShowCreateModal(false);
         loadPrescriptions();
+        
+        setTimeout(() => {
+          navigate('/doctor/appointments');
+        }, 1500);
       } else {
         toast.error(data.message || 'Failed to create prescription');
       }
@@ -317,7 +408,7 @@ const PrescriptionManager = ({ userType, userData }) => {
         return;
       }
       
-      const response = await fetch(`http://localhost:5000/api/prescriptions/${prescriptionId}/status`, {
+      const response = await fetch(`${API_URL}/prescriptions/${prescriptionId}/status`, {
         method: 'PATCH',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -351,7 +442,7 @@ const PrescriptionManager = ({ userType, userData }) => {
         return;
       }
       
-      const response = await fetch(`http://localhost:5000/api/prescriptions/${id}`, {
+      const response = await fetch(`${API_URL}/prescriptions/${id}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${token}`
@@ -373,10 +464,9 @@ const PrescriptionManager = ({ userType, userData }) => {
     }
   };
 
-  // Fixed PDF download function using autoTable
+  // PDF download function (same as before)
   const handleDownloadPDF = (prescription) => {
     try {
-      // Create new PDF document
       const doc = new jsPDF();
       
       doc.setProperties({
@@ -386,7 +476,6 @@ const PrescriptionManager = ({ userType, userData }) => {
         creator: 'HealthAI'
       });
 
-      // Header
       doc.setFillColor(15, 23, 42);
       doc.rect(0, 0, doc.internal.pageSize.width, 45, 'F');
       
@@ -400,13 +489,11 @@ const PrescriptionManager = ({ userType, userData }) => {
       doc.text('HealthAI Medical Center', 105, 32, { align: 'center' });
       doc.text('Quality Healthcare Services', 105, 39, { align: 'center' });
       
-      // Prescription ID and Date
       doc.setTextColor(148, 163, 184);
       doc.setFontSize(8);
       doc.text(`ID: ${prescription.prescriptionId || prescription._id || 'N/A'}`, doc.internal.pageSize.width - 20, 15, { align: 'right' });
       doc.text(`Date: ${formatDate(prescription.date)}`, doc.internal.pageSize.width - 20, 22, { align: 'right' });
       
-      // Status
       const statusColor = prescription.status === 'active' ? [34, 197, 94] : 
                          prescription.status === 'completed' ? [59, 130, 246] : [239, 68, 68];
       doc.setFillColor(...statusColor);
@@ -415,7 +502,6 @@ const PrescriptionManager = ({ userType, userData }) => {
       doc.setFontSize(7);
       doc.text(prescription.status?.toUpperCase() || 'ACTIVE', doc.internal.pageSize.width - 27.5, 41, { align: 'center' });
 
-      // Patient Information
       doc.setTextColor(15, 23, 42);
       doc.setFontSize(13);
       doc.setFont('helvetica', 'bold');
@@ -438,7 +524,6 @@ const PrescriptionManager = ({ userType, userData }) => {
       doc.text(prescription.patient?.userId || prescription.patient?.id || 'N/A', 70, 90);
       doc.text(prescription.patient?.email || 'N/A', 70, 102);
 
-      // Doctor Information
       doc.setFontSize(13);
       doc.setFont('helvetica', 'bold');
       doc.setTextColor(15, 23, 42);
@@ -460,7 +545,6 @@ const PrescriptionManager = ({ userType, userData }) => {
       doc.text(prescription.doctor?.userId || prescription.doctor?.id || 'N/A', 175, 90, { align: 'right' });
       doc.text(prescription.doctor?.specialization || 'N/A', 175, 102, { align: 'right' });
 
-      // Diagnosis
       let yPosition = 130;
       doc.setDrawColor(226, 232, 240);
       doc.line(20, yPosition - 5, doc.internal.pageSize.width - 20, yPosition - 5);
@@ -477,7 +561,6 @@ const PrescriptionManager = ({ userType, userData }) => {
       
       yPosition += 25;
       
-      // Symptoms
       if (prescription.symptoms) {
         doc.setFontSize(11);
         doc.setFont('helvetica', 'bold');
@@ -492,7 +575,6 @@ const PrescriptionManager = ({ userType, userData }) => {
         yPosition += 15 + (symptomsLines.length * 5);
       }
 
-      // Medicines Table - Using autoTable function
       doc.setFontSize(13);
       doc.setFont('helvetica', 'bold');
       doc.setTextColor(15, 23, 42);
@@ -505,7 +587,6 @@ const PrescriptionManager = ({ userType, userData }) => {
         med.duration || '-'
       ]) || [];
 
-      // Use autoTable function
       autoTable(doc, {
         startY: yPosition + 5,
         head: [['Medicine Name', 'Dosage', 'Frequency', 'Duration']],
@@ -536,7 +617,6 @@ const PrescriptionManager = ({ userType, userData }) => {
         margin: { left: 20, right: 20 }
       });
 
-      // Instructions
       if (prescription.instructions) {
         const finalY = doc.lastAutoTable.finalY + 12;
         
@@ -555,36 +635,6 @@ const PrescriptionManager = ({ userType, userData }) => {
         doc.text(instructionsLines, 25, finalY + 7);
       }
 
-      // Additional Notes
-      if (prescription.notes) {
-        const notesY = (prescription.instructions ? doc.lastAutoTable.finalY + 35 : doc.lastAutoTable.finalY + 15);
-        
-        doc.setFontSize(11);
-        doc.setFont('helvetica', 'bold');
-        doc.setTextColor(15, 23, 42);
-        doc.text('Additional Notes:', 20, notesY);
-        
-        doc.setFontSize(9);
-        doc.setFont('helvetica', 'normal');
-        doc.setTextColor(71, 85, 105);
-        const notesLines = doc.splitTextToSize(prescription.notes, 170);
-        doc.text(notesLines, 25, notesY + 7);
-      }
-
-      // Refills
-      if (prescription.refills && prescription.refills > 0) {
-        const refillsY = doc.lastAutoTable.finalY + 45;
-        
-        doc.setFillColor(254, 243, 199);
-        doc.roundedRect(20, refillsY - 8, 170, 18, 3, 3, 'F');
-        
-        doc.setFontSize(10);
-        doc.setFont('helvetica', 'bold');
-        doc.setTextColor(146, 64, 14);
-        doc.text(`REFILLS REMAINING: ${prescription.refills}`, 105, refillsY + 3, { align: 'center' });
-      }
-
-      // Footer
       const pageCount = doc.internal.getNumberOfPages();
       for (let i = 1; i <= pageCount; i++) {
         doc.setPage(i);
@@ -605,103 +655,7 @@ const PrescriptionManager = ({ userType, userData }) => {
       
     } catch (error) {
       console.error('Error generating PDF:', error);
-      toast.error('PDF download failed, downloading as text file');
-      
-      // Fallback to text download
-      handleTextDownload(prescription);
-    }
-  };
-
-  // Text download fallback
-  const handleTextDownload = (prescription) => {
-    try {
-      let content = '='.repeat(60) + '\n';
-      content += '                    MEDICAL PRESCRIPTION\n';
-      content += '='.repeat(60) + '\n\n';
-      
-      content += `Prescription ID: ${prescription.prescriptionId || prescription._id || 'N/A'}\n`;
-      content += `Date: ${formatDate(prescription.date)}\n`;
-      content += `Status: ${prescription.status?.toUpperCase() || 'ACTIVE'}\n\n`;
-      
-      content += '-'.repeat(60) + '\n';
-      content += 'PATIENT INFORMATION\n';
-      content += '-'.repeat(60) + '\n';
-      content += `Name: ${prescription.patient?.name || 'N/A'}\n`;
-      content += `Patient ID: ${prescription.patient?.userId || prescription.patient?.id || 'N/A'}\n`;
-      content += `Email: ${prescription.patient?.email || 'N/A'}\n\n`;
-      
-      content += '-'.repeat(60) + '\n';
-      content += 'DOCTOR INFORMATION\n';
-      content += '-'.repeat(60) + '\n';
-      content += `Name: ${prescription.doctor?.name || 'N/A'}\n`;
-      content += `Doctor ID: ${prescription.doctor?.userId || prescription.doctor?.id || 'N/A'}\n`;
-      content += `Specialization: ${prescription.doctor?.specialization || 'N/A'}\n\n`;
-      
-      content += '-'.repeat(60) + '\n';
-      content += 'DIAGNOSIS\n';
-      content += '-'.repeat(60) + '\n';
-      content += `${prescription.diagnosis || 'N/A'}\n\n`;
-      
-      if (prescription.symptoms) {
-        content += '-'.repeat(60) + '\n';
-        content += 'SYMPTOMS\n';
-        content += '-'.repeat(60) + '\n';
-        content += `${prescription.symptoms}\n\n`;
-      }
-      
-      content += '-'.repeat(60) + '\n';
-      content += 'PRESCRIBED MEDICINES\n';
-      content += '-'.repeat(60) + '\n';
-      if (prescription.medicines && prescription.medicines.length > 0) {
-        prescription.medicines.forEach((med, i) => {
-          content += `${i + 1}. ${med.name || 'N/A'}\n`;
-          content += `   Dosage: ${med.dosage || '-'}\n`;
-          content += `   Frequency: ${med.frequency || '-'}\n`;
-          content += `   Duration: ${med.duration || '-'}\n`;
-          if (med.notes) content += `   Notes: ${med.notes}\n`;
-          content += '\n';
-        });
-      } else {
-        content += 'No medicines prescribed\n\n';
-      }
-      
-      if (prescription.instructions) {
-        content += '-'.repeat(60) + '\n';
-        content += "DOCTOR'S INSTRUCTIONS\n";
-        content += '-'.repeat(60) + '\n';
-        content += `${prescription.instructions}\n\n`;
-      }
-      
-      if (prescription.notes) {
-        content += '-'.repeat(60) + '\n';
-        content += 'ADDITIONAL NOTES\n';
-        content += '-'.repeat(60) + '\n';
-        content += `${prescription.notes}\n\n`;
-      }
-      
-      if (prescription.refills > 0) {
-        content += '-'.repeat(60) + '\n';
-        content += `REFILLS REMAINING: ${prescription.refills}\n`;
-      }
-      
-      content += '\n' + '='.repeat(60) + '\n';
-      content += `Generated by HealthAI • ${new Date().toLocaleString()}\n`;
-      content += '='.repeat(60);
-      
-      const blob = new Blob([content], { type: 'text/plain' });
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `Prescription_${prescription.patient?.name || 'Patient'}_${formatDate(prescription.date)}.txt`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(url);
-      
-      toast.success('Text file downloaded successfully');
-    } catch (error) {
-      console.error('Error downloading text file:', error);
-      toast.error('Failed to download');
+      toast.error('PDF download failed');
     }
   };
 
@@ -759,6 +713,17 @@ const PrescriptionManager = ({ userType, userData }) => {
                 <span className="bg-cyan-500/20 backdrop-blur-xl text-cyan-400 px-4 py-2 rounded-full text-[10px] font-black tracking-widest uppercase border border-cyan-500/30">
                   Doctor Portal
                 </span>
+                {appointmentData.patientName && (
+                  <span className="bg-purple-500/20 text-purple-400 px-4 py-2 rounded-full text-[10px] font-black tracking-widest uppercase border border-purple-500/30">
+                    Patient: {appointmentData.patientName}
+                  </span>
+                )}
+                {/* ✅ NEW: Show when viewing specific prescription */}
+                {appointmentData.viewSpecificPrescription && (
+                  <span className="bg-green-500/20 text-green-400 px-4 py-2 rounded-full text-[10px] font-black tracking-widest uppercase border border-green-500/30 animate-pulse">
+                    📋 Viewing Prescription
+                  </span>
+                )}
               </div>
               <h1 className="text-5xl lg:text-7xl font-black text-white tracking-tighter mb-4">
                 Prescription <span className="text-cyan-400 bg-gradient-to-r from-cyan-400 to-teal-400 bg-clip-text text-transparent">Manager</span>
@@ -782,6 +747,12 @@ const PrescriptionManager = ({ userType, userData }) => {
               >
                 <FaPlus size={18} />
                 New Prescription
+              </button>
+              <button
+                onClick={() => navigate('/doctor/appointments')}
+                className="bg-white/10 backdrop-blur-xl border border-white/20 rounded-2xl p-4 hover:bg-white/20 transition-all"
+              >
+                <FaArrowLeft className="text-white" size={24} />
               </button>
             </div>
           </div>
@@ -843,7 +814,6 @@ const PrescriptionManager = ({ userType, userData }) => {
                 </button>
               ))}
               
-              {/* Patient Filter */}
               {uniquePatients.length > 0 && (
                 <>
                   <span className="text-xs font-black text-slate-400 uppercase ml-4">Patient:</span>
@@ -895,11 +865,11 @@ const PrescriptionManager = ({ userType, userData }) => {
             {filteredPrescriptions.map((pres) => (
               <motion.div
                 key={pres._id || pres.id}
+                id={`prescription-${pres._id || pres.id}`}  // ✅ ADD THIS ID
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 className="bg-white rounded-2xl border border-slate-100 shadow-lg hover:shadow-xl transition-all overflow-hidden"
               >
-                {/* Prescription Header */}
                 <div 
                   className="p-6 cursor-pointer"
                   onClick={() => setExpandedPrescription(expandedPrescription === (pres._id || pres.id) ? null : (pres._id || pres.id))}
@@ -940,7 +910,6 @@ const PrescriptionManager = ({ userType, userData }) => {
                     </div>
                   </div>
                   
-                  {/* Medicines Preview */}
                   {pres.medicines && pres.medicines.length > 0 && (
                     <div className="mt-4 ml-16">
                       <div className="flex flex-wrap gap-2">
@@ -959,11 +928,9 @@ const PrescriptionManager = ({ userType, userData }) => {
                   )}
                 </div>
                 
-                {/* Expanded Content */}
                 {expandedPrescription === (pres._id || pres.id) && (
                   <div className="px-6 pb-6 border-t border-slate-100 bg-slate-50">
                     <div className="pt-6 space-y-4">
-                      {/* Patient Details */}
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="bg-white p-4 rounded-xl">
                           <p className="text-[10px] font-black text-slate-400 uppercase mb-2">Patient Information</p>
@@ -981,7 +948,6 @@ const PrescriptionManager = ({ userType, userData }) => {
                         </div>
                       </div>
                       
-                      {/* Symptoms */}
                       {pres.symptoms && (
                         <div className="bg-white p-4 rounded-xl">
                           <p className="text-[10px] font-black text-slate-400 uppercase mb-2">Symptoms</p>
@@ -989,7 +955,6 @@ const PrescriptionManager = ({ userType, userData }) => {
                         </div>
                       )}
                       
-                      {/* Full Medicines List */}
                       <div className="bg-white p-4 rounded-xl">
                         <p className="text-[10px] font-black text-slate-400 uppercase mb-3">Prescribed Medicines</p>
                         <div className="space-y-2">
@@ -999,17 +964,11 @@ const PrescriptionManager = ({ userType, userData }) => {
                                 <p className="font-bold text-slate-800">{med.name}</p>
                                 <p className="text-xs text-slate-500">{med.dosage} • {med.frequency} • {med.duration}</p>
                               </div>
-                              {med.notes && (
-                                <span className="text-[10px] bg-cyan-100 text-cyan-700 px-2 py-1 rounded-full">
-                                  {med.notes}
-                                </span>
-                              )}
                             </div>
                           ))}
                         </div>
                       </div>
                       
-                      {/* Instructions */}
                       {pres.instructions && (
                         <div className="bg-amber-50 p-4 rounded-xl border border-amber-100">
                           <p className="text-[10px] font-black text-amber-600 uppercase mb-2">Instructions</p>
@@ -1017,23 +976,6 @@ const PrescriptionManager = ({ userType, userData }) => {
                         </div>
                       )}
                       
-                      {/* Notes */}
-                      {pres.notes && (
-                        <div className="bg-purple-50 p-4 rounded-xl border border-purple-100">
-                          <p className="text-[10px] font-black text-purple-600 uppercase mb-2">Additional Notes</p>
-                          <p className="text-sm text-purple-800">{pres.notes}</p>
-                        </div>
-                      )}
-                      
-                      {/* Refills */}
-                      {pres.refills > 0 && (
-                        <div className="bg-green-50 p-4 rounded-xl border border-green-100 text-center">
-                          <p className="text-[10px] font-black text-green-600 uppercase">Refills Remaining</p>
-                          <p className="text-2xl font-black text-green-700">{pres.refills}</p>
-                        </div>
-                      )}
-                      
-                      {/* Actions */}
                       <div className="flex gap-3 pt-4">
                         <button
                           onClick={() => handleDownloadPDF(pres)}
@@ -1076,7 +1018,7 @@ const PrescriptionManager = ({ userType, userData }) => {
         )}
       </main>
 
-      {/* Create Prescription Modal */}
+      {/* Create Prescription Modal - Same as before */}
       <AnimatePresence>
         {showCreateModal && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
@@ -1094,7 +1036,11 @@ const PrescriptionManager = ({ userType, userData }) => {
                     <div className="w-10 h-10 bg-cyan-500 rounded-xl flex items-center justify-center">
                       <FaPlus size={20} />
                     </div>
-                    <h2 className="text-xl font-black">Create New Prescription</h2>
+                    <h2 className="text-xl font-black">
+                      {appointmentData.patientName 
+                        ? `Create Prescription for ${appointmentData.patientName}`
+                        : 'Create New Prescription'}
+                    </h2>
                   </div>
                   <button onClick={() => setShowCreateModal(false)} className="p-2 hover:bg-white/10 rounded-xl">
                     <FaTimes size={24} />
@@ -1103,19 +1049,17 @@ const PrescriptionManager = ({ userType, userData }) => {
               </div>
               
               <div className="p-6 space-y-6">
-                {/* Patient Info */}
                 <div className="bg-cyan-50 rounded-xl p-4 border border-cyan-100">
                   <p className="text-[10px] font-black text-cyan-600 uppercase mb-2">Patient Information</p>
                   <p className="font-bold text-slate-800 text-lg">{currentPatient.name || 'Select a patient'}</p>
                   <p className="text-xs text-slate-500">ID: {currentPatient.id || 'N/A'}</p>
-                  {currentPatient.appointmentTime && (
+                  {currentPatient.appointmentDate && (
                     <p className="text-xs text-cyan-600 mt-1">
-                      Appointment: {currentPatient.appointmentDate} at {currentPatient.appointmentTime}
+                      Appointment: {formatDate(currentPatient.appointmentDate)} at {currentPatient.appointmentTime}
                     </p>
                   )}
                 </div>
                 
-                {/* Diagnosis */}
                 <div>
                   <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Diagnosis *</label>
                   <input
@@ -1127,7 +1071,6 @@ const PrescriptionManager = ({ userType, userData }) => {
                   />
                 </div>
                 
-                {/* Symptoms */}
                 <div>
                   <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Symptoms</label>
                   <textarea
@@ -1139,7 +1082,6 @@ const PrescriptionManager = ({ userType, userData }) => {
                   />
                 </div>
                 
-                {/* Medicines */}
                 <div>
                   <div className="flex justify-between items-center mb-3">
                     <label className="text-[10px] font-black text-slate-400 uppercase">Medicines *</label>
@@ -1200,7 +1142,6 @@ const PrescriptionManager = ({ userType, userData }) => {
                   </div>
                 </div>
                 
-                {/* Instructions */}
                 <div>
                   <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Instructions</label>
                   <textarea
@@ -1212,7 +1153,6 @@ const PrescriptionManager = ({ userType, userData }) => {
                   />
                 </div>
                 
-                {/* Notes and Refills */}
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Additional Notes</label>
@@ -1248,7 +1188,7 @@ const PrescriptionManager = ({ userType, userData }) => {
                   onClick={handleCreatePrescription}
                   className="flex-1 py-3 bg-gradient-to-r from-cyan-500 to-teal-500 text-white rounded-xl font-bold text-sm hover:shadow-lg hover:shadow-cyan-500/30 transition-all flex items-center justify-center gap-2"
                 >
-                  <FaSave size={14} /> Create Prescription
+                  <FaSave size={14} /> Create & Link to Appointment
                 </button>
               </div>
             </motion.div>

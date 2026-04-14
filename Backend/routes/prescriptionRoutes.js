@@ -1,4 +1,4 @@
-// prescriptionRoutes.js (Complete updated version)
+// routes/prescriptionRoutes.js
 import express from 'express';
 import {
   createPrescription,
@@ -10,7 +10,6 @@ import {
   deletePrescription,
   getPrescriptionStats
 } from '../controllers/prescriptionController.js';
-
 import { protect, authorize } from '../middleware/authMiddleware.js';
 
 const router = express.Router();

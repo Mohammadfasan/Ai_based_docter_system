@@ -27,6 +27,17 @@ const appointmentSchema = new mongoose.Schema({
     enum: ['pending', 'paid', 'refunded'],
     default: 'pending'
   },
+  // Prescription fields
+  prescriptionId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Prescription'
+  },
+  prescription: {
+    type: mongoose.Schema.Types.Mixed  // Store prescription summary or object
+  },
+  consultationNotes: {
+    type: String
+  },
   attachedRecords: [{
     recordId: String,
     recordType: String,

@@ -14,7 +14,9 @@ import {
   getDoctorStats,
   getAvailableSlots,
   confirmAppointment,
-  rejectAppointment
+  rejectAppointment,
+  completeAppointment,
+  linkPrescriptionToAppointment
 } from '../controllers/appointmentController.js';
 import { protect } from '../middleware/authMiddleware.js';
 
@@ -36,9 +38,13 @@ router.get('/stats/patient', getPatientStats);
 router.get('/doctor/:doctorId/appointments', getDoctorAppointments);
 router.get('/stats/doctor/:doctorId', getDoctorStats);
 
-// Doctor confirmation/rejection routes
+// Doctor confirmation/rejection/complete routes
 router.patch('/:id/confirm', confirmAppointment);
 router.patch('/:id/reject', rejectAppointment);
+router.patch('/:id/complete', completeAppointment);
+
+// Link prescription to appointment
+router.patch('/:id/prescription', linkPrescriptionToAppointment);
 
 // Common routes (with specific IDs)
 router.get('/:id', getAppointmentById);

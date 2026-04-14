@@ -1,4 +1,4 @@
-// Prescription.js (Fully fixed version)
+// models/Prescription.js
 import mongoose from 'mongoose';
 
 const medicineSchema = new mongoose.Schema({
@@ -114,7 +114,7 @@ const prescriptionSchema = new mongoose.Schema({
     type: String
   }
 }, {
-  timestamps: true, // This automatically handles createdAt and updatedAt
+  timestamps: true,
   toJSON: { virtuals: true },
   toObject: { virtuals: true }
 });
@@ -137,8 +137,6 @@ prescriptionSchema.index({ 'doctor.email': 1, createdAt: -1 });
 prescriptionSchema.index({ prescriptionId: 1 });
 prescriptionSchema.index({ status: 1 });
 prescriptionSchema.index({ date: -1 });
-
-// REMOVED custom pre-save middleware because timestamps: true handles it automatically
 
 const Prescription = mongoose.model('Prescription', prescriptionSchema);
 

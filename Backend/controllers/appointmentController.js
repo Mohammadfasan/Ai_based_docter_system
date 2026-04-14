@@ -174,8 +174,6 @@ export const createAppointment = async (req, res) => {
 };
 
 // Confirm a pending appointment (doctor only)
-// controllers/appointmentController.js
-
 export const confirmAppointment = async (req, res) => {
   try {
     const { id } = req.params;
@@ -228,7 +226,6 @@ export const confirmAppointment = async (req, res) => {
       });
     }
     
-    // Rest of your code remains the same...
     if (appointment.status !== 'pending') {
       return res.status(400).json({
         success: false,
@@ -271,6 +268,7 @@ export const confirmAppointment = async (req, res) => {
     });
   }
 };
+
 // Get my appointments (for patients)
 export const getMyAppointments = async (req, res) => {
   try {
@@ -590,7 +588,6 @@ export const deleteExpiredAppointments = async (req, res) => {
 };
 
 // Attach medical record to appointment
-// Attach medical record to appointment
 export const attachRecordToAppointment = async (req, res) => {
   try {
     const { id } = req.params;
@@ -643,7 +640,7 @@ export const attachRecordToAppointment = async (req, res) => {
 
     // Add new record
     const newRecord = {
-      recordId: recordId, // Use the MongoDB _id directly
+      recordId: recordId,
       recordType: recordType || 'document',
       recordName: recordName || 'Medical Record',
       recordUrl: recordUrl || '',
@@ -672,6 +669,7 @@ export const attachRecordToAppointment = async (req, res) => {
     });
   }
 };
+
 // Remove attached record from appointment
 export const removeAttachedRecord = async (req, res) => {
   try {
@@ -853,7 +851,7 @@ export const getDoctorStats = async (req, res) => {
   }
 };
 
-// Get available slots (from doctorScheduleController)
+// Get available slots
 export const getAvailableSlots = async (req, res) => {
   try {
     const { doctorId } = req.params;
@@ -914,7 +912,6 @@ export const getAvailableSlots = async (req, res) => {
     });
   }
 };
-// Add this to your appointmentController.js file
 
 // Reject/Cancel a pending appointment (doctor only)
 export const rejectAppointment = async (req, res) => {
@@ -1000,11 +997,11 @@ export const rejectAppointment = async (req, res) => {
   }
 };
 
-// Add this to appointmentController.js - Complete appointment after consultation
+// Complete appointment after consultation
 export const completeAppointment = async (req, res) => {
   try {
     const { id } = req.params;
-    const { consultationNotes, prescription } = req.body;
+    const { consultationNotes, prescription, prescriptionId } = req.body;
     
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({
@@ -1063,6 +1060,10 @@ export const completeAppointment = async (req, res) => {
       appointment.prescription = prescription;
     }
     
+    if (prescriptionId) {
+      appointment.prescriptionId = prescriptionId;
+    }
+    
     await appointment.save();
     
     console.log('✅ Appointment marked as completed:', appointment._id);
@@ -1075,6 +1076,69 @@ export const completeAppointment = async (req, res) => {
     
   } catch (error) {
     console.error('Complete appointment error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+// Link prescription to appointment
+export const linkPrescriptionToAppointment = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { prescriptionId, prescriptionData } = req.body;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid appointment ID'
+      });
+    }
+
+    const appointment = await Appointment.findById(id);
+
+    if (!appointment) {
+      return res.status(404).json({
+        success: false,
+        message: 'Appointment not found'
+      });
+    }
+
+    // Check authorization - only the doctor can link prescription
+    const appointmentDoctorId = appointment.doctorId.toString();
+    const currentUserId = req.user._id.toString();
+    
+    const doctor = await Doctor.findById(appointmentDoctorId);
+    
+    const isAuthorized = 
+      appointmentDoctorId === currentUserId ||
+      (doctor && doctor.email === req.user.email) ||
+      req.user.role === 'admin';
+
+    if (!isAuthorized) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only the doctor can add prescriptions to this appointment'
+      });
+    }
+
+    // Add prescription reference to appointment
+    appointment.prescriptionId = prescriptionId;
+    appointment.prescription = prescriptionData;
+    appointment.updatedAt = new Date();
+    await appointment.save();
+
+    console.log('✅ Prescription linked to appointment:', id);
+
+    res.json({
+      success: true,
+      message: 'Prescription linked to appointment successfully',
+      data: appointment
+    });
+
+  } catch (error) {
+    console.error('Link prescription error:', error);
     res.status(500).json({
       success: false,
       message: error.message

@@ -1,3 +1,4 @@
+// DocAppointments.jsx - COMPLETE UPDATED VERSION
 import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
@@ -297,7 +298,8 @@ const DocAppointments = ({
     try {
       const token = localStorage.getItem('token');
       
-      const response = await axios.patch(`${API_URL}/appointments/${completeAppointmentData._id}/complete`,
+      const response = await axios.patch(
+        `${API_URL}/appointments/${completeAppointmentData._id}/complete`,
         { 
           consultationNotes: consultationNotes,
           prescription: prescription
@@ -313,6 +315,8 @@ const DocAppointments = ({
       if (response.data.success) {
         showSuccessNotification(`✅ Appointment completed for ${completeAppointmentData.patientName}!`);
         setShowCompleteModal(false);
+        setConsultationNotes('');
+        setPrescription('');
         await loadAppointments(true);
       } else {
         throw new Error(response.data.message || 'Failed to complete');
@@ -324,7 +328,6 @@ const DocAppointments = ({
       alert(`Error: ${errorMsg}`);
     } finally {
       setActionLoading(null);
-      setCompleteAppointmentData(null);
     }
   };
 
@@ -763,7 +766,7 @@ const DocAppointments = ({
                         <p className="text-sm font-medium text-[#001b38]">{appointment.symptoms || 'General consultation'}</p>
                       </div>
 
-                      {/* ATTACHED MEDICAL RECORDS SECTION - IMPROVED */}
+                      {/* ATTACHED MEDICAL RECORDS SECTION */}
                       {hasAttachments && (
                         <div className="mb-6 p-4 bg-cyan-50 rounded-xl border border-cyan-200">
                           <button
@@ -808,45 +811,6 @@ const DocAppointments = ({
                                       {record.recordType}
                                     </span>
                                   )}
-                                  
-                                  {/* Show file info with view/download buttons */}
-                                  {record.files && record.files.length > 0 && (
-                                    <div className="mt-3 space-y-2">
-                                      <p className="text-[8px] font-black text-slate-400 uppercase">Attached Files:</p>
-                                      {record.files.map((file, fileIdx) => (
-                                        <div key={fileIdx} className="flex items-center justify-between p-2 bg-slate-50 rounded-lg">
-                                          <div className="flex items-center gap-2">
-                                            {getFileIcon(file.name)}
-                                            <span className="text-xs font-medium text-slate-700 truncate max-w-[150px]">
-                                              {file.name}
-                                            </span>
-                                          </div>
-                                          <div className="flex gap-1">
-                                            <button
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                viewFile(file);
-                                              }}
-                                              className="p-1.5 text-cyan-600 hover:bg-cyan-100 rounded-lg transition-all"
-                                              title="View"
-                                            >
-                                              <FaEye size={12} />
-                                            </button>
-                                            <button
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                handleDownloadFile(file);
-                                              }}
-                                              className="p-1.5 text-green-600 hover:bg-green-100 rounded-lg transition-all"
-                                              title="Download"
-                                            >
-                                              <FaDownload size={12} />
-                                            </button>
-                                          </div>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  )}
                                 </div>
                               ))}
                             </div>
@@ -877,7 +841,7 @@ const DocAppointments = ({
 
                       {/* ACTION BUTTONS */}
                       <div className="grid grid-cols-4 gap-3">
-                        {/* Records Button - View attached records */}
+                        {/* Records Button */}
                         <button 
                           onClick={() => loadPatientAttachedRecords(appointment)}
                           className={`col-span-1 px-3 py-4 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-2 ${
@@ -896,7 +860,7 @@ const DocAppointments = ({
                           )}
                         </button>
                         
-                        {/* PENDING STATUS - Shows CONFIRM and CANCEL buttons */}
+                        {/* PENDING STATUS */}
                         {appointment.status === 'pending' && (
                           <>
                             <button 
@@ -926,7 +890,7 @@ const DocAppointments = ({
                           </>
                         )}
                         
-                        {/* CONFIRMED STATUS - Shows COMPLETE and RX buttons */}
+                        {/* CONFIRMED STATUS */}
                         {appointment.status === 'confirmed' && (
                           <>
                             <button 
@@ -953,10 +917,58 @@ const DocAppointments = ({
 
                         {/* COMPLETED STATUS */}
                         {appointment.status === 'completed' && (
-                          <div className="col-span-4 px-3 py-4 bg-purple-100 text-purple-600 rounded-xl text-xs font-black text-center">
-                            ✓ Consultation Completed
+                          <div className="col-span-4 px-3 py-4 bg-purple-100 text-purple-600 rounded-xl text-xs font-black">
+                            <div className="flex items-center justify-center gap-2 mb-1">
+                              <FaCalendarCheck size={14} />
+                              <span>✓ Consultation Completed</span>
+                            </div>
+                            
+                            {/* Show consultation notes if exists */}
                             {appointment.consultationNotes && (
-                              <p className="text-[8px] mt-1 text-purple-500">{appointment.consultationNotes.substring(0, 50)}...</p>
+                              <div className="mt-2 p-2 bg-white/50 rounded-lg">
+                                <p className="text-[8px] font-black text-purple-700">Notes:</p>
+                                <p className="text-[8px] text-purple-600 truncate">
+                                  {appointment.consultationNotes.substring(0, 60)}
+                                  {appointment.consultationNotes.length > 60 && '...'}
+                                </p>
+                              </div>
+                            )}
+                            
+                            {/* Show prescription if exists */}
+                            {appointment.prescription && (
+                              <div className="mt-2 p-2 bg-white rounded-lg border border-purple-200">
+                                <p className="text-[8px] font-black text-purple-700 flex items-center gap-1">
+                                  <FaPrescriptionBottle size={10} />
+                                  PRESCRIPTION ATTACHED
+                                </p>
+                                {typeof appointment.prescription === 'string' ? (
+                                  <p className="text-[8px] text-purple-600 mt-1 whitespace-pre-wrap">
+                                    {appointment.prescription.substring(0, 100)}
+                                    {appointment.prescription.length > 100 && '...'}
+                                  </p>
+                                ) : (
+                                  <p className="text-[8px] text-purple-600 mt-1">
+                                    {appointment.prescription.diagnosis || 'Prescription available'}
+                                  </p>
+                                )}
+                              </div>
+                            )}
+                            
+                            {/* Button to view full prescription */}
+                            {appointment.prescriptionId && (
+                              <button 
+                                onClick={() => navigate('/prescriptions', { 
+                                  state: { 
+                                    prescriptionId: appointment.prescriptionId,
+                                    appointment: appointment,
+                                    viewSpecificPrescription: true
+                                  } 
+                                })}
+                                className="mt-2 w-full py-2 bg-purple-500 text-white rounded-lg text-[8px] font-black hover:bg-purple-600 transition-all flex items-center justify-center gap-1"
+                              >
+                                <FaEye size={10} />
+                                VIEW FULL PRESCRIPTION
+                              </button>
                             )}
                           </div>
                         )}
@@ -1061,7 +1073,7 @@ const DocAppointments = ({
         )}
       </AnimatePresence>
 
-      {/* Medical Records Modal - Shows all attached records for the appointment */}
+      {/* Medical Records Modal */}
       <AnimatePresence>
         {showMedicalModal && selectedAppointment && (
           <div className="fixed inset-0 bg-[#001b38]/80 backdrop-blur-xl flex items-center justify-center z-50 p-4">
@@ -1109,26 +1121,6 @@ const DocAppointments = ({
                             {record.recordType || 'Document'}
                           </span>
                         </div>
-                        
-                        {record.files && record.files.length > 0 && (
-                          <div className="mt-3 pt-3 border-t border-slate-100">
-                            <p className="text-[9px] font-black text-slate-400 uppercase mb-2 flex items-center gap-1">
-                              <FaPaperclip size={10} /> {record.files.length} File(s)
-                            </p>
-                            <div className="flex flex-wrap gap-2">
-                              {record.files.slice(0, 3).map((file, fileIdx) => (
-                                <div key={fileIdx} className="flex items-center gap-1 px-2 py-1 bg-slate-50 rounded-lg text-[10px]">
-                                  {getFileIcon(file.name)}
-                                  <span className="truncate max-w-[120px]">{file.name}</span>
-                                </div>
-                              ))}
-                              {record.files.length > 3 && (
-                                <span className="text-[10px] text-slate-400">+{record.files.length - 3} more</span>
-                              )}
-                            </div>
-                          </div>
-                        )}
-                        
                         <div className="mt-3 flex justify-end">
                           <span className="text-[10px] text-cyan-600 flex items-center gap-1">
                             <FaEye size={10} /> Click to view details
@@ -1149,7 +1141,7 @@ const DocAppointments = ({
         )}
       </AnimatePresence>
 
-      {/* Single Record View Modal - Detailed view with files */}
+      {/* Single Record View Modal */}
       <AnimatePresence>
         {showRecordViewModal && selectedMedicalRecord && (
           <div className="fixed inset-0 bg-[#001b38]/80 backdrop-blur-xl flex items-center justify-center z-[60] p-4">
@@ -1174,7 +1166,6 @@ const DocAppointments = ({
               </div>
               <div className="p-8 overflow-y-auto max-h-[65vh]">
                 <div className="space-y-6">
-                  {/* Uploader Info */}
                   <div className="bg-slate-50 p-5 rounded-2xl">
                     <p className="text-[9px] font-black text-slate-400 uppercase mb-2 flex items-center gap-1">
                       <FaUser size={10} /> Uploaded By
@@ -1182,67 +1173,12 @@ const DocAppointments = ({
                     <p className="font-black text-[#001b38] text-lg">{selectedMedicalRecord.uploadedByName || 'Patient'}</p>
                   </div>
                   
-                  {/* Record Type */}
                   <div className="bg-slate-50 p-5 rounded-2xl">
                     <p className="text-[9px] font-black text-slate-400 uppercase mb-2 flex items-center gap-1">
                       <FaFileMedical size={10} /> Record Type
                     </p>
                     <p className="font-black text-[#001b38]">{selectedMedicalRecord.recordType || 'Medical Document'}</p>
                   </div>
-                  
-                  {/* Record URL if exists */}
-                  {selectedMedicalRecord.recordUrl && (
-                    <div className="bg-slate-50 p-5 rounded-2xl">
-                      <p className="text-[9px] font-black text-slate-400 uppercase mb-2 flex items-center gap-1">
-                        <FaLink size={10} /> Record URL
-                      </p>
-                      <a href={selectedMedicalRecord.recordUrl} target="_blank" rel="noopener noreferrer" className="text-cyan-600 text-sm break-all hover:underline">
-                        {selectedMedicalRecord.recordUrl}
-                      </a>
-                    </div>
-                  )}
-                  
-                  {/* Attached Files Section with View/Download */}
-                  {selectedMedicalRecord.files && selectedMedicalRecord.files.length > 0 && (
-                    <div className="bg-slate-50 p-5 rounded-2xl">
-                      <p className="text-[9px] font-black text-slate-400 uppercase mb-4 flex items-center gap-1">
-                        <FaPaperclip size={10} /> Attached Files ({selectedMedicalRecord.files.length})
-                      </p>
-                      <div className="space-y-3">
-                        {selectedMedicalRecord.files.map((file, idx) => (
-                          <div key={idx} className="flex items-center justify-between p-4 bg-white rounded-xl border border-slate-200 shadow-sm">
-                            <div className="flex items-center gap-3 flex-1 min-w-0">
-                              {getFileIcon(file.name)}
-                              <div className="flex-1 min-w-0">
-                                <p className="font-bold text-[#001b38] text-sm truncate">{file.name}</p>
-                                <p className="text-[9px] text-slate-400">
-                                  {(file.size / 1024).toFixed(1)} KB • {file.fileType === 'image' ? 'Image' : 'Document'}
-                                </p>
-                              </div>
-                            </div>
-                            <div className="flex gap-2">
-                              <button 
-                                onClick={() => viewFile(file)} 
-                                className="p-2.5 text-cyan-600 hover:bg-cyan-50 rounded-xl transition-all flex items-center gap-1"
-                                title="View"
-                              >
-                                <FaEye size={14} />
-                                <span className="text-[10px] hidden sm:inline">View</span>
-                              </button>
-                              <button 
-                                onClick={() => handleDownloadFile(file)} 
-                                className="p-2.5 text-green-600 hover:bg-green-50 rounded-xl transition-all flex items-center gap-1"
-                                title="Download"
-                              >
-                                <FaDownload size={14} />
-                                <span className="text-[10px] hidden sm:inline">Download</span>
-                              </button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
                 </div>
               </div>
             </motion.div>
@@ -1250,7 +1186,7 @@ const DocAppointments = ({
         )}
       </AnimatePresence>
 
-      {/* File View Modal - For viewing images and PDFs */}
+      {/* File View Modal */}
       <AnimatePresence>
         {showFileViewModal && selectedFile && (
           <div className="fixed inset-0 bg-[#001b38]/90 backdrop-blur-xl flex items-center justify-center z-[70] p-4">
