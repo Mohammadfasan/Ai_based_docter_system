@@ -1,25 +1,19 @@
+// DocMedicalrecords.jsx - COMPLETE VERSION USING MONGODB ONLY
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   FaFileMedical, FaSearch, FaPlus, FaTimes, 
   FaStethoscope, FaChevronRight, FaUpload, 
   FaUsers, FaSyncAlt, FaFilter, FaCalendarAlt, 
-  FaHeartbeat, FaThermometerHalf, FaTint, 
-  FaClipboardList, FaHeart, FaHospital, 
-  FaUser, FaDownload, FaEye, FaFileImage, 
+  FaHeartbeat, FaUser, FaDownload, FaEye, FaFileImage, 
   FaFilePdf, FaFileAlt, FaTrash, FaUserCircle,
-  FaEnvelope, FaClock, FaCheckCircle, FaExclamationTriangle,
-  FaIdCard, FaNotesMedical, FaPrescriptionBottle,
-  FaMapMarkerAlt, FaVideo, FaWallet, FaLink,
-  FaChartLine // Alternative for Activity
+  FaEnvelope, FaIdCard, FaPrescriptionBottle,
+  FaThermometerHalf, FaTint, FaClipboardList
 } from 'react-icons/fa';
-import { 
-  Stethoscope, Award, Users, Calendar, 
-  Heart, Clock, ShieldCheck, Activity, PlusCircle, Trash2, 
-  MapPin, FileText, Image, Download, Eye, Upload,
-  UserCircle, Mail, Phone, X, Filter, Search,
-  Thermometer, Droplets, HeartPulse, Building2
-} from 'lucide-react';
+import { Activity } from 'lucide-react';
+import axios from 'axios';
+
+const API_URL = 'http://localhost:5000/api';
 
 const DocMedicalrecords = () => {
   // --- STATES ---
@@ -35,6 +29,8 @@ const DocMedicalrecords = () => {
   const [medicalRecords, setMedicalRecords] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showFilters, setShowFilters] = useState(false);
+  const [error, setError] = useState('');
+  const [successMessage, setSuccessMessage] = useState('');
   
   // Upload Form States
   const [uploadFiles, setUploadFiles] = useState([]);
@@ -65,23 +61,51 @@ const DocMedicalrecords = () => {
     prescriptions: 0
   });
 
-  // Get current doctor and load patients
+  // Get current doctor and load patients from MongoDB
   useEffect(() => {
-    const user = JSON.parse(localStorage.getItem('currentUser') || '{}');
-    setCurrentDoctor(user);
+    const init = async () => {
+      try {
+        const user = JSON.parse(localStorage.getItem('currentUser') || '{}');
+        setCurrentDoctor(user);
+        
+        // Load all patients from MongoDB
+        await loadPatients();
+      } catch (error) {
+        console.error('Error initializing:', error);
+        setError('Failed to initialize');
+      } finally {
+        setLoading(false);
+      }
+    };
     
-    // Load all patients from healthai_users
-    const allUsers = JSON.parse(localStorage.getItem('healthai_users') || '[]');
-    const patientUsers = allUsers.filter(u => u.userType === 'patient');
-    setPatients(patientUsers);
-    
-    setLoading(false);
+    init();
   }, []);
 
-  // Load medical records for selected patient
+  // Load patients from MongoDB
+  const loadPatients = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      
+      const response = await axios.get(`${API_URL}/users/patients`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      if (response.data.success) {
+        setPatients(response.data.data || []);
+      }
+    } catch (error) {
+      console.error('Error loading patients:', error);
+      // Fallback to localStorage users if API fails
+      const allUsers = JSON.parse(localStorage.getItem('healthai_users') || '[]');
+      const patientUsers = allUsers.filter(u => u.userType === 'patient');
+      setPatients(patientUsers);
+    }
+  };
+
+  // Load medical records from MongoDB for selected patient
   useEffect(() => {
     if (selectedPatient) {
-      loadPatientRecords(selectedPatient.userId || selectedPatient.id);
+      loadPatientRecords(selectedPatient.userId || selectedPatient._id);
     } else {
       setMedicalRecords([]);
       setStats({
@@ -93,31 +117,44 @@ const DocMedicalrecords = () => {
     }
   }, [selectedPatient]);
 
-  const loadPatientRecords = (patientId) => {
-    const records = JSON.parse(localStorage.getItem(`medical_records_${patientId}`) || '[]');
-    // Sort by date (newest first)
-    const sorted = records.sort((a, b) => new Date(b.date) - new Date(a.date));
-    setMedicalRecords(sorted);
-    
-    // Calculate stats
-    setStats({
-      totalRecords: sorted.length,
-      labReports: sorted.filter(r => r.type === 'Lab Report').length,
-      xrays: sorted.filter(r => ['X-Ray', 'MRI', 'CT Scan'].includes(r.type)).length,
-      prescriptions: sorted.filter(r => r.type === 'Prescription').length
-    });
+  const loadPatientRecords = async (patientId) => {
+    try {
+      const token = localStorage.getItem('token');
+      
+      console.log('📋 Loading medical records for patient:', patientId);
+      
+      const response = await axios.get(`${API_URL}/medical-records/${patientId}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      if (response.data.success) {
+        const records = response.data.data || [];
+        // Sort by date (newest first)
+        const sorted = records.sort((a, b) => new Date(b.date) - new Date(a.date));
+        setMedicalRecords(sorted);
+        
+        // Calculate stats
+        setStats({
+          totalRecords: sorted.length,
+          labReports: sorted.filter(r => r.type === 'Lab Report').length,
+          xrays: sorted.filter(r => ['X-Ray', 'MRI', 'CT Scan'].includes(r.type)).length,
+          prescriptions: sorted.filter(r => r.type === 'Prescription').length
+        });
+        
+        console.log('✅ Loaded', sorted.length, 'records from MongoDB');
+        setError('');
+      } else {
+        console.warn('⚠️ Failed to load records:', response.data.message);
+        setMedicalRecords([]);
+      }
+    } catch (error) {
+      console.error('Error loading records:', error);
+      setError('Failed to load patient records');
+      setMedicalRecords([]);
+    }
   };
 
-  // Convert file to base64 for storage
-  const fileToBase64 = (file) => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.readAsDataURL(file);
-      reader.onload = () => resolve(reader.result);
-      reader.onerror = error => reject(error);
-    });
-  };
-
+  // Handle file upload to MongoDB
   const handleUploadSubmit = async () => {
     if (!selectedPatient) {
       alert('Please select a patient first');
@@ -130,78 +167,64 @@ const DocMedicalrecords = () => {
     }
 
     setIsUploading(true);
+    setError('');
 
     try {
-      // Convert files to base64 for storage
-      const filesData = await Promise.all(
-        uploadFiles.map(async (file) => ({
-          id: Date.now() + Math.random(),
-          name: file.name,
-          type: file.type,
-          size: file.size,
-          data: await fileToBase64(file),
-          fileType: file.type.startsWith('image/') ? 'image' : 'pdf'
-        }))
-      );
-
-      const doctorName = currentDoctor?.name || 'Dr. Unknown';
-      const doctorId = currentDoctor?.userId || currentDoctor?.id || 'DOC001';
-
-      const newRecord = {
-        id: `REC-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
-        date: recordDate,
-        doctor: doctorName,
-        doctorId: doctorId,
-        type: recordType,
-        diagnosis: diagnosis || (recordType === 'Lab Report' ? 'Lab Results' : 
-                   recordType === 'X-Ray' ? 'X-Ray Report' :
-                   recordType === 'MRI' ? 'MRI Scan' :
-                   recordType === 'CT Scan' ? 'CT Scan Report' :
-                   recordType === 'Prescription' ? 'Prescription' : 'Health Report'),
-        notes: recordNotes,
-        opDetails: showOPDetails ? { 
-          opDoctor: opDoctor || doctorName, 
-          opDept: opDept || 'General', 
-          visitType: visitType || 'OP', 
-          bp, 
-          heartRate, 
-          temp, 
-          oxygen 
-        } : null,
-        uploadedBy: doctorName,
-        uploadedById: doctorId,
-        uploadedAt: new Date().toISOString(),
-        files: filesData,
-        patientId: selectedPatient.userId || selectedPatient.id,
-        patientName: selectedPatient.name,
-        status: 'active'
-      };
-
-      // Save to patient's medical records
-      const patientId = selectedPatient.userId || selectedPatient.id;
-      const existingRecords = JSON.parse(localStorage.getItem(`medical_records_${patientId}`) || '[]');
-      const updatedRecords = [newRecord, ...existingRecords];
-      localStorage.setItem(`medical_records_${patientId}`, JSON.stringify(updatedRecords));
+      const token = localStorage.getItem('token');
       
-      // Update state
-      setMedicalRecords(updatedRecords);
+      const formData = new FormData();
+      formData.append('userId', selectedPatient.userId || selectedPatient._id);
+      formData.append('userEmail', selectedPatient.email || '');
+      formData.append('userName', selectedPatient.name || '');
+      formData.append('date', recordDate);
+      formData.append('type', recordType);
+      formData.append('diagnosis', diagnosis || recordType);
+      formData.append('doctor', currentDoctor?.name || 'Dr. Unknown');
+      formData.append('notes', recordNotes);
+      formData.append('patientId', selectedPatient.userId || selectedPatient._id);
       
-      // Update stats
-      setStats({
-        totalRecords: updatedRecords.length,
-        labReports: updatedRecords.filter(r => r.type === 'Lab Report').length,
-        xrays: updatedRecords.filter(r => ['X-Ray', 'MRI', 'CT Scan'].includes(r.type)).length,
-        prescriptions: updatedRecords.filter(r => r.type === 'Prescription').length
+      if (showOPDetails) {
+        formData.append('opDetails', JSON.stringify({
+          opDoctor: opDoctor || currentDoctor?.name,
+          opDept: opDept || 'General',
+          visitType: visitType || 'OP',
+          bp,
+          heartRate,
+          temp,
+          oxygen
+        }));
+      }
+
+      uploadFiles.forEach((file) => {
+        formData.append('files', file);
       });
 
-      // Reset form
-      resetUploadForm();
-      setShowUploadModal(false);
-      
-      alert('✅ Medical record added successfully!');
+      console.log('📤 Uploading', uploadFiles.length, 'files to MongoDB');
+
+      const response = await axios.post(`${API_URL}/medical-records/upload`, formData, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'multipart/form-data'
+        }
+      });
+
+      if (response.data.success) {
+        console.log('✅ Upload successful - Record saved to MongoDB');
+        
+        // Refresh records
+        await loadPatientRecords(selectedPatient.userId || selectedPatient._id);
+        
+        // Reset form
+        resetUploadForm();
+        setShowUploadModal(false);
+        setSuccessMessage('✅ Medical record added successfully!');
+        setTimeout(() => setSuccessMessage(null), 3000);
+      } else {
+        throw new Error(response.data.message || 'Upload failed');
+      }
     } catch (error) {
       console.error('Upload error:', error);
-      alert('Error uploading file. Please try again.');
+      setError(error.response?.data?.message || 'Error uploading file. Please try again.');
     } finally {
       setIsUploading(false);
     }
@@ -229,30 +252,35 @@ const DocMedicalrecords = () => {
     setShowViewModal(true);
   };
 
-  const handleDeleteRecord = (recordId) => {
+  const handleDeleteRecord = async (recordId) => {
     if (!selectedPatient) return;
     
-    if (window.confirm('Are you sure you want to delete this record?')) {
-      const patientId = selectedPatient.userId || selectedPatient.id;
-      const updatedRecords = medicalRecords.filter(r => r.id !== recordId);
-      localStorage.setItem(`medical_records_${patientId}`, JSON.stringify(updatedRecords));
-      setMedicalRecords(updatedRecords);
-      
-      // Update stats
-      setStats({
-        totalRecords: updatedRecords.length,
-        labReports: updatedRecords.filter(r => r.type === 'Lab Report').length,
-        xrays: updatedRecords.filter(r => ['X-Ray', 'MRI', 'CT Scan'].includes(r.type)).length,
-        prescriptions: updatedRecords.filter(r => r.type === 'Prescription').length
-      });
-      
-      alert('Record deleted successfully');
+    if (window.confirm('Are you sure you want to delete this record? This cannot be undone.')) {
+      try {
+        const token = localStorage.getItem('token');
+        
+        const response = await axios.delete(`${API_URL}/medical-records/cloudinary/${recordId}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        
+        if (response.data.success) {
+          // Refresh records
+          await loadPatientRecords(selectedPatient.userId || selectedPatient._id);
+          setSuccessMessage('✅ Record deleted successfully');
+          setTimeout(() => setSuccessMessage(null), 3000);
+        } else {
+          throw new Error(response.data.message || 'Delete failed');
+        }
+      } catch (error) {
+        console.error('Delete error:', error);
+        setError('Failed to delete record');
+      }
     }
   };
 
   const handleDownloadFile = (file) => {
     const link = document.createElement('a');
-    link.href = file.data;
+    link.href = file.cloudinaryUrl || file.data;
     link.download = file.name;
     document.body.appendChild(link);
     link.click();
@@ -264,7 +292,8 @@ const DocMedicalrecords = () => {
     const matchesSearch = searchTerm === '' || 
       record.diagnosis?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       record.type?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      record.notes?.toLowerCase().includes(searchTerm.toLowerCase());
+      record.notes?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      record.doctor?.toLowerCase().includes(searchTerm.toLowerCase());
     
     const matchesFilter = filter === 'all' || record.type === filter;
     
@@ -303,6 +332,12 @@ const DocMedicalrecords = () => {
     return <FaFileAlt className="text-gray-500" size={16} />;
   };
 
+  const isImageFile = (fileName) => {
+    if (!fileName) return false;
+    const ext = fileName.split('.').pop().toLowerCase();
+    return ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'].includes(ext);
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-[#001b38] flex items-center justify-center">
@@ -317,26 +352,40 @@ const DocMedicalrecords = () => {
   return (
     <div className="min-h-screen bg-[#f0f4f8] pb-20 overflow-x-hidden" style={{ fontFamily: '"Inter", sans-serif' }}>
       
+      {/* Success Message */}
+      {successMessage && (
+        <div className="fixed top-4 right-4 z-50 bg-green-500 text-white px-6 py-3 rounded-lg shadow-lg animate-in fade-in duration-300">
+          {successMessage}
+        </div>
+      )}
+
+      {/* Error Message */}
+      {error && (
+        <div className="fixed top-4 right-4 z-50 bg-red-500 text-white px-6 py-3 rounded-lg shadow-lg animate-in fade-in duration-300">
+          {error}
+        </div>
+      )}
+
       {/* HERO DASHBOARD */}
       <div className="bg-[#001b38] pt-24 pb-40 px-6 relative">
         <div className="max-w-7xl mx-auto relative z-10">
           <div className="flex items-center gap-3 mb-6">
             <span className="bg-cyan-500/20 text-cyan-400 px-4 py-2 rounded-full text-[10px] font-black tracking-widest uppercase border border-cyan-500/30">
-              Medical Records Management
+              Medical Records Management (MongoDB)
             </span>
           </div>
           <h1 className="text-5xl md:text-7xl font-black text-white tracking-tighter uppercase leading-none mb-6" style={{ fontFamily: '"Montserrat", sans-serif' }}>
             Patient <span className="text-cyan-400">Records</span>
           </h1>
           <p className="text-slate-400 font-medium text-lg max-w-2xl">
-            Manage patient medical records, view reports, and track health history securely.
+            Manage patient medical records stored securely in MongoDB with Cloudinary file storage.
           </p>
           
           {currentDoctor && (
             <div className="mt-4 flex items-center gap-4 text-sm text-cyan-400">
               <span className="flex items-center gap-2"><FaUserCircle size={16} /> Dr. {currentDoctor.name}</span>
               <span className="text-slate-500">|</span>
-              <span className="flex items-center gap-2"><FaIdCard size={16} /> ID: {currentDoctor.userId || currentDoctor.id}</span>
+              <span className="flex items-center gap-2"><FaIdCard size={16} /> ID: {currentDoctor.userId || currentDoctor._id}</span>
             </div>
           )}
           
@@ -352,7 +401,7 @@ const DocMedicalrecords = () => {
                   {selectedPatient ? (
                     <div>
                       <p className="text-white font-black text-xl">{selectedPatient.name}</p>
-                      <p className="text-slate-400 text-sm">ID: {selectedPatient.userId || selectedPatient.id}</p>
+                      <p className="text-slate-400 text-sm">ID: {selectedPatient.userId || selectedPatient._id}</p>
                     </div>
                   ) : (
                     <p className="text-slate-400 text-lg">No patient selected</p>
@@ -408,7 +457,7 @@ const DocMedicalrecords = () => {
                 <FaSearch className="absolute left-5 top-1/2 -translate-y-1/2 text-cyan-400" size={18} />
                 <input 
                   type="text" 
-                  placeholder="Search records by diagnosis, type or notes..." 
+                  placeholder="Search records by diagnosis, type, doctor or notes..." 
                   className="w-full pl-14 pr-4 py-4 bg-slate-50 border-none rounded-2xl font-bold text-[#001b38] focus:ring-2 focus:ring-cyan-500 outline-none"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
@@ -486,7 +535,7 @@ const DocMedicalrecords = () => {
             </div>
             <h3 className="text-2xl font-black text-[#001b38] mb-2">No Records Found</h3>
             <p className="text-slate-400 mb-6">
-              {searchTerm ? 'Try different search terms' : 'No medical records for this patient'}
+              {searchTerm ? 'Try different search terms' : 'No medical records for this patient in MongoDB'}
             </p>
             <button 
               onClick={() => setShowUploadModal(true)}
@@ -499,7 +548,7 @@ const DocMedicalrecords = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {filteredRecords.map((record) => (
               <motion.div
-                key={record.id}
+                key={record._id}
                 layout
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -537,8 +586,8 @@ const DocMedicalrecords = () => {
                 <div className="p-6">
                   {/* Doctor ID */}
                   <div className="mb-4 p-3 bg-slate-50 rounded-xl border border-slate-100">
-                    <p className="text-[9px] font-black text-slate-400 uppercase mb-1">Doctor ID</p>
-                    <p className="font-bold text-[#001b38] text-sm">{record.doctorId}</p>
+                    <p className="text-[9px] font-black text-slate-400 uppercase mb-1">Uploaded By</p>
+                    <p className="font-bold text-[#001b38] text-sm">{record.uploadedBy || record.doctor}</p>
                   </div>
 
                   {/* OP Details */}
@@ -626,10 +675,10 @@ const DocMedicalrecords = () => {
                   {/* Footer */}
                   <div className="pt-4 border-t border-dashed border-slate-100 flex justify-between items-center">
                     <span className="text-[10px] font-black text-cyan-600 tracking-widest uppercase">
-                      {record.type}
+                      MongoDB ID: {record._id?.slice(-8)}
                     </span>
                     <button 
-                      onClick={() => handleDeleteRecord(record.id)}
+                      onClick={() => handleDeleteRecord(record._id)}
                       className="p-2 text-rose-500 hover:bg-rose-50 rounded-lg transition-colors"
                       title="Delete"
                     >
@@ -657,7 +706,7 @@ const DocMedicalrecords = () => {
                 <div className="flex justify-between items-center">
                   <div>
                     <h2 className="text-2xl font-black uppercase tracking-tighter">Select Patient</h2>
-                    <p className="text-cyan-100 text-sm mt-2">Choose a patient to manage records</p>
+                    <p className="text-cyan-100 text-sm mt-2">Choose a patient to manage records (from MongoDB)</p>
                   </div>
                   <button onClick={() => setShowPatientSelectModal(false)} className="p-3 hover:bg-white/10 rounded-xl transition-all">
                     <FaTimes size={20} />
@@ -674,7 +723,7 @@ const DocMedicalrecords = () => {
                 ) : (
                   patients.map((patient) => (
                     <button
-                      key={patient.userId || patient.id}
+                      key={patient._id || patient.userId}
                       onClick={() => {
                         setSelectedPatient(patient);
                         setShowPatientSelectModal(false);
@@ -689,7 +738,7 @@ const DocMedicalrecords = () => {
                           <p className="text-white font-black text-lg">{patient.name}</p>
                           <div className="flex items-center gap-4 mt-1 text-sm">
                             <span className="text-cyan-400 text-xs flex items-center gap-1">
-                              <FaIdCard size={12} /> ID: {patient.userId || patient.id}
+                              <FaIdCard size={12} /> ID: {patient.userId || patient._id}
                             </span>
                             {patient.email && (
                               <span className="text-slate-400 text-xs flex items-center gap-1">
@@ -723,7 +772,7 @@ const DocMedicalrecords = () => {
                 <div className="flex justify-between items-center">
                   <div>
                     <h2 className="text-2xl font-black uppercase tracking-tighter">Add Medical Record</h2>
-                    <p className="text-cyan-100 text-sm mt-2">for {selectedPatient?.name}</p>
+                    <p className="text-cyan-100 text-sm mt-2">for {selectedPatient?.name} (Saves to MongoDB)</p>
                   </div>
                   <button onClick={() => setShowUploadModal(false)} className="p-3 hover:bg-white/10 rounded-xl transition-all">
                     <FaTimes size={20} />
@@ -736,7 +785,7 @@ const DocMedicalrecords = () => {
                 <div className="bg-cyan-500/10 rounded-2xl p-4 border border-cyan-500/20">
                   <p className="text-cyan-400 text-xs font-bold mb-1">SELECTED PATIENT</p>
                   <p className="text-white font-black">{selectedPatient?.name}</p>
-                  <p className="text-slate-400 text-xs">ID: {selectedPatient?.userId || selectedPatient?.id}</p>
+                  <p className="text-slate-400 text-xs">ID: {selectedPatient?.userId || selectedPatient?._id}</p>
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
@@ -859,7 +908,7 @@ const DocMedicalrecords = () => {
                           />
                         </div>
                         <div className="space-y-1">
-                          <label className="text-[9px] font-black text-cyan-400 uppercase">Temp</label>
+                          <label className="text-[9px] font-black text-cyan-400 uppercase">Temp (°F)</label>
                           <input 
                             type="text" 
                             value={temp} 
@@ -869,12 +918,12 @@ const DocMedicalrecords = () => {
                           />
                         </div>
                         <div className="space-y-1">
-                          <label className="text-[9px] font-black text-cyan-400 uppercase">Oxygen</label>
+                          <label className="text-[9px] font-black text-cyan-400 uppercase">Oxygen (%)</label>
                           <input 
                             type="text" 
                             value={oxygen} 
                             onChange={(e)=>setOxygen(e.target.value)} 
-                            placeholder="98%" 
+                            placeholder="98" 
                             className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white text-xs font-bold outline-none" 
                           />
                         </div>
@@ -897,14 +946,14 @@ const DocMedicalrecords = () => {
 
                 {/* File Upload */}
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black text-white/50 uppercase ml-1">Upload Files *</label>
+                  <label className="text-[10px] font-black text-white/50 uppercase ml-1">Upload Files * ({uploadFiles.length} selected)</label>
                   <div className="border-2 border-dashed border-white/10 rounded-[2.5rem] p-10 flex flex-col items-center justify-center hover:border-cyan-400/50 hover:bg-cyan-400/5 transition-all relative">
                     <FaUpload size={32} className="text-cyan-400 mb-2" />
                     <p className="text-white font-black text-xs text-center">
                       Drop files or <span className="text-cyan-400 underline">browse</span>
                     </p>
                     <p className="text-slate-500 text-[8px] font-bold mt-1">
-                      Images (JPG, PNG) and PDF
+                      Images (JPG, PNG) and PDF (Max 50MB) - Stored in Cloudinary
                     </p>
                     <input 
                       type="file" 
@@ -917,7 +966,7 @@ const DocMedicalrecords = () => {
                       <div className="mt-4 flex flex-wrap gap-2 justify-center max-h-24 overflow-y-auto">
                         {uploadFiles.map((f, i) => (
                           <span key={i} className="bg-cyan-400/10 text-cyan-400 px-3 py-1 rounded-lg text-[9px] font-black">
-                            {f.name}
+                            {f.name} ({(f.size / 1024 / 1024).toFixed(2)} MB)
                           </span>
                         ))}
                       </div>
@@ -939,7 +988,7 @@ const DocMedicalrecords = () => {
                   className="flex-1 py-4 bg-cyan-400 text-[#001b38] rounded-2xl font-black text-sm hover:bg-cyan-300 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
                 >
                   {isUploading ? <FaSyncAlt className="animate-spin" size={18} /> : <FaUpload size={18} />}
-                  {isUploading ? 'UPLOADING...' : 'SAVE RECORD'}
+                  {isUploading ? 'UPLOADING...' : 'SAVE TO MONGODB'}
                 </button>
               </div>
             </motion.div>
@@ -964,7 +1013,7 @@ const DocMedicalrecords = () => {
                     <div>
                       <h2 className="text-xl font-black">{selectedFile.name}</h2>
                       <p className="text-cyan-100 text-sm">
-                        {(selectedFile.size / 1024).toFixed(1)} KB • {selectedRecord?.patientName}
+                        {(selectedFile.size / 1024).toFixed(1)} KB • {selectedRecord?.patientName || selectedPatient?.name}
                       </p>
                     </div>
                   </div>
@@ -987,10 +1036,10 @@ const DocMedicalrecords = () => {
               </div>
 
               <div className="p-6 overflow-y-auto flex-1 bg-[#1a1f2e]">
-                {selectedFile.fileType === 'image' ? (
+                {selectedFile.fileType === 'image' || isImageFile(selectedFile.name) ? (
                   <div className="flex justify-center">
                     <img 
-                      src={selectedFile.data} 
+                      src={selectedFile.cloudinaryUrl || selectedFile.data} 
                       alt={selectedFile.name}
                       className="max-w-full max-h-[70vh] object-contain rounded-xl"
                     />
@@ -998,13 +1047,16 @@ const DocMedicalrecords = () => {
                 ) : (
                   <div className="bg-white/5 rounded-2xl p-12 text-center">
                     <FaFilePdf size={64} className="mx-auto text-red-400 mb-4" />
-                    <p className="text-white font-bold mb-4">PDF Document</p>
+                    <p className="text-white font-bold mb-4">PDF Document - Stored in Cloudinary</p>
                     <button
                       onClick={() => handleDownloadFile(selectedFile)}
                       className="bg-cyan-400 text-[#001b38] px-8 py-4 rounded-xl font-black hover:bg-cyan-300 transition-all inline-flex items-center gap-2"
                     >
                       <FaDownload size={18} /> DOWNLOAD PDF
                     </button>
+                    <p className="text-slate-400 text-xs mt-4">
+                      Cloudinary URL: {selectedFile.cloudinaryUrl?.substring(0, 50)}...
+                    </p>
                   </div>
                 )}
               </div>
@@ -1027,6 +1079,21 @@ const DocMedicalrecords = () => {
         }
         .custom-scrollbar::-webkit-scrollbar-thumb:hover {
           background: rgba(45, 212, 191, 0.5);
+        }
+        
+        @keyframes fadeIn {
+          from {
+            opacity: 0;
+            transform: translateY(-10px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+        
+        .animate-in {
+          animation: fadeIn 0.3s ease-in-out;
         }
       `}</style>
     </div>

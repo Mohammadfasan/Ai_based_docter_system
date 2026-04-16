@@ -8,6 +8,7 @@ import doctorScheduleRoutes from "./routes/doctorScheduleRoutes.js";
 import appointmentRoutes from "./routes/appoimentRouter.js";
 import medicalRecordRoutes from "./routes/medicalRecords.js";
 import prescriptionRoutes from "./routes/prescriptionRoutes.js";
+import userRoutes from "./routes/userRoutes.js";
 import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs";
@@ -56,6 +57,7 @@ app.use('/api/doctor-schedule', doctorScheduleRoutes);
 app.use('/api/appointments', appointmentRoutes);
 app.use('/api/medical-records', medicalRecordRoutes);
 app.use('/api/prescriptions',prescriptionRoutes);
+app.use('/api/users', userRoutes);
 
 // ✅ Test route
 app.get('/api/test', (req, res) => {

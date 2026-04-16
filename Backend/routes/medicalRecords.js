@@ -1,3 +1,4 @@
+// routes/medicalRecords.js
 import express from 'express';
 import {
   getMedicalRecords,
@@ -16,8 +17,12 @@ import {
   deleteMedicalRecordWithFiles
 } from '../controllers/medicalRecordUploadController.js';
 import { uploadMultiple } from '../middleware/uploadMiddleware.js';
+import { protect } from '../middleware/authMiddleware.js';
 
 const router = express.Router();
+
+// Apply authentication to all routes
+router.use(protect);
 
 // ========== CLOUDINARY UPLOAD ROUTES ==========
 // Upload medical record with files to Cloudinary

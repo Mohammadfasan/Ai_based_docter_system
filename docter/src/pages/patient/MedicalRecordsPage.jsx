@@ -33,6 +33,7 @@ const MedicalRecordsPage = () => {
   const [viewingFileId, setViewingFileId] = useState(null);
   const [successMessage, setSuccessMessage] = useState(null);
   const [pdfBlobUrl, setPdfBlobUrl] = useState(null);
+  const [diagnosis, setDiagnosis] = useState('');
 
   // OP Details States
   const [opDoctor, setOpDoctor] = useState('');
@@ -42,6 +43,20 @@ const MedicalRecordsPage = () => {
   const [heartRate, setHeartRate] = useState('');
   const [temp, setTemp] = useState('');
   const [oxygen, setOxygen] = useState('');
+
+  // Helper: Get auth token
+  const getAuthToken = () => {
+    return localStorage.getItem('token');
+  };
+
+  // Helper: Get headers with auth
+  const getAuthHeaders = () => {
+    const token = getAuthToken();
+    return {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    };
+  };
 
   // Cleanup blob URLs when modal closes
   useEffect(() => {
@@ -81,7 +96,34 @@ const MedicalRecordsPage = () => {
   const loadMedicalRecords = async (userId) => {
     try {
       console.log('📋 Loading medical records for userId:', userId);
-      const response = await fetch(`${API_BASE_URL}/medical-records/${userId}`);
+      
+      const token = getAuthToken();
+      if (!token) {
+        console.warn('⚠️ No auth token found');
+        setError('Please login to view records');
+        setMedicalRecords([]);
+        return;
+      }
+      
+      const response = await fetch(`${API_BASE_URL}/medical-records/${userId}`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      if (response.status === 401) {
+        console.error('❌ Authentication failed');
+        setError('Session expired. Please login again.');
+        localStorage.removeItem('token');
+        localStorage.removeItem('currentUser');
+        setTimeout(() => {
+          window.location.href = '/login';
+        }, 2000);
+        return;
+      }
+      
       const result = await response.json();
       
       if (result.success) {
@@ -90,7 +132,7 @@ const MedicalRecordsPage = () => {
         setError(null);
       } else {
         console.warn('⚠️ Failed to load records:', result.message);
-        setError('Failed to load records');
+        setError(result.message || 'Failed to load records');
         setMedicalRecords([]);
       }
     } catch (error) {
@@ -163,6 +205,12 @@ const MedicalRecordsPage = () => {
       return;
     }
 
+    const token = getAuthToken();
+    if (!token) {
+      alert('Authentication token not found. Please login again.');
+      return;
+    }
+
     let totalSize = 0;
     for (const file of uploadFiles) {
       totalSize += file.size;
@@ -184,19 +232,19 @@ const MedicalRecordsPage = () => {
       formData.append('userName', currentUser?.name || '');
       formData.append('date', recordDate);
       formData.append('type', recordType);
-      formData.append('diagnosis', recordType);
+      formData.append('diagnosis', diagnosis || recordType);
       formData.append('doctor', opDoctor || 'Self-uploaded');
       formData.append('notes', recordNotes);
       
       if (showOPDetails) {
         formData.append('opDetails', JSON.stringify({
-          opDoctor,
-          opDept,
-          visitType,
-          bp,
-          heartRate,
-          temp,
-          oxygen
+          opDoctor: opDoctor || '',
+          opDept: opDept || '',
+          visitType: visitType || '',
+          bp: bp || '',
+          heartRate: heartRate || '',
+          temp: temp || '',
+          oxygen: oxygen || ''
         }));
       }
 
@@ -205,11 +253,27 @@ const MedicalRecordsPage = () => {
       });
 
       console.log('📤 Uploading', uploadFiles.length, 'files...');
+      console.log('🔑 Token exists:', !!token);
 
       const response = await fetch(`${API_BASE_URL}/medical-records/upload`, {
         method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
         body: formData,
       });
+
+      if (response.status === 401) {
+        const errorData = await response.json();
+        console.error('❌ Authentication failed:', errorData.message);
+        setError(`Authentication failed: ${errorData.message}. Please login again.`);
+        localStorage.removeItem('token');
+        localStorage.removeItem('currentUser');
+        setTimeout(() => {
+          window.location.href = '/login';
+        }, 2000);
+        return;
+      }
 
       const result = await response.json();
 
@@ -222,6 +286,7 @@ const MedicalRecordsPage = () => {
         setRecordType('');
         setRecordDate('');
         setRecordNotes('');
+        setDiagnosis('');
         setOpDoctor('');
         setOpDept('');
         setVisitType('');
@@ -240,7 +305,7 @@ const MedicalRecordsPage = () => {
       }
     } catch (error) {
       console.error('Upload error:', error);
-      setError('Network error during upload');
+      setError('Network error during upload: ' + error.message);
     } finally {
       setIsUploading(false);
       setUploadProgress(0);
@@ -252,7 +317,6 @@ const MedicalRecordsPage = () => {
     setSelectedRecord(record);
     setSelectedFile(file);
     
-    // For PDFs, fetch as blob first to avoid CORS/iframe issues
     if (file.fileType === 'pdf') {
       setViewingFileId(file.id);
       const pdfUrl = getProperCloudinaryUrl(file.cloudinaryUrl || file.data, 'pdf');
@@ -273,9 +337,30 @@ const MedicalRecordsPage = () => {
     if (window.confirm('Are you sure you want to delete this record? This cannot be undone.')) {
       try {
         console.log('🗑️ Deleting record:', recordId);
+        
+        const token = getAuthToken();
+        if (!token) {
+          setError('Authentication token not found. Please login again.');
+          return;
+        }
+        
         const response = await fetch(`${API_BASE_URL}/medical-records/cloudinary/${recordId}`, {
-          method: 'DELETE'
+          method: 'DELETE',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
         });
+
+        if (response.status === 401) {
+          setError('Session expired. Please login again.');
+          localStorage.removeItem('token');
+          localStorage.removeItem('currentUser');
+          setTimeout(() => {
+            window.location.href = '/login';
+          }, 2000);
+          return;
+        }
 
         const result = await response.json();
 
@@ -619,6 +704,18 @@ const MedicalRecordsPage = () => {
                 </div>
               </div>
 
+              {/* Diagnosis */}
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-white/50 uppercase ml-1">Diagnosis</label>
+                <input
+                  type="text"
+                  value={diagnosis}
+                  onChange={(e) => setDiagnosis(e.target.value)}
+                  placeholder="e.g., Acute Bronchitis, Hypertension"
+                  className="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-4 text-white font-bold outline-none focus:border-teal-400 focus:bg-white/10 transition-all"
+                />
+              </div>
+
               {/* OP DETAILS */}
               <div className="bg-white/5 rounded-[2rem] border border-white/5 overflow-hidden hover:border-white/10 transition-all">
                 <div 
@@ -798,7 +895,7 @@ const MedicalRecordsPage = () => {
         </div>
       )}
 
-      {/* VIEW FILE MODAL - Fixed for local development */}
+      {/* VIEW FILE MODAL */}
       {showViewModal && selectedFile && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-[#0f172a]/95 backdrop-blur-sm" onClick={() => {
@@ -874,7 +971,6 @@ const MedicalRecordsPage = () => {
                   />
                 </div>
               ) : (
-                // PDF Viewer - Using blob URL to avoid CORS issues
                 <div className="flex flex-col h-full min-h-[500px]">
                   <div className="flex justify-between items-center mb-4 p-3 bg-slate-800/50 rounded-xl">
                     <div className="flex gap-2">
@@ -896,7 +992,6 @@ const MedicalRecordsPage = () => {
                     <p className="text-slate-400 text-xs truncate max-w-[300px]">{selectedFile.name}</p>
                   </div>
                   
-                  {/* PDF Viewer using object tag with blob URL */}
                   <div className="flex-1 bg-slate-900 rounded-xl overflow-hidden border border-slate-700">
                     {pdfBlobUrl ? (
                       <object
@@ -933,7 +1028,6 @@ const MedicalRecordsPage = () => {
               )}
             </div>
 
-            {/* Record details footer */}
             {selectedRecord && (
               <div className="p-6 border-t border-white/5 bg-slate-900/50 sticky bottom-0 z-10">
                 <div className="grid grid-cols-2 gap-4 text-xs">
