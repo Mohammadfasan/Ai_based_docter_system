@@ -1,27 +1,13 @@
 // src/pages/Admin/AdminNotifications.jsx
 import React, { useState, useEffect } from 'react';
 import {
-  FaBell, FaCheckCircle, FaTimesCircle, FaExclamationTriangle,
+  FaBell, FaCheckCircle, FaExclamationTriangle,
   FaUserMd, FaUser, FaCalendarAlt, FaCog, FaStar,
-  FaFileAlt, FaTrash, FaCheck, FaEye, FaFilter,
-  FaSearch, FaEnvelope, FaSms, FaBell as FaBellSolid,
-  FaClock, FaHistory, FaBan, FaCheckDouble,
-  FaUserPlus, FaUserCheck, FaUserSlash, FaSyringe,
-  FaHospital, FaAmbulance, FaHeartbeat, FaPills,
-  FaComment, FaFlag, FaShare, FaArchive, FaDownload,
-  FaUpload, FaSync, FaEllipsisV, FaEdit, FaPlus,
-  FaPaperPlane, FaUsers, FaStethoscope, FaProcedures
+  FaTrash, FaCheck, FaFilter,
+  FaSearch, FaCheckDouble,
+  FaUserCheck, FaSync, FaEdit, FaPlus,
+  FaPaperPlane, FaUsers
 } from 'react-icons/fa';
-import {
-  Bell, CheckCircle, XCircle, AlertTriangle, Users,
-  Calendar, Settings, Star, FileText, Trash2, Check,
-  Eye, Filter, Search, Mail, MessageSquare, Clock,
-  History, Ban, CheckCheck, UserPlus, UserCheck,
-  UserX, Syringe, Hospital, Ambulance, Heart,
-  Pill, MessageCircle, Flag, Share, Archive,
-  Download, Upload, RefreshCw, MoreVertical, Edit,
-  Plus, Send, UserCog, Stethoscope, Activity
-} from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 const AdminNotifications = ({ userType, userData, darkMode }) => {
@@ -45,7 +31,6 @@ const AdminNotifications = ({ userType, userData, darkMode }) => {
     toAll: 0,
     system: 0
   });
-  const [selectedNotifications, setSelectedNotifications] = useState([]);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editingNotification, setEditingNotification] = useState(null);
   const [availableDoctors, setAvailableDoctors] = useState([]);
@@ -57,45 +42,93 @@ const AdminNotifications = ({ userType, userData, darkMode }) => {
     message: '',
     type: 'system',
     priority: 'normal',
-    recipientType: 'all', // 'all', 'doctors', 'patients', 'specific'
+    recipientType: 'all',
     specificRecipients: [],
     expiresAt: '',
     actionUrl: '',
     icon: 'bell',
-    targetUsers: [] // Array of user IDs
+    targetUsers: []
   });
 
-  // Load doctors and patients from localStorage
+  // Clear default/welcome notifications on mount
   useEffect(() => {
-    loadUsers();
-    loadNotifications();
+    const clearDefaultNotifications = () => {
+      try {
+        const saved = JSON.parse(localStorage.getItem('admin_notifications') || '[]');
+        const filtered = saved.filter(notif => {
+          // Remove all default/welcome notifications
+          const defaultTitles = ['Welcome to Admin Panel', 'Admin Login', 'System Ready', 'Welcome'];
+          if (defaultTitles.includes(notif.title)) return false;
+          if (!notif.id) return false;
+          return true;
+        });
+        
+        if (filtered.length !== saved.length) {
+          localStorage.setItem('admin_notifications', JSON.stringify(filtered));
+          console.log(`🧹 Cleaned up ${saved.length - filtered.length} default notifications`);
+        }
+      } catch (e) {
+        console.error('Error cleaning notifications:', e);
+      }
+    };
+    
+    clearDefaultNotifications();
   }, []);
 
-  const loadUsers = () => {
+  // Load doctors and patients from MongoDB
+  const loadUsers = async () => {
     try {
-      // Load all users from healthai_users
-      const allUsers = JSON.parse(localStorage.getItem('healthai_users') || '[]');
+      const token = localStorage.getItem('token');
       
-      // Separate doctors and patients
-      const doctors = allUsers.filter(u => u.userType === 'doctor').map(doc => ({
-        id: doc.userId || doc.id,
-        name: doc.name,
-        email: doc.email,
-        specialization: doc.specialization,
-        type: 'doctor'
-      }));
+      const doctorsResponse = await fetch('/api/doctors', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      const doctorsData = await doctorsResponse.json();
       
-      const patients = allUsers.filter(u => u.userType === 'patient').map(pat => ({
-        id: pat.userId || pat.id,
-        name: pat.name,
-        email: pat.email,
-        type: 'patient'
-      }));
+      let doctors = [];
+      if (doctorsData.success && doctorsData.doctors) {
+        doctors = doctorsData.doctors.map(doc => ({
+          id: doc.doctorId || doc._id,
+          name: doc.name,
+          email: doc.email,
+          specialization: doc.specialization,
+          type: 'doctor',
+          phone: doc.phone,
+          status: doc.status
+        }));
+      }
+      
+      const patientsResponse = await fetch('/api/users/patients-list', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      const patientsData = await patientsResponse.json();
+      
+      let patients = [];
+      if (patientsData.success && patientsData.data) {
+        patients = patientsData.data.map(pat => ({
+          id: pat.userId || pat._id,
+          name: pat.name,
+          email: pat.email,
+          type: 'patient',
+          phone: pat.phone,
+          status: pat.status
+        }));
+      }
       
       setAvailableDoctors(doctors);
       setAvailablePatients(patients);
+      
+      console.log(`✅ Loaded ${doctors.length} doctors and ${patients.length} patients`);
     } catch (error) {
       console.error('Error loading users:', error);
+      setAvailableDoctors([]);
+      setAvailablePatients([]);
     }
   };
 
@@ -103,18 +136,22 @@ const AdminNotifications = ({ userType, userData, darkMode }) => {
     setLoading(true);
     
     try {
-      // Load existing notifications from localStorage
       const savedNotifications = JSON.parse(localStorage.getItem('admin_notifications') || '[]');
       
-      // If no saved notifications, start with empty array (no sample data)
-      if (savedNotifications.length === 0) {
-        setNotifications([]);
-        calculateStats([]);
-        setFilteredNotifications([]);
-      } else {
-        setNotifications(savedNotifications);
-        calculateStats(savedNotifications);
-        setFilteredNotifications(savedNotifications);
+      // Filter out any default/welcome notifications
+      const filteredSavedNotifications = savedNotifications.filter(notif => {
+        const defaultTitles = ['Welcome to Admin Panel', 'Admin Login', 'System Ready', 'Welcome'];
+        if (defaultTitles.includes(notif.title)) return false;
+        if (!notif.id) return false;
+        return true;
+      });
+      
+      setNotifications(filteredSavedNotifications);
+      calculateStats(filteredSavedNotifications);
+      setFilteredNotifications(filteredSavedNotifications);
+      
+      if (filteredSavedNotifications.length !== savedNotifications.length) {
+        localStorage.setItem('admin_notifications', JSON.stringify(filteredSavedNotifications));
       }
       
     } catch (error) {
@@ -131,8 +168,8 @@ const AdminNotifications = ({ userType, userData, darkMode }) => {
       unread: notifs.filter(n => !n.read).length,
       read: notifs.filter(n => n.read).length,
       urgent: notifs.filter(n => n.priority === 'urgent' && !n.read).length,
-      toDoctors: notifs.filter(n => n.recipientType === 'doctors' || n.recipientType === 'specific' && n.targetUsers?.some(u => u.type === 'doctor')).length,
-      toPatients: notifs.filter(n => n.recipientType === 'patients' || n.recipientType === 'specific' && n.targetUsers?.some(u => u.type === 'patient')).length,
+      toDoctors: notifs.filter(n => n.recipientType === 'doctors' || (n.recipientType === 'specific' && n.targetUsers?.some(u => u.type === 'doctor'))).length,
+      toPatients: notifs.filter(n => n.recipientType === 'patients' || (n.recipientType === 'specific' && n.targetUsers?.some(u => u.type === 'patient'))).length,
       toAll: notifs.filter(n => n.recipientType === 'all').length,
       system: notifs.filter(n => n.type === 'system').length
     });
@@ -142,7 +179,6 @@ const AdminNotifications = ({ userType, userData, darkMode }) => {
   useEffect(() => {
     let filtered = [...notifications];
     
-    // Search filter
     if (searchTerm) {
       filtered = filtered.filter(n => 
         n.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -151,24 +187,18 @@ const AdminNotifications = ({ userType, userData, darkMode }) => {
       );
     }
     
-    // Type filter
     if (filterType !== 'all') {
       filtered = filtered.filter(n => n.type === filterType);
     }
     
-    // Status filter
     if (filterStatus !== 'all') {
-      filtered = filtered.filter(n => 
-        filterStatus === 'read' ? n.read : !n.read
-      );
+      filtered = filtered.filter(n => filterStatus === 'read' ? n.read : !n.read);
     }
     
-    // Recipient filter
     if (filterRecipient !== 'all') {
       filtered = filtered.filter(n => n.recipientType === filterRecipient);
     }
     
-    // Date filter
     if (filterDate !== 'all') {
       const now = new Date();
       const today = now.setHours(0, 0, 0, 0);
@@ -179,14 +209,10 @@ const AdminNotifications = ({ userType, userData, darkMode }) => {
         const notifDate = new Date(n.timestamp || n.time).getTime();
         
         switch(filterDate) {
-          case 'today':
-            return notifDate >= today;
-          case 'yesterday':
-            return notifDate >= yesterday && notifDate < today;
-          case 'week':
-            return notifDate >= weekAgo;
-          default:
-            return true;
+          case 'today': return notifDate >= today;
+          case 'yesterday': return notifDate >= yesterday && notifDate < today;
+          case 'week': return notifDate >= weekAgo;
+          default: return true;
         }
       });
     }
@@ -260,31 +286,45 @@ const AdminNotifications = ({ userType, userData, darkMode }) => {
       return;
     }
 
-    // Validate recipients for specific targeting
     if (newNotification.recipientType === 'specific' && newNotification.specificRecipients.length === 0) {
       alert('Please select at least one recipient');
       return;
     }
 
+    let targetUsers = [];
+    if (newNotification.recipientType === 'specific') {
+      targetUsers = newNotification.specificRecipients.map(user => ({
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        type: user.type || (user.specialization ? 'doctor' : 'patient')
+      }));
+    }
+
     const notification = {
       id: editingNotification ? editingNotification.id : `NOT-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
-      ...newNotification,
-      time: 'Just now',
-      timestamp: new Date().toISOString(),
-      read: editingNotification ? editingNotification.read : false,
+      title: newNotification.title,
+      message: newNotification.message,
+      type: newNotification.type,
+      priority: newNotification.priority,
+      recipientType: newNotification.recipientType,
+      targetUsers: targetUsers,
+      expiresAt: newNotification.expiresAt || '',
+      actionUrl: newNotification.actionUrl || '',
       icon: getIconForType(newNotification.type),
       createdBy: userData?.name || 'Admin',
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      timestamp: new Date().toISOString(),
+      time: 'Just now',
+      read: editingNotification ? editingNotification.read : false
     };
 
     let updatedNotifications;
     if (editingNotification) {
-      // Update existing
       updatedNotifications = notifications.map(n => 
         n.id === editingNotification.id ? notification : n
       );
     } else {
-      // Create new
       updatedNotifications = [notification, ...notifications];
     }
 
@@ -333,9 +373,13 @@ const AdminNotifications = ({ userType, userData, darkMode }) => {
         specificRecipients: current.filter(u => u.id !== user.id)
       });
     } else {
+      const userWithType = {
+        ...user,
+        type: user.type || (user.specialization ? 'doctor' : 'patient')
+      };
       setNewNotification({
         ...newNotification,
-        specificRecipients: [...current, user]
+        specificRecipients: [...current, userWithType]
       });
     }
   };
@@ -360,61 +404,37 @@ const AdminNotifications = ({ userType, userData, darkMode }) => {
                      'text-teal-500';
     
     switch(type) {
-      case 'doctor':
-        return <FaUserMd className={iconClass} size={20} />;
-      case 'patient':
-      case 'feedback':
-        return <FaUser className={iconClass} size={20} />;
-      case 'appointment':
-        return <FaCalendarAlt className={iconClass} size={20} />;
-      case 'system':
-        return <FaCog className={iconClass} size={20} />;
-      case 'sos':
-        return <FaAmbulance className="text-red-500" size={20} />;
-      case 'payment':
-        return <FaCheckCircle className="text-green-500" size={20} />;
-      case 'inventory':
-        return <FaPills className="text-purple-500" size={20} />;
-      default:
-        return <FaBell className={iconClass} size={20} />;
+      case 'doctor': return <FaUserMd className={iconClass} size={20} />;
+      case 'patient': case 'feedback': return <FaUser className={iconClass} size={20} />;
+      case 'appointment': return <FaCalendarAlt className={iconClass} size={20} />;
+      case 'system': return <FaCog className={iconClass} size={20} />;
+      case 'sos': return <FaExclamationTriangle className="text-red-500" size={20} />;
+      case 'payment': return <FaCheckCircle className="text-green-500" size={20} />;
+      default: return <FaBell className={iconClass} size={20} />;
     }
   };
 
   const getRecipientBadge = (recipientType, targetUsers) => {
     switch(recipientType) {
-      case 'all':
-        return <span className="px-2 py-1 bg-purple-100 text-purple-600 rounded-full text-[9px] font-black">ALL USERS</span>;
-      case 'doctors':
-        return <span className="px-2 py-1 bg-blue-100 text-blue-600 rounded-full text-[9px] font-black">DOCTORS ONLY</span>;
-      case 'patients':
-        return <span className="px-2 py-1 bg-green-100 text-green-600 rounded-full text-[9px] font-black">PATIENTS ONLY</span>;
-      case 'specific':
-        return <span className="px-2 py-1 bg-amber-100 text-amber-600 rounded-full text-[9px] font-black">
-          {targetUsers?.length || 0} SPECIFIC
-        </span>;
-      default:
-        return null;
+      case 'all': return <span className="px-2 py-1 bg-purple-100 text-purple-600 rounded-full text-[9px] font-black">ALL USERS</span>;
+      case 'doctors': return <span className="px-2 py-1 bg-blue-100 text-blue-600 rounded-full text-[9px] font-black">DOCTORS ONLY</span>;
+      case 'patients': return <span className="px-2 py-1 bg-green-100 text-green-600 rounded-full text-[9px] font-black">PATIENTS ONLY</span>;
+      case 'specific': return <span className="px-2 py-1 bg-amber-100 text-amber-600 rounded-full text-[9px] font-black">{targetUsers?.length || 0} SPECIFIC</span>;
+      default: return null;
     }
   };
 
   const getPriorityBadge = (priority) => {
     switch(priority) {
-      case 'urgent':
-        return <span className="px-2 py-1 bg-red-100 text-red-600 rounded-full text-[9px] font-black flex items-center gap-1">
-          <FaExclamationTriangle size={8} /> URGENT
-        </span>;
-      case 'high':
-        return <span className="px-2 py-1 bg-orange-100 text-orange-600 rounded-full text-[9px] font-black">HIGH</span>;
-      case 'medium':
-        return <span className="px-2 py-1 bg-yellow-100 text-yellow-600 rounded-full text-[9px] font-black">MEDIUM</span>;
-      default:
-        return <span className="px-2 py-1 bg-blue-100 text-blue-600 rounded-full text-[9px] font-black">NORMAL</span>;
+      case 'urgent': return <span className="px-2 py-1 bg-red-100 text-red-600 rounded-full text-[9px] font-black flex items-center gap-1"><FaExclamationTriangle size={8} /> URGENT</span>;
+      case 'high': return <span className="px-2 py-1 bg-orange-100 text-orange-600 rounded-full text-[9px] font-black">HIGH</span>;
+      case 'medium': return <span className="px-2 py-1 bg-yellow-100 text-yellow-600 rounded-full text-[9px] font-black">MEDIUM</span>;
+      default: return <span className="px-2 py-1 bg-blue-100 text-blue-600 rounded-full text-[9px] font-black">NORMAL</span>;
     }
   };
 
   const formatTime = (timestamp) => {
     if (!timestamp) return 'Unknown';
-    
     try {
       const date = new Date(timestamp);
       const now = new Date();
@@ -427,12 +447,16 @@ const AdminNotifications = ({ userType, userData, darkMode }) => {
       if (diffMins < 60) return `${diffMins} min ago`;
       if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
       if (diffDays < 7) return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
-      
       return date.toLocaleDateString();
     } catch (e) {
       return 'Unknown';
     }
   };
+
+  useEffect(() => {
+    loadUsers();
+    loadNotifications();
+  }, []);
 
   if (loading) {
     return (
@@ -567,7 +591,6 @@ const AdminNotifications = ({ userType, userData, darkMode }) => {
               <option value="all">All Recipients</option>
               <option value="doctors">Doctors Only</option>
               <option value="patients">Patients Only</option>
-              <option value="all">All Users</option>
               <option value="specific">Specific Users</option>
             </select>
             
@@ -651,7 +674,6 @@ const AdminNotifications = ({ userType, userData, darkMode }) => {
               >
                 <div className="p-5">
                   <div className="flex items-start gap-4">
-                    {/* Icon */}
                     <div className={`p-3 rounded-xl ${
                       !notification.read 
                         ? 'bg-teal-100' 
@@ -660,7 +682,6 @@ const AdminNotifications = ({ userType, userData, darkMode }) => {
                       {getNotificationIcon(notification.type, notification.priority)}
                     </div>
                     
-                    {/* Content */}
                     <div className="flex-1">
                       <div className="flex items-start justify-between">
                         <div>
@@ -708,7 +729,6 @@ const AdminNotifications = ({ userType, userData, darkMode }) => {
                         </div>
                       </div>
                       
-                      {/* Recipient Info */}
                       {notification.recipientType === 'specific' && notification.targetUsers && (
                         <div className="flex flex-wrap gap-1 mt-2">
                           {notification.targetUsers.slice(0, 3).map(user => (
@@ -746,7 +766,7 @@ const AdminNotifications = ({ userType, userData, darkMode }) => {
         </div>
       </div>
 
-      {/* Create/Edit Notification Modal */}
+      {/* Create/Edit Notification Modal - Keep existing modal code */}
       <AnimatePresence>
         {showCreateModal && (
           <motion.div
@@ -760,56 +780,45 @@ const AdminNotifications = ({ userType, userData, darkMode }) => {
               initial={{ scale: 0.9, y: 20 }}
               animate={{ scale: 1, y: 0 }}
               exit={{ scale: 0.9, y: 20 }}
-              className={`max-w-3xl w-full rounded-2xl shadow-2xl overflow-hidden ${
-                darkMode ? 'bg-gray-800' : 'bg-white'
-              }`}
+              className={`max-w-3xl w-full rounded-2xl shadow-2xl overflow-hidden ${darkMode ? 'bg-gray-800' : 'bg-white'}`}
               onClick={(e) => e.stopPropagation()}
             >
-              <div className={`p-6 bg-gradient-to-r from-teal-500 to-teal-600 text-white`}>
+              <div className="p-6 bg-gradient-to-r from-teal-500 to-teal-600 text-white">
                 <h2 className="text-2xl font-black">
                   {editingNotification ? 'Edit Notification' : 'Create New Notification'}
                 </h2>
               </div>
 
               <div className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
-                {/* Title */}
                 <div>
                   <label className="block text-sm font-bold mb-2">Title *</label>
                   <input
                     type="text"
                     value={newNotification.title}
                     onChange={(e) => setNewNotification({...newNotification, title: e.target.value})}
-                    className={`w-full px-4 py-3 rounded-xl border focus:ring-2 focus:ring-teal-500 outline-none ${
-                      darkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300'
-                    }`}
+                    className={`w-full px-4 py-3 rounded-xl border focus:ring-2 focus:ring-teal-500 outline-none ${darkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300'}`}
                     placeholder="e.g., System Maintenance"
                   />
                 </div>
 
-                {/* Message */}
                 <div>
                   <label className="block text-sm font-bold mb-2">Message *</label>
                   <textarea
                     value={newNotification.message}
                     onChange={(e) => setNewNotification({...newNotification, message: e.target.value})}
                     rows="3"
-                    className={`w-full px-4 py-3 rounded-xl border focus:ring-2 focus:ring-teal-500 outline-none ${
-                      darkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300'
-                    }`}
+                    className={`w-full px-4 py-3 rounded-xl border focus:ring-2 focus:ring-teal-500 outline-none ${darkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300'}`}
                     placeholder="Notification message..."
                   />
                 </div>
 
-                {/* Type and Priority */}
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-bold mb-2">Type</label>
                     <select
                       value={newNotification.type}
                       onChange={(e) => setNewNotification({...newNotification, type: e.target.value})}
-                      className={`w-full px-4 py-3 rounded-xl border focus:ring-2 focus:ring-teal-500 outline-none ${
-                        darkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300'
-                      }`}
+                      className={`w-full px-4 py-3 rounded-xl border focus:ring-2 focus:ring-teal-500 outline-none ${darkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300'}`}
                     >
                       <option value="system">System</option>
                       <option value="doctor">Doctor Related</option>
@@ -825,9 +834,7 @@ const AdminNotifications = ({ userType, userData, darkMode }) => {
                     <select
                       value={newNotification.priority}
                       onChange={(e) => setNewNotification({...newNotification, priority: e.target.value})}
-                      className={`w-full px-4 py-3 rounded-xl border focus:ring-2 focus:ring-teal-500 outline-none ${
-                        darkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300'
-                      }`}
+                      className={`w-full px-4 py-3 rounded-xl border focus:ring-2 focus:ring-teal-500 outline-none ${darkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300'}`}
                     >
                       <option value="normal">Normal</option>
                       <option value="medium">Medium</option>
@@ -837,18 +844,13 @@ const AdminNotifications = ({ userType, userData, darkMode }) => {
                   </div>
                 </div>
 
-                {/* Recipient Type */}
                 <div>
                   <label className="block text-sm font-bold mb-2">Send To</label>
                   <div className="grid grid-cols-4 gap-2">
                     <button
                       type="button"
                       onClick={() => handleRecipientTypeChange('all')}
-                      className={`p-3 rounded-xl border-2 transition-all ${
-                        newNotification.recipientType === 'all'
-                          ? 'border-teal-500 bg-teal-50 text-teal-700'
-                          : darkMode ? 'border-gray-600 text-gray-400' : 'border-gray-200 text-gray-600'
-                      }`}
+                      className={`p-3 rounded-xl border-2 transition-all ${newNotification.recipientType === 'all' ? 'border-teal-500 bg-teal-50 text-teal-700' : darkMode ? 'border-gray-600 text-gray-400' : 'border-gray-200 text-gray-600'}`}
                     >
                       <FaUsers className="mx-auto mb-1" size={20} />
                       <span className="text-xs font-bold">All Users</span>
@@ -857,11 +859,7 @@ const AdminNotifications = ({ userType, userData, darkMode }) => {
                     <button
                       type="button"
                       onClick={() => handleRecipientTypeChange('doctors')}
-                      className={`p-3 rounded-xl border-2 transition-all ${
-                        newNotification.recipientType === 'doctors'
-                          ? 'border-teal-500 bg-teal-50 text-teal-700'
-                          : darkMode ? 'border-gray-600 text-gray-400' : 'border-gray-200 text-gray-600'
-                      }`}
+                      className={`p-3 rounded-xl border-2 transition-all ${newNotification.recipientType === 'doctors' ? 'border-teal-500 bg-teal-50 text-teal-700' : darkMode ? 'border-gray-600 text-gray-400' : 'border-gray-200 text-gray-600'}`}
                     >
                       <FaUserMd className="mx-auto mb-1" size={20} />
                       <span className="text-xs font-bold">Doctors Only</span>
@@ -870,11 +868,7 @@ const AdminNotifications = ({ userType, userData, darkMode }) => {
                     <button
                       type="button"
                       onClick={() => handleRecipientTypeChange('patients')}
-                      className={`p-3 rounded-xl border-2 transition-all ${
-                        newNotification.recipientType === 'patients'
-                          ? 'border-teal-500 bg-teal-50 text-teal-700'
-                          : darkMode ? 'border-gray-600 text-gray-400' : 'border-gray-200 text-gray-600'
-                      }`}
+                      className={`p-3 rounded-xl border-2 transition-all ${newNotification.recipientType === 'patients' ? 'border-teal-500 bg-teal-50 text-teal-700' : darkMode ? 'border-gray-600 text-gray-400' : 'border-gray-200 text-gray-600'}`}
                     >
                       <FaUser className="mx-auto mb-1" size={20} />
                       <span className="text-xs font-bold">Patients Only</span>
@@ -883,11 +877,7 @@ const AdminNotifications = ({ userType, userData, darkMode }) => {
                     <button
                       type="button"
                       onClick={() => handleRecipientTypeChange('specific')}
-                      className={`p-3 rounded-xl border-2 transition-all ${
-                        newNotification.recipientType === 'specific'
-                          ? 'border-teal-500 bg-teal-50 text-teal-700'
-                          : darkMode ? 'border-gray-600 text-gray-400' : 'border-gray-200 text-gray-600'
-                      }`}
+                      className={`p-3 rounded-xl border-2 transition-all ${newNotification.recipientType === 'specific' ? 'border-teal-500 bg-teal-50 text-teal-700' : darkMode ? 'border-gray-600 text-gray-400' : 'border-gray-200 text-gray-600'}`}
                     >
                       <FaUserCheck className="mx-auto mb-1" size={20} />
                       <span className="text-xs font-bold">Specific</span>
@@ -895,12 +885,10 @@ const AdminNotifications = ({ userType, userData, darkMode }) => {
                   </div>
                 </div>
 
-                {/* Specific Recipients Selection */}
                 {newNotification.recipientType === 'specific' && (
                   <div>
                     <label className="block text-sm font-bold mb-2">Select Recipients</label>
                     
-                    {/* Doctors Section */}
                     {availableDoctors.length > 0 && (
                       <div className="mb-4">
                         <h4 className="text-sm font-bold mb-2 flex items-center gap-2">
@@ -908,12 +896,7 @@ const AdminNotifications = ({ userType, userData, darkMode }) => {
                         </h4>
                         <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto p-2 border rounded-xl">
                           {availableDoctors.map(doctor => (
-                            <label
-                              key={doctor.id}
-                              className={`flex items-center gap-2 p-2 rounded-lg cursor-pointer ${
-                                darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'
-                              }`}
-                            >
+                            <label key={doctor.id} className={`flex items-center gap-2 p-2 rounded-lg cursor-pointer ${darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'}`}>
                               <input
                                 type="checkbox"
                                 checked={newNotification.specificRecipients.some(u => u.id === doctor.id)}
@@ -930,7 +913,6 @@ const AdminNotifications = ({ userType, userData, darkMode }) => {
                       </div>
                     )}
                     
-                    {/* Patients Section */}
                     {availablePatients.length > 0 && (
                       <div>
                         <h4 className="text-sm font-bold mb-2 flex items-center gap-2">
@@ -938,12 +920,7 @@ const AdminNotifications = ({ userType, userData, darkMode }) => {
                         </h4>
                         <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto p-2 border rounded-xl">
                           {availablePatients.map(patient => (
-                            <label
-                              key={patient.id}
-                              className={`flex items-center gap-2 p-2 rounded-lg cursor-pointer ${
-                                darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'
-                              }`}
-                            >
+                            <label key={patient.id} className={`flex items-center gap-2 p-2 rounded-lg cursor-pointer ${darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'}`}>
                               <input
                                 type="checkbox"
                                 checked={newNotification.specificRecipients.some(u => u.id === patient.id)}
@@ -968,35 +945,28 @@ const AdminNotifications = ({ userType, userData, darkMode }) => {
                   </div>
                 )}
 
-                {/* Action URL */}
                 <div>
                   <label className="block text-sm font-bold mb-2">Action URL (optional)</label>
                   <input
                     type="text"
                     value={newNotification.actionUrl}
                     onChange={(e) => setNewNotification({...newNotification, actionUrl: e.target.value})}
-                    className={`w-full px-4 py-3 rounded-xl border focus:ring-2 focus:ring-teal-500 outline-none ${
-                      darkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300'
-                    }`}
+                    className={`w-full px-4 py-3 rounded-xl border focus:ring-2 focus:ring-teal-500 outline-none ${darkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300'}`}
                     placeholder="/admin/doctors"
                   />
                 </div>
 
-                {/* Expiry */}
                 <div>
                   <label className="block text-sm font-bold mb-2">Expires At (optional)</label>
                   <input
                     type="datetime-local"
                     value={newNotification.expiresAt}
                     onChange={(e) => setNewNotification({...newNotification, expiresAt: e.target.value})}
-                    className={`w-full px-4 py-3 rounded-xl border focus:ring-2 focus:ring-teal-500 outline-none ${
-                      darkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300'
-                    }`}
+                    className={`w-full px-4 py-3 rounded-xl border focus:ring-2 focus:ring-teal-500 outline-none ${darkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300'}`}
                   />
                 </div>
               </div>
 
-              {/* Actions */}
               <div className={`p-6 border-t ${darkMode ? 'border-gray-700' : 'border-slate-200'} flex justify-end gap-3`}>
                 <button
                   onClick={() => {
@@ -1035,70 +1005,50 @@ const AdminNotifications = ({ userType, userData, darkMode }) => {
               initial={{ scale: 0.9, y: 20 }}
               animate={{ scale: 1, y: 0 }}
               exit={{ scale: 0.9, y: 20 }}
-              className={`max-w-2xl w-full rounded-2xl shadow-2xl overflow-hidden ${
-                darkMode ? 'bg-gray-800' : 'bg-white'
-              }`}
+              className={`max-w-2xl w-full rounded-2xl shadow-2xl overflow-hidden ${darkMode ? 'bg-gray-800' : 'bg-white'}`}
               onClick={(e) => e.stopPropagation()}
             >
               <div className={`p-6 bg-gradient-to-r ${
-                selectedNotification.priority === 'urgent' 
-                  ? 'from-red-500 to-red-600' 
-                  : selectedNotification.priority === 'high'
-                  ? 'from-orange-500 to-orange-600'
-                  : 'from-teal-500 to-teal-600'
+                selectedNotification.priority === 'urgent' ? 'from-red-500 to-red-600' : 
+                selectedNotification.priority === 'high' ? 'from-orange-500 to-orange-600' :
+                'from-teal-500 to-teal-600'
               } text-white`}>
                 <div className="flex justify-between items-start">
                   <div>
                     <h2 className="text-2xl font-black">Notification Details</h2>
                     <p className="opacity-90">ID: {selectedNotification.id}</p>
                   </div>
-                  <button 
-                    onClick={() => setShowNotificationModal(false)}
-                    className="text-white/60 hover:text-white text-2xl"
-                  >
-                    ×
-                  </button>
+                  <button onClick={() => setShowNotificationModal(false)} className="text-white/60 hover:text-white text-2xl">×</button>
                 </div>
               </div>
 
               <div className="p-6 space-y-6 max-h-[70vh] overflow-y-auto">
-                {/* Badges */}
                 <div className="flex flex-wrap gap-2">
                   {getRecipientBadge(selectedNotification.recipientType, selectedNotification.targetUsers)}
                   {getPriorityBadge(selectedNotification.priority)}
-                  <span className={`px-3 py-1 rounded-full text-xs font-black ${
-                    darkMode ? 'bg-gray-700 text-gray-300' : 'bg-gray-100 text-gray-600'
-                  }`}>
+                  <span className={`px-3 py-1 rounded-full text-xs font-black ${darkMode ? 'bg-gray-700 text-gray-300' : 'bg-gray-100 text-gray-600'}`}>
                     {selectedNotification.type?.toUpperCase()}
                   </span>
                 </div>
 
-                {/* Content */}
                 <div>
                   <h3 className="text-xl font-black mb-2">{selectedNotification.title}</h3>
-                  <p className={`${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>
-                    {selectedNotification.message}
-                  </p>
+                  <p className={darkMode ? 'text-gray-300' : 'text-gray-600'}>{selectedNotification.message}</p>
                 </div>
 
-                {/* Time */}
                 <div className={`p-4 rounded-xl ${darkMode ? 'bg-gray-700' : 'bg-slate-50'}`}>
                   <p className="text-xs text-slate-400 mb-1">Sent</p>
                   <p className="font-bold">{new Date(selectedNotification.timestamp).toLocaleString()}</p>
                   <p className="text-xs text-slate-400 mt-1">{formatTime(selectedNotification.timestamp)}</p>
                 </div>
 
-                {/* Recipients */}
                 {selectedNotification.recipientType === 'specific' && selectedNotification.targetUsers && (
                   <div className={`p-4 rounded-xl ${darkMode ? 'bg-gray-700' : 'bg-blue-50'}`}>
                     <p className="text-xs text-slate-400 mb-2">Sent to ({selectedNotification.targetUsers.length} recipients)</p>
                     <div className="space-y-2 max-h-40 overflow-y-auto">
                       {selectedNotification.targetUsers.map(user => (
                         <div key={user.id} className="flex items-center gap-2 p-2 bg-white/50 rounded-lg">
-                          {user.type === 'doctor' 
-                            ? <FaUserMd className="text-blue-500" size={12} />
-                            : <FaUser className="text-green-500" size={12} />
-                          }
+                          {user.type === 'doctor' ? <FaUserMd className="text-blue-500" size={12} /> : <FaUser className="text-green-500" size={12} />}
                           <span className="text-sm font-medium">{user.name}</span>
                           <span className="text-xs opacity-60 ml-auto">{user.type}</span>
                         </div>
@@ -1107,7 +1057,6 @@ const AdminNotifications = ({ userType, userData, darkMode }) => {
                   </div>
                 )}
 
-                {/* Action URL */}
                 {selectedNotification.actionUrl && (
                   <div className={`p-4 rounded-xl ${darkMode ? 'bg-gray-700' : 'bg-purple-50'}`}>
                     <p className="text-xs text-slate-400 mb-1">Action URL</p>
@@ -1116,49 +1065,11 @@ const AdminNotifications = ({ userType, userData, darkMode }) => {
                 )}
               </div>
 
-              {/* Actions */}
               <div className={`p-6 border-t ${darkMode ? 'border-gray-700' : 'border-slate-200'} flex justify-end gap-3`}>
-                <button
-                  onClick={() => setShowNotificationModal(false)}
-                  className="px-6 py-3 rounded-xl border border-slate-300 hover:bg-slate-100 transition-all font-bold text-sm"
-                >
-                  Close
-                </button>
-                
-                <button
-                  onClick={() => {
-                    handleEditNotification(selectedNotification);
-                    setShowNotificationModal(false);
-                  }}
-                  className="px-6 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-all font-bold text-sm flex items-center gap-2"
-                >
-                  <FaEdit size={14} />
-                  Edit
-                </button>
-                
-                {!selectedNotification.read && (
-                  <button
-                    onClick={() => {
-                      handleMarkAsRead(selectedNotification.id);
-                      setShowNotificationModal(false);
-                    }}
-                    className="px-6 py-3 bg-teal-600 text-white rounded-xl hover:bg-teal-700 transition-all font-bold text-sm flex items-center gap-2"
-                  >
-                    <FaCheck size={14} />
-                    Mark Read
-                  </button>
-                )}
-                
-                <button
-                  onClick={() => {
-                    handleDeleteNotification(selectedNotification.id);
-                    setShowNotificationModal(false);
-                  }}
-                  className="px-6 py-3 bg-red-600 text-white rounded-xl hover:bg-red-700 transition-all font-bold text-sm flex items-center gap-2"
-                >
-                  <FaTrash size={14} />
-                  Delete
-                </button>
+                <button onClick={() => setShowNotificationModal(false)} className="px-6 py-3 rounded-xl border border-slate-300 hover:bg-slate-100 transition-all font-bold text-sm">Close</button>
+                <button onClick={() => { handleEditNotification(selectedNotification); setShowNotificationModal(false); }} className="px-6 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-all font-bold text-sm flex items-center gap-2"><FaEdit size={14} /> Edit</button>
+                {!selectedNotification.read && <button onClick={() => { handleMarkAsRead(selectedNotification.id); setShowNotificationModal(false); }} className="px-6 py-3 bg-teal-600 text-white rounded-xl hover:bg-teal-700 transition-all font-bold text-sm flex items-center gap-2"><FaCheck size={14} /> Mark Read</button>}
+                <button onClick={() => { handleDeleteNotification(selectedNotification.id); setShowNotificationModal(false); }} className="px-6 py-3 bg-red-600 text-white rounded-xl hover:bg-red-700 transition-all font-bold text-sm flex items-center gap-2"><FaTrash size={14} /> Delete</button>
               </div>
             </motion.div>
           </motion.div>

@@ -31,6 +31,36 @@ export const getAllPatients = async (req, res) => {
   }
 };
 
+// Get all patients list for admin (full access - no restrictions)
+export const getAllPatientsList = async (req, res) => {
+  try {
+    // Only admins can access full patient list
+    if (req.user.userType !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied. Only admins can view complete patient list.'
+      });
+    }
+
+    const patients = await User.find({ userType: 'patient' })
+      .select('-password')
+      .sort({ name: 1 });
+    
+    res.json({
+      success: true,
+      count: patients.length,
+      data: patients
+    });
+  } catch (error) {
+    console.error('Error fetching patients list:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching patients list',
+      error: error.message
+    });
+  }
+};
+
 // Get patient by ID (for doctors)
 export const getPatientById = async (req, res) => {
   try {

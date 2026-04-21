@@ -77,12 +77,40 @@ const Header = ({ onLogout, userType, userData, darkMode, onToggleDarkMode }) =>
   const isForCurrentUser = (notification) => {
     if (userType === 'admin') return true; // Admins see all
     
-    if (notification.recipientType === 'all') return true;
-    if (notification.recipientType === userType + 's') return true; // 'doctors' or 'patients'
+    // For doctors - check if notification is meant for doctors
+    if (userType === 'doctor') {
+      // Show if sent to all users
+      if (notification.recipientType === 'all') return true;
+      // Show if sent specifically to doctors
+      if (notification.recipientType === 'doctors') return true;
+      // Show if sent to specific recipients and current doctor is included
+      if (notification.recipientType === 'specific' && notification.targetUsers) {
+        return notification.targetUsers.some(u => 
+          u.id === userData?.userId || 
+          u.email === userData?.email ||
+          u.id === userData?._id ||
+          (u.type === 'doctor' && (u.id === userData?.userId || u.id === userData?._id))
+        );
+      }
+      return false;
+    }
     
-    // Check specific recipients
-    if (notification.recipientType === 'specific' && notification.targetUsers) {
-      return notification.targetUsers.some(u => u.id === userData?.userId || u.email === userData?.email);
+    // For patients - check if notification is meant for patients
+    if (userType === 'patient') {
+      // Show if sent to all users
+      if (notification.recipientType === 'all') return true;
+      // Show if sent specifically to patients
+      if (notification.recipientType === 'patients') return true;
+      // Show if sent to specific recipients and current patient is included
+      if (notification.recipientType === 'specific' && notification.targetUsers) {
+        return notification.targetUsers.some(u => 
+          u.id === userData?.userId || 
+          u.email === userData?.email ||
+          u.id === userData?._id ||
+          (u.type === 'patient' && (u.id === userData?.userId || u.id === userData?._id))
+        );
+      }
+      return false;
     }
     
     return false;
@@ -114,7 +142,9 @@ const Header = ({ onLogout, userType, userData, darkMode, onToggleDarkMode }) =>
           read: n.read,
           type: n.type,
           priority: n.priority || 'normal',
-          actionUrl: n.actionUrl
+          actionUrl: n.actionUrl,
+          recipientType: n.recipientType,
+          targetUsers: n.targetUsers
         }));
       
       setNotifications(formattedNotifs);
@@ -846,7 +876,5 @@ const Header = ({ onLogout, userType, userData, darkMode, onToggleDarkMode }) =>
     </>
   );
 };
-
-// Removed defaultProps - no default data will be provided
 
 export default Header;
