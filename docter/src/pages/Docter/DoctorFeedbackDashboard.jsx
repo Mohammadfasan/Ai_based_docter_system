@@ -2,13 +2,21 @@ import React, { useState, useEffect } from 'react';
 import {
   FaStar, FaFilter, FaSearch, FaCalendarAlt,
   FaUserInjured, FaChartBar, FaDownload, FaEye,
-  FaThumbsUp, FaCommentAlt, FaExclamationTriangle
+  FaThumbsUp, FaCommentAlt, FaExclamationTriangle,
+  FaSpinner, FaCheckCircle, FaReply, FaUserMd
 } from 'react-icons/fa';
+import axios from 'axios';
 
 const DoctorFeedbackDashboard = () => {
   const [feedbacks, setFeedbacks] = useState([]);
   const [filteredFeedbacks, setFilteredFeedbacks] = useState([]);
   const [selectedFeedback, setSelectedFeedback] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [submittingResponse, setSubmittingResponse] = useState(false);
+  const [responseMessage, setResponseMessage] = useState('');
+  const [responseSuccess, setResponseSuccess] = useState('');
+  const [responseError, setResponseError] = useState('');
+  const [doctorInfo, setDoctorInfo] = useState(null);
   const [filters, setFilters] = useState({
     rating: 'all',
     dateRange: 'all',
@@ -20,165 +28,228 @@ const DoctorFeedbackDashboard = () => {
     recentFeedbacks: 0,
     positivePercentage: 0
   });
+  const [pagination, setPagination] = useState({
+    currentPage: 1,
+    totalPages: 1,
+    totalItems: 0,
+    itemsPerPage: 20
+  });
 
-  // Mock data - In real app, this would come from API
-  const mockFeedbacks = [
-    {
-      id: 1,
-      patientName: 'Rajesh Kumar',
-      patientId: 'PAT001',
-      date: '2024-03-15',
-      rating: 5,
-      consultationType: 'Video Consultation',
-      doctorName: 'Dr. Arvind Sharma',
-      doctorId: 'DOC001',
-      feedbackType: 'compliment',
-      title: 'Excellent Consultation',
-      message: 'Doctor was very patient and explained everything clearly. The diagnosis was accurate and treatment effective.',
-      anonymous: false,
-      responded: true,
-      response: 'Thank you for your feedback. Glad to hear you had a good experience.'
-    },
-    {
-      id: 2,
-      patientName: 'Priya Menon',
-      patientId: 'PAT002',
-      date: '2024-03-14',
-      rating: 4,
-      consultationType: 'Clinic Visit',
-      doctorName: 'Dr. Arvind Sharma',
-      doctorId: 'DOC001',
-      feedbackType: 'suggestion',
-      title: 'Good but waiting time high',
-      message: 'Doctor was knowledgeable but waiting time was 45 minutes. Maybe better scheduling?',
-      anonymous: false,
-      responded: false,
-      response: null
-    },
-    {
-      id: 3,
-      patientName: 'Anonymous',
-      patientId: 'PAT003',
-      date: '2024-03-13',
-      rating: 3,
-      consultationType: 'Follow-up',
-      doctorName: 'Dr. Arvind Sharma',
-      doctorId: 'DOC001',
-      feedbackType: 'general',
-      title: 'Average experience',
-      message: 'Prescription was clear but follow-up instructions could be better.',
-      anonymous: true,
-      responded: true,
-      response: 'We appreciate your feedback. Will work on improving follow-up communication.'
-    },
-    {
-      id: 4,
-      patientName: 'Suresh Gupta',
-      patientId: 'PAT004',
-      date: '2024-03-12',
-      rating: 5,
-      consultationType: 'Emergency',
-      doctorName: 'Dr. Arvind Sharma',
-      doctorId: 'DOC001',
-      feedbackType: 'compliment',
-      title: 'Life-saving advice',
-      message: 'Doctor was available immediately during emergency. Very professional.',
-      anonymous: false,
-      responded: false,
-      response: null
-    },
-    {
-      id: 5,
-      patientName: 'Meena Patel',
-      patientId: 'PAT005',
-      date: '2024-03-11',
-      rating: 2,
-      consultationType: 'Video Consultation',
-      doctorName: 'Dr. Arvind Sharma',
-      doctorId: 'DOC001',
-      feedbackType: 'technical',
-      title: 'Video quality issue',
-      message: 'Audio kept cutting during consultation. Had to switch to phone call.',
-      anonymous: false,
-      responded: true,
-      response: 'We apologize for the technical issues. Our team is upgrading the video system.'
-    },
-    {
-      id: 6,
-      patientName: 'Anil Desai',
-      patientId: 'PAT006',
-      date: '2024-03-10',
-      rating: 4,
-      consultationType: 'Prescription Renewal',
-      doctorName: 'Dr. Arvind Sharma',
-      doctorId: 'DOC001',
-      feedbackType: 'suggestion',
-      title: 'Good online prescription system',
-      message: 'E-prescription feature works well. Suggestion: add medication reminders.',
-      anonymous: false,
-      responded: true,
-      response: 'Thank you for the suggestion! We are working on medication reminder feature.'
-    }
-  ];
+  const API_URL = 'http://localhost:5000/api';
 
-  useEffect(() => {
-    // In real app, fetch from API with doctor ID
-    setFeedbacks(mockFeedbacks);
-    setFilteredFeedbacks(mockFeedbacks);
-    
-    // Calculate stats
-    const total = mockFeedbacks.length;
-    const average = mockFeedbacks.reduce((sum, fb) => sum + fb.rating, 0) / total;
-    const positive = mockFeedbacks.filter(fb => fb.rating >= 4).length;
-    
-    setStats({
-      averageRating: average.toFixed(1),
-      totalFeedbacks: total,
-      recentFeedbacks: mockFeedbacks.filter(fb => {
-        const fbDate = new Date(fb.date);
-        const weekAgo = new Date();
-        weekAgo.setDate(weekAgo.getDate() - 7);
-        return fbDate > weekAgo;
-      }).length,
-      positivePercentage: ((positive / total) * 100).toFixed(0)
-    });
-  }, []);
+  // Get token from localStorage
+  const getToken = () => {
+    return localStorage.getItem('token') || sessionStorage.getItem('token');
+  };
 
-  useEffect(() => {
-    let filtered = [...feedbacks];
-    
-    // Filter by rating
-    if (filters.rating !== 'all') {
-      const ratingNum = parseInt(filters.rating);
-      filtered = filtered.filter(fb => fb.rating === ratingNum);
-    }
-    
-    // Filter by date range
-    if (filters.dateRange !== 'all') {
-      const now = new Date();
-      let cutoffDate = new Date();
+  // Get current doctor info from localStorage - FIXED VERSION
+  const getCurrentDoctor = () => {
+    try {
+      // Try to get from multiple possible storage keys
+      let userStr = localStorage.getItem('currentUser');
       
-      switch(filters.dateRange) {
-        case 'week': cutoffDate.setDate(now.getDate() - 7); break;
-        case 'month': cutoffDate.setMonth(now.getMonth() - 1); break;
-        case 'quarter': cutoffDate.setMonth(now.getMonth() - 3); break;
+      if (!userStr) {
+        userStr = localStorage.getItem('user');
       }
       
-      filtered = filtered.filter(fb => new Date(fb.date) >= cutoffDate);
+      if (!userStr) {
+        userStr = sessionStorage.getItem('currentUser');
+      }
+      
+      if (!userStr) {
+        userStr = sessionStorage.getItem('user');
+      }
+      
+      if (!userStr) {
+        console.error('❌ No user data found in storage');
+        return null;
+      }
+      
+      const user = JSON.parse(userStr);
+      console.log('📋 User data from storage:', user);
+      
+      // IMPORTANT: For doctor routes, use the custom doctorId (DOC-XXXX-XXX)
+      // NOT the MongoDB _id
+      let doctorId = null;
+      
+      // Priority order for doctor ID
+      if (user.userId && user.userType === 'doctor') {
+        // This is the custom doctor ID from the token
+        doctorId = user.userId;
+        console.log('✅ Using userId field (custom doctor ID):', doctorId);
+      } else if (user.doctorId) {
+        doctorId = user.doctorId;
+        console.log('✅ Using doctorId field:', doctorId);
+      } else if (user.doctor && user.doctor.doctorId) {
+        doctorId = user.doctor.doctorId;
+        console.log('✅ Using doctor.doctorId field:', doctorId);
+      } else if (user._id && user.userType === 'doctor') {
+        // Fallback - but this will likely fail
+        console.warn('⚠️ No custom doctorId found, falling back to _id:', user._id);
+        doctorId = user._id;
+      }
+      
+      if (!doctorId) {
+        console.error('❌ Could not extract doctor ID. User object:', user);
+        return null;
+      }
+      
+      const doctorData = {
+        id: doctorId,
+        doctorId: doctorId,
+        name: user.name || user.fullName || user.doctor?.name || 'Unknown Doctor',
+        email: user.email,
+        userType: user.userType,
+        specialization: user.specialization || user.doctor?.specialization || 'General',
+        hospital: user.hospital || user.doctor?.hospital || 'General Hospital'
+      };
+      
+      console.log('👨‍⚕️ Doctor info extracted:', doctorData);
+      return doctorData;
+    } catch (e) {
+      console.error('Error parsing user data:', e);
+      return null;
     }
-    
-    // Filter by search
-    if (filters.search) {
-      const searchLower = filters.search.toLowerCase();
-      filtered = filtered.filter(fb => 
-        fb.patientName.toLowerCase().includes(searchLower) ||
-        fb.message.toLowerCase().includes(searchLower) ||
-        fb.title.toLowerCase().includes(searchLower)
-      );
+  };
+
+  // Get doctor info on component mount
+  useEffect(() => {
+    const doctor = getCurrentDoctor();
+    setDoctorInfo(doctor);
+  }, []);
+
+  const doctor = doctorInfo;
+  const doctorId = doctor?.doctorId; // Use the custom doctor ID, not MongoDB _id
+
+  console.log('🆔 Custom Doctor ID for API calls:', doctorId);
+  console.log('👨‍⚕️ Doctor name:', doctor?.name);
+
+  // Fetch feedbacks from API
+  const fetchFeedbacks = async (page = 1) => {
+    if (!doctorId) {
+      console.error('❌ No doctor ID found - Cannot fetch feedbacks');
+      setLoading(false);
+      setResponseError('Unable to identify doctor. Please logout and login again.');
+      return;
     }
+
+    setLoading(true);
+    setResponseError('');
     
-    setFilteredFeedbacks(filtered);
-  }, [filters, feedbacks]);
+    try {
+      const token = getToken();
+      if (!token) {
+        console.error('❌ No token found');
+        setResponseError('Please login again');
+        setLoading(false);
+        return;
+      }
+
+      // Build query params
+      const params = new URLSearchParams();
+      params.append('page', page);
+      params.append('limit', 20);
+      
+      if (filters.rating !== 'all') {
+        params.append('rating', filters.rating);
+      }
+      if (filters.dateRange !== 'all') {
+        params.append('dateRange', filters.dateRange);
+      }
+      if (filters.search) {
+        params.append('search', filters.search);
+      }
+
+      const url = `${API_URL}/feedback/doctor/${doctorId}?${params.toString()}`;
+      console.log('📡 Fetching URL:', url);
+      
+      const response = await axios.get(url, {
+        headers: { 
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      console.log('📥 API Response:', response.data);
+
+      if (response.data.success) {
+        setFeedbacks(response.data.feedbacks || []);
+        setFilteredFeedbacks(response.data.feedbacks || []);
+        
+        // Update stats from API response
+        if (response.data.stats) {
+          setStats({
+            averageRating: response.data.stats.averageRating || 0,
+            totalFeedbacks: response.data.stats.totalFeedbacks || 0,
+            recentFeedbacks: response.data.stats.recentFeedbacks || 0,
+            positivePercentage: response.data.stats.positivePercentage || 0
+          });
+        }
+        
+        setPagination({
+          currentPage: response.data.pagination?.currentPage || 1,
+          totalPages: response.data.pagination?.totalPages || 1,
+          totalItems: response.data.pagination?.totalItems || 0,
+          itemsPerPage: response.data.pagination?.itemsPerPage || 20
+        });
+
+        if (response.data.feedbacks?.length === 0) {
+          console.log('ℹ️ No feedbacks found for this doctor');
+        }
+      } else {
+        setResponseError(response.data.message || 'Failed to load feedbacks');
+      }
+    } catch (err) {
+      console.error('❌ Error fetching feedbacks:', err);
+      console.error('Error response:', err.response?.data);
+      
+      if (err.response?.status === 404) {
+        setResponseError(`Doctor not found. Please ensure you are logged in correctly. Doctor ID: ${doctorId}`);
+      } else if (err.response?.status === 403) {
+        setResponseError('You are not authorized to view these feedbacks. Please ensure you are logged in as the correct doctor.');
+      } else if (err.response?.status === 401) {
+        setResponseError('Session expired. Please login again.');
+      } else if (err.code === 'ERR_NETWORK') {
+        setResponseError('Cannot connect to server. Please make sure the backend server is running on port 5000.');
+      } else {
+        setResponseError(err.response?.data?.message || 'Failed to load feedbacks');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Apply filters locally
+  useEffect(() => {
+    if (feedbacks.length > 0) {
+      let filtered = [...feedbacks];
+      
+      if (filters.search) {
+        const searchLower = filters.search.toLowerCase();
+        filtered = filtered.filter(fb => 
+          (fb.patientName && fb.patientName.toLowerCase().includes(searchLower)) ||
+          (fb.message && fb.message.toLowerCase().includes(searchLower)) ||
+          (fb.title && fb.title.toLowerCase().includes(searchLower))
+        );
+      }
+      
+      setFilteredFeedbacks(filtered);
+    }
+  }, [filters.search, feedbacks]);
+
+  // Initial fetch
+  useEffect(() => {
+    if (doctorId) {
+      fetchFeedbacks();
+    }
+  }, [doctorId]);
+
+  // Refetch when filters change
+  useEffect(() => {
+    if (doctorId) {
+      fetchFeedbacks(1);
+    }
+  }, [filters.rating, filters.dateRange]);
 
   const handleFilterChange = (key, value) => {
     setFilters(prev => ({ ...prev, [key]: value }));
@@ -186,17 +257,64 @@ const DoctorFeedbackDashboard = () => {
 
   const handleViewFeedback = (feedback) => {
     setSelectedFeedback(feedback);
+    setResponseMessage('');
+    setResponseSuccess('');
+    setResponseError('');
   };
 
-  const handleResponseSubmit = (feedbackId, response) => {
-    // In real app, send to API
-    const updated = feedbacks.map(fb => 
-      fb.id === feedbackId 
-        ? { ...fb, responded: true, response }
-        : fb
-    );
-    setFeedbacks(updated);
-    setSelectedFeedback(prev => prev?.id === feedbackId ? { ...prev, responded: true, response } : prev);
+  const handleResponseSubmit = async (feedbackId, response) => {
+    if (!response.trim()) {
+      setResponseError('Please enter a response');
+      return;
+    }
+
+    setSubmittingResponse(true);
+    setResponseError('');
+    setResponseSuccess('');
+
+    try {
+      const token = getToken();
+      const responseData = await axios.put(
+        `${API_URL}/feedback/${feedbackId}/respond`,
+        { response },
+        {
+          headers: { 
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      if (responseData.data.success) {
+        setResponseSuccess('Response sent successfully!');
+        
+        // Update local state
+        const updatedFeedbacks = feedbacks.map(fb => 
+          fb._id === feedbackId 
+            ? { ...fb, responded: true, response, responseDate: new Date() }
+            : fb
+        );
+        setFeedbacks(updatedFeedbacks);
+        
+        setSelectedFeedback(prev => prev?._id === feedbackId 
+          ? { ...prev, responded: true, response, responseDate: new Date() }
+          : prev
+        );
+        
+        setResponseMessage('');
+        
+        setTimeout(() => setResponseSuccess(''), 3000);
+      }
+    } catch (err) {
+      console.error('Error submitting response:', err);
+      if (err.response?.status === 403) {
+        setResponseError('You can only respond to your own feedback');
+      } else {
+        setResponseError(err.response?.data?.message || 'Failed to submit response');
+      }
+    } finally {
+      setSubmittingResponse(false);
+    }
   };
 
   const getRatingColor = (rating) => {
@@ -209,10 +327,62 @@ const DoctorFeedbackDashboard = () => {
     switch(type) {
       case 'compliment': return <FaThumbsUp className="text-green-500" />;
       case 'suggestion': return <FaCommentAlt className="text-blue-500" />;
+      case 'bug':
       case 'technical': return <FaExclamationTriangle className="text-red-500" />;
       default: return <FaCommentAlt className="text-gray-500" />;
     }
   };
+
+  const formatDate = (dateString) => {
+    if (!dateString) return 'N/A';
+    const date = new Date(dateString);
+    return date.toLocaleDateString('en-IN', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric'
+    });
+  };
+
+  // Show loading while checking doctor info
+  if (!doctorInfo && loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-teal-50 to-blue-50 p-8 flex items-center justify-center">
+        <div className="text-center">
+          <FaSpinner className="text-5xl text-teal-600 animate-spin mx-auto mb-4" />
+          <p className="text-gray-600">Loading doctor information...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!doctorId || !doctorInfo) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-teal-50 to-blue-50 p-8 flex items-center justify-center">
+        <div className="bg-white rounded-2xl p-8 text-center shadow-xl max-w-md">
+          <FaExclamationTriangle className="text-5xl text-red-500 mx-auto mb-4" />
+          <h2 className="text-2xl font-bold text-gray-800 mb-2">Access Denied</h2>
+          <p className="text-gray-600 mb-4">Please login as a doctor to view this dashboard.</p>
+          <button 
+            onClick={() => window.location.href = '/login'}
+            className="px-6 py-2 bg-teal-600 text-white rounded-xl hover:bg-teal-700 transition-colors"
+          >
+            Go to Login
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (loading && feedbacks.length === 0) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-teal-50 to-blue-50 p-8 flex items-center justify-center">
+        <div className="text-center">
+          <FaSpinner className="text-5xl text-teal-600 animate-spin mx-auto mb-4" />
+          <p className="text-gray-600">Loading your feedback dashboard...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-teal-50 to-blue-50 p-4 md:p-6">
@@ -221,15 +391,27 @@ const DoctorFeedbackDashboard = () => {
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900 mb-2">Patient Feedback Dashboard</h1>
           <p className="text-gray-600">View and manage feedback from your patients</p>
-          <div className="flex items-center gap-4 mt-4">
-            <div className="px-4 py-2 bg-white rounded-xl border border-gray-200">
+          <div className="flex items-center gap-4 mt-4 flex-wrap">
+            <div className="px-4 py-2 bg-white rounded-xl border border-gray-200 shadow-sm">
               <span className="text-sm text-gray-500">Doctor:</span>
-              <span className="ml-2 font-bold text-teal-700">Dr. Arvind Sharma</span>
+              <span className="ml-2 font-bold text-teal-700">Dr. {doctor?.name || 'Loading...'}</span>
             </div>
-            <div className="px-4 py-2 bg-white rounded-xl border border-gray-200">
+            <div className="px-4 py-2 bg-white rounded-xl border border-gray-200 shadow-sm">
+              <span className="text-sm text-gray-500">Specialization:</span>
+              <span className="ml-2 font-bold text-gray-700">{doctor?.specialization || 'General'}</span>
+            </div>
+            <div className="px-4 py-2 bg-white rounded-xl border border-gray-200 shadow-sm">
               <span className="text-sm text-gray-500">Doctor ID:</span>
-              <span className="ml-2 font-bold text-gray-700">DOC001</span>
+              <span className="ml-2 font-mono text-xs text-gray-600">{doctorId}</span>
             </div>
+          </div>
+          
+          {/* Security Info */}
+          <div className="mt-4 p-3 bg-green-50 rounded-xl border border-green-200">
+            <p className="text-sm text-green-700 flex items-center gap-2">
+              <FaCheckCircle className="text-green-600" />
+              <strong>Secure Access:</strong> You are viewing feedback specifically for your practice only.
+            </p>
           </div>
         </div>
 
@@ -239,7 +421,7 @@ const DoctorFeedbackDashboard = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-500">Average Rating</p>
-                <p className="text-3xl font-bold text-gray-900">{stats.averageRating}/5</p>
+                <p className="text-3xl font-bold text-gray-900">{stats.averageRating || 0}/5</p>
               </div>
               <div className="p-3 bg-teal-50 rounded-xl">
                 <FaStar className="text-2xl text-amber-500" />
@@ -251,7 +433,7 @@ const DoctorFeedbackDashboard = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-500">Total Feedbacks</p>
-                <p className="text-3xl font-bold text-gray-900">{stats.totalFeedbacks}</p>
+                <p className="text-3xl font-bold text-gray-900">{stats.totalFeedbacks || 0}</p>
               </div>
               <div className="p-3 bg-blue-50 rounded-xl">
                 <FaCommentAlt className="text-2xl text-blue-500" />
@@ -263,7 +445,7 @@ const DoctorFeedbackDashboard = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-500">Positive Feedback</p>
-                <p className="text-3xl font-bold text-gray-900">{stats.positivePercentage}%</p>
+                <p className="text-3xl font-bold text-gray-900">{stats.positivePercentage || 0}%</p>
               </div>
               <div className="p-3 bg-green-50 rounded-xl">
                 <FaThumbsUp className="text-2xl text-green-500" />
@@ -275,7 +457,7 @@ const DoctorFeedbackDashboard = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-500">This Week</p>
-                <p className="text-3xl font-bold text-gray-900">{stats.recentFeedbacks}</p>
+                <p className="text-3xl font-bold text-gray-900">{stats.recentFeedbacks || 0}</p>
               </div>
               <div className="p-3 bg-purple-50 rounded-xl">
                 <FaCalendarAlt className="text-2xl text-purple-500" />
@@ -284,10 +466,18 @@ const DoctorFeedbackDashboard = () => {
           </div>
         </div>
 
+        {/* Error Message */}
+        {responseError && !loading && (
+          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl text-red-700 flex items-center gap-2">
+            <FaExclamationTriangle />
+            {responseError}
+          </div>
+        )}
+
         {/* Filters and Search */}
         <div className="bg-white rounded-2xl p-6 shadow-lg border border-gray-100 mb-6">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-4 flex-wrap">
               <div className="flex items-center gap-2">
                 <FaFilter className="text-gray-400" />
                 <span className="font-bold text-gray-700">Filters:</span>
@@ -337,38 +527,42 @@ const DoctorFeedbackDashboard = () => {
           <div className="lg:col-span-2">
             <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden">
               <div className="p-6 border-b border-gray-200">
-                <h2 className="text-xl font-bold text-gray-900">Patient Feedback ({filteredFeedbacks.length})</h2>
+                <h2 className="text-xl font-bold text-gray-900">
+                  Patient Feedback ({filteredFeedbacks.length} of {stats.totalFeedbacks})
+                </h2>
               </div>
               
               <div className="divide-y divide-gray-100 max-h-[600px] overflow-y-auto">
                 {filteredFeedbacks.length === 0 ? (
                   <div className="p-8 text-center">
+                    <FaCommentAlt className="text-4xl text-gray-300 mx-auto mb-3" />
                     <p className="text-gray-500">No feedback found matching your filters</p>
+                    <p className="text-sm text-gray-400 mt-2">When patients leave feedback, it will appear here</p>
                   </div>
                 ) : (
                   filteredFeedbacks.map((feedback) => (
                     <div 
-                      key={feedback.id}
+                      key={feedback._id}
                       className={`p-4 hover:bg-gray-50 cursor-pointer transition-colors ${
-                        selectedFeedback?.id === feedback.id ? 'bg-teal-50' : ''
+                        selectedFeedback?._id === feedback._id ? 'bg-teal-50 border-l-4 border-teal-500' : ''
                       }`}
                       onClick={() => handleViewFeedback(feedback)}
                     >
                       <div className="flex items-start justify-between">
                         <div className="flex-1">
-                          <div className="flex items-center gap-3 mb-2">
+                          <div className="flex items-center gap-3 mb-2 flex-wrap">
                             <div className={`px-2 py-1 rounded-lg ${getRatingColor(feedback.rating)}`}>
                               <span className="font-bold">{feedback.rating}.0</span>
                               <FaStar className="inline ml-1 text-amber-500" />
                             </div>
-                            <span className="text-sm text-gray-500">{feedback.date}</span>
+                            <span className="text-sm text-gray-500">{formatDate(feedback.createdAt)}</span>
                             <div className="flex items-center gap-1">
                               {getFeedbackTypeIcon(feedback.feedbackType)}
                               <span className="text-xs text-gray-500 capitalize">{feedback.feedbackType}</span>
                             </div>
                             {feedback.responded && (
-                              <span className="px-2 py-1 text-xs bg-green-100 text-green-700 rounded-full">
-                                Responded
+                              <span className="px-2 py-1 text-xs bg-green-100 text-green-700 rounded-full flex items-center gap-1">
+                                <FaCheckCircle size={10} /> Responded
                               </span>
                             )}
                           </div>
@@ -397,6 +591,29 @@ const DoctorFeedbackDashboard = () => {
                   ))
                 )}
               </div>
+              
+              {/* Pagination */}
+              {pagination.totalPages > 1 && (
+                <div className="p-4 border-t border-gray-200 flex justify-between items-center">
+                  <button
+                    onClick={() => fetchFeedbacks(pagination.currentPage - 1)}
+                    disabled={pagination.currentPage === 1}
+                    className="px-4 py-2 text-sm border rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50 transition-colors"
+                  >
+                    Previous
+                  </button>
+                  <span className="text-sm text-gray-600">
+                    Page {pagination.currentPage} of {pagination.totalPages}
+                  </span>
+                  <button
+                    onClick={() => fetchFeedbacks(pagination.currentPage + 1)}
+                    disabled={pagination.currentPage === pagination.totalPages}
+                    className="px-4 py-2 text-sm border rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50 transition-colors"
+                  >
+                    Next
+                  </button>
+                </div>
+              )}
             </div>
           </div>
           
@@ -409,19 +626,30 @@ const DoctorFeedbackDashboard = () => {
               
               {selectedFeedback ? (
                 <div className="p-6">
+                  {responseSuccess && (
+                    <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-xl text-green-600 text-sm flex items-center gap-2">
+                      <FaCheckCircle /> {responseSuccess}
+                    </div>
+                  )}
+                  {responseError && (
+                    <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl text-red-600 text-sm">
+                      {responseError}
+                    </div>
+                  )}
+                  
                   <div className="mb-6">
                     <div className="flex items-center justify-between mb-4">
                       <div className={`px-3 py-1 rounded-xl ${getRatingColor(selectedFeedback.rating)}`}>
                         <span className="font-bold text-lg">{selectedFeedback.rating}.0</span>
                         <FaStar className="inline ml-1" />
                       </div>
-                      <span className="text-sm text-gray-500">{selectedFeedback.date}</span>
+                      <span className="text-sm text-gray-500">{formatDate(selectedFeedback.createdAt)}</span>
                     </div>
                     
-                    <h3 className="text-2xl font-bold text-gray-900 mb-3">{selectedFeedback.title}</h3>
+                    <h3 className="text-xl font-bold text-gray-900 mb-3">{selectedFeedback.title}</h3>
                     
                     <div className="bg-gray-50 p-4 rounded-xl mb-4">
-                      <p className="text-gray-700">{selectedFeedback.message}</p>
+                      <p className="text-gray-700 whitespace-pre-wrap">{selectedFeedback.message}</p>
                     </div>
                     
                     <div className="grid grid-cols-2 gap-4 mb-6">
@@ -432,10 +660,6 @@ const DoctorFeedbackDashboard = () => {
                         </p>
                       </div>
                       <div>
-                        <p className="text-sm text-gray-500">Patient ID</p>
-                        <p className="font-bold text-gray-900">{selectedFeedback.patientId}</p>
-                      </div>
-                      <div>
                         <p className="text-sm text-gray-500">Consultation Type</p>
                         <p className="font-bold text-gray-900">{selectedFeedback.consultationType}</p>
                       </div>
@@ -443,25 +667,35 @@ const DoctorFeedbackDashboard = () => {
                         <p className="text-sm text-gray-500">Feedback Type</p>
                         <p className="font-bold text-gray-900 capitalize">{selectedFeedback.feedbackType}</p>
                       </div>
+                      <div>
+                        <p className="text-sm text-gray-500">Status</p>
+                        <p className={`font-bold ${selectedFeedback.resolved ? 'text-green-600' : 'text-yellow-600'}`}>
+                          {selectedFeedback.resolved ? 'Resolved' : 'Pending'}
+                        </p>
+                      </div>
                     </div>
                   </div>
                   
                   {/* Doctor's Response Section */}
                   <div className="mt-8 pt-6 border-t border-gray-200">
-                    <h3 className="font-bold text-gray-900 mb-4">Your Response</h3>
+                    <h3 className="font-bold text-gray-900 mb-4 flex items-center gap-2">
+                      <FaReply className="text-teal-500" /> Your Response
+                    </h3>
                     
                     {selectedFeedback.responded ? (
                       <div className="bg-teal-50 p-4 rounded-xl mb-4">
                         <div className="flex items-center gap-2 mb-2">
                           <span className="font-bold text-teal-700">Your Response:</span>
-                          <span className="text-sm text-gray-500">Sent on {selectedFeedback.date}</span>
+                          <span className="text-xs text-gray-500">
+                            {selectedFeedback.responseDate ? formatDate(selectedFeedback.responseDate) : ''}
+                          </span>
                         </div>
-                        <p className="text-gray-700">{selectedFeedback.response}</p>
+                        <p className="text-gray-700 whitespace-pre-wrap">{selectedFeedback.response}</p>
                         <button 
                           onClick={() => {
                             const newResponse = prompt("Edit your response:", selectedFeedback.response);
-                            if (newResponse) {
-                              handleResponseSubmit(selectedFeedback.id, newResponse);
+                            if (newResponse && newResponse.trim()) {
+                              handleResponseSubmit(selectedFeedback._id, newResponse);
                             }
                           }}
                           className="mt-3 text-sm text-teal-600 hover:text-teal-800"
@@ -472,38 +706,25 @@ const DoctorFeedbackDashboard = () => {
                     ) : (
                       <div>
                         <textarea
-                          id="doctorResponse"
+                          value={responseMessage}
+                          onChange={(e) => setResponseMessage(e.target.value)}
                           placeholder="Type your response to the patient..."
                           rows="4"
                           className="w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-teal-500 outline-none mb-3"
                         />
                         <button
-                          onClick={() => {
-                            const response = document.getElementById('doctorResponse').value;
-                            if (response.trim()) {
-                              handleResponseSubmit(selectedFeedback.id, response);
-                              document.getElementById('doctorResponse').value = '';
-                            }
-                          }}
-                          className="w-full py-3 bg-teal-600 text-white font-bold rounded-xl hover:bg-teal-700 transition-colors"
+                          onClick={() => handleResponseSubmit(selectedFeedback._id, responseMessage)}
+                          disabled={submittingResponse}
+                          className="w-full py-3 bg-teal-600 text-white font-bold rounded-xl hover:bg-teal-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                         >
-                          Send Response to Patient
+                          {submittingResponse ? <FaSpinner className="animate-spin" /> : <FaReply />}
+                          {submittingResponse ? 'Sending...' : 'Send Response to Patient'}
                         </button>
-                        <p className="text-sm text-gray-500 mt-2 text-center">
+                        <p className="text-xs text-gray-500 mt-2 text-center">
                           The patient will receive your response via notification
                         </p>
                       </div>
                     )}
-                  </div>
-                  
-                  {/* Action Buttons */}
-                  <div className="mt-6 flex gap-3">
-                    <button className="flex-1 py-2 border border-gray-300 text-gray-700 rounded-xl hover:bg-gray-50">
-                      Mark as Resolved
-                    </button>
-                    <button className="flex-1 py-2 bg-blue-600 text-white rounded-xl hover:bg-blue-700">
-                      Follow Up
-                    </button>
                   </div>
                 </div>
               ) : (
@@ -511,7 +732,7 @@ const DoctorFeedbackDashboard = () => {
                   <div className="p-4 bg-gray-100 rounded-full inline-block mb-4">
                     <FaEye className="text-3xl text-gray-400" />
                   </div>
-                  <p className="text-gray-500">Select a feedback to view details</p>
+                  <p className="text-gray-500">Select a feedback from the list to view details and respond</p>
                 </div>
               )}
             </div>
@@ -526,11 +747,11 @@ const DoctorFeedbackDashboard = () => {
               <p className="text-sm text-gray-500">Download your feedback data for analysis</p>
             </div>
             <div className="flex gap-3">
-              <button className="px-5 py-2 border border-gray-300 text-gray-700 rounded-xl hover:bg-gray-50 flex items-center gap-2">
+              <button className="px-5 py-2 border border-gray-300 text-gray-700 rounded-xl hover:bg-gray-50 flex items-center gap-2 transition-colors">
                 <FaDownload />
                 CSV Export
               </button>
-              <button className="px-5 py-2 bg-teal-600 text-white rounded-xl hover:bg-teal-700 flex items-center gap-2">
+              <button className="px-5 py-2 bg-teal-600 text-white rounded-xl hover:bg-teal-700 flex items-center gap-2 transition-colors">
                 <FaChartBar />
                 Generate Report
               </button>
