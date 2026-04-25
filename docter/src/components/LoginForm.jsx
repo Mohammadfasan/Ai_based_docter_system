@@ -1,8 +1,8 @@
-// LoginForm.jsx (Fixed with localStorage)
+// LoginForm.jsx (Updated with localStorage and MongoDB)
 import React, { useState } from 'react';
 import { 
   FaEnvelope, FaLock, FaUser, 
-  FaPhone, FaHospital, FaShieldAlt,
+  FaPhone, FaHospital, 
   FaTimes 
 } from 'react-icons/fa';
 import axios from 'axios';
@@ -88,14 +88,13 @@ const LoginForm = ({ onLogin }) => {
       console.log('📥 Login response:', response.data);
 
       if (response.data.success) {
-        // ✅ FIXED: Use localStorage instead of sessionStorage
+        // ✅ Using localStorage
         localStorage.setItem('token', response.data.token);
         localStorage.setItem('currentUser', JSON.stringify(response.data.user));
         localStorage.setItem('userType', formData.userType);
         
-        // Verify data was saved
-        console.log('✅ Token saved:', localStorage.getItem('token'));
-        console.log('✅ User saved:', localStorage.getItem('currentUser'));
+        console.log('✅ Token saved to localStorage');
+        console.log('✅ User saved to localStorage:', response.data.user);
         
         setServerMessage({ type: 'success', text: 'Login successful!' });
         
@@ -126,7 +125,7 @@ const LoginForm = ({ onLogin }) => {
       const response = await api.post('/signup', signupData);
 
       if (response.data.success) {
-        // ✅ FIXED: Use localStorage instead of sessionStorage
+        // ✅ Using localStorage
         localStorage.setItem('token', response.data.token);
         localStorage.setItem('currentUser', JSON.stringify(response.data.user));
         localStorage.setItem('userType', formData.userType);
@@ -134,18 +133,12 @@ const LoginForm = ({ onLogin }) => {
         setServerMessage({ type: 'success', text: 'Account created successfully!' });
         
         // Show user ID in alert
-        alert(`✅ Account created!\nYour ID: ${response.data.user.userId}\nPlease login with your credentials.`);
+        alert(`✅ Account created!\nYour ID: ${response.data.user.userId}\nYou are now logged in.`);
         
-        // Switch to login mode after signup
-        setIsLogin(true);
-        setFormData({
-          ...formData,
-          password: '',
-          confirmPassword: ''
-        });
-        
-        // Don't auto-login, let user login manually
-        setServerMessage({ type: 'info', text: 'Account created! Please login with your credentials.' });
+        // Call onLogin to redirect
+        setTimeout(() => {
+          onLogin(formData.userType, response.data.user);
+        }, 500);
       }
     } catch (error) {
       console.error('Signup error:', error);
@@ -267,7 +260,7 @@ const LoginForm = ({ onLogin }) => {
     });
   };
 
-  // User type selector (Google-style tabs)
+  // User type selector
   const UserTypeSelector = () => (
     <div className="flex justify-center space-x-2 mb-6">
       <button
@@ -321,7 +314,7 @@ const LoginForm = ({ onLogin }) => {
           <p className="text-gray-600 mt-2">Your Personal Health Assistant</p>
         </div>
 
-        {/* Main Card - Google Style */}
+        {/* Main Card */}
         <div className="bg-white rounded-2xl shadow-xl p-8 border border-gray-200">
           {/* Header */}
           <div className="text-center mb-6">
@@ -342,7 +335,7 @@ const LoginForm = ({ onLogin }) => {
           {formData.userType === 'doctor' && isLogin && (
             <div className="mb-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
               <p className="text-xs text-blue-700">
-                💡 Doctor login: Use the email provided by admin with password <strong>doctor123</strong>
+                💡 Doctor login: Use the email provided by admin
               </p>
             </div>
           )}
@@ -351,7 +344,7 @@ const LoginForm = ({ onLogin }) => {
           {formData.userType === 'admin' && isLogin && (
             <div className="mb-4 p-3 bg-purple-50 rounded-lg border border-purple-200">
               <p className="text-xs text-purple-700">
-                💡 Admin login: Use admin@healthai.com with password <strong>admin123</strong>
+                💡 Admin login: Use admin credentials provided by system
               </p>
             </div>
           )}

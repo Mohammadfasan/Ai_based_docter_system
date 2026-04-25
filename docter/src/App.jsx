@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, Link, useNavigate } from 'react-router-dom';
 
 // Auth & Layout
@@ -46,7 +46,7 @@ import Patients from './pages/Admin/patients';
 import AdminAppointments from './pages/Admin/AdminAppointments';
 import AdminMedicalRecords from './pages/Admin/AdminMedicalRecords';
 import AdminSettings from './pages/Admin/AdminSettings';
-import AdminNotifications from './pages/Admin/AdminNotifications'; // ✅ NEW: Admin Notifications
+import AdminNotifications from './pages/Admin/AdminNotifications';
 
 // Components
 import ChatSystem from './components/ChatSystem';
@@ -65,21 +65,79 @@ function App() {
   const [userType, setUserType] = useState('patient');
   const [userData, setUserData] = useState({});
   const [darkMode, setDarkMode] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  // Load user data from localStorage on app start
+  useEffect(() => {
+    const loadUserData = () => {
+      try {
+        const token = localStorage.getItem('token');
+        const userStr = localStorage.getItem('currentUser');
+        const storedUserType = localStorage.getItem('userType');
+        
+        console.log('Loading user data from localStorage:', { 
+          hasToken: !!token, 
+          hasUser: !!userStr,
+          userType: storedUserType
+        });
+        
+        if (token && userStr) {
+          const user = JSON.parse(userStr);
+          setIsAuthenticated(true);
+          setUserType(storedUserType || user.userType);
+          setUserData({
+            name: user.name,
+            email: user.email,
+            userId: user.userId || user.id,
+            phone: user.phone || '',
+            userType: storedUserType || user.userType,
+            createdAt: user.createdAt,
+            lastLogin: user.lastLogin
+          });
+        }
+      } catch (error) {
+        console.error('Error loading user data:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    loadUserData();
+  }, []);
 
   const handleLogin = (type, userInfo = {}) => {
+    console.log('🔐 handleLogin called:', { type, userInfo });
+    
     setIsAuthenticated(true);
     setUserType(type);
     
-    // Only use provided user info, no default data
-    setUserData(userInfo);
+    // Ensure userInfo has all required fields for Header
+    const completeUserInfo = {
+      name: userInfo.name || (type === 'doctor' ? 'Doctor User' : type === 'admin' ? 'Admin User' : 'Patient User'),
+      email: userInfo.email || `${type}@healthai.com`,
+      userId: userInfo.userId || userInfo._id || (type === 'doctor' ? 'DOC001' : type === 'admin' ? 'ADM001' : 'PAT001'),
+      phone: userInfo.phone || '',
+      userType: type,
+      createdAt: userInfo.createdAt || new Date().toISOString(),
+      lastLogin: new Date().toISOString(),
+      ...userInfo
+    };
+    
+    setUserData(completeUserInfo);
+    
+    // Ensure localStorage has complete data
+    localStorage.setItem('userType', type);
+    localStorage.setItem('currentUser', JSON.stringify(completeUserInfo));
+    
+    console.log('✅ User data saved:', completeUserInfo);
 
-    // Create welcome notification for admin if userInfo exists
-    if (type === 'admin' && userInfo.name) {
+    // Create welcome notification for admin
+    if (type === 'admin' && completeUserInfo.name) {
       const notifications = JSON.parse(localStorage.getItem('admin_notifications') || '[]');
       const welcomeNotif = {
         id: `NOT-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
         title: 'Welcome to Admin Panel',
-        message: `Welcome back, ${userInfo.name}! You have full system access.`,
+        message: `Welcome back, ${completeUserInfo.name}! You have full system access.`,
         type: 'system',
         priority: 'normal',
         recipientType: 'admin',
@@ -93,6 +151,13 @@ function App() {
   };
 
   const handleLogout = () => {
+    console.log('🔓 Logging out...');
+    
+    // Clear localStorage
+    localStorage.removeItem('token');
+    localStorage.removeItem('currentUser');
+    localStorage.removeItem('userType');
+    
     setIsAuthenticated(false);
     setUserType('patient');
     setUserData({});
@@ -135,6 +200,17 @@ function App() {
       </AdminLayout>
     );
   };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-teal-500 mx-auto mb-4"></div>
+          <p className="text-white">Loading...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <Router>
@@ -518,7 +594,7 @@ function App() {
               } 
             />
             
-            {/* ✅ ADMIN NOTIFICATIONS - Fully Integrated */}
+            {/* Admin Notifications */}
             <Route 
               path="/admin/notifications" 
               element={
@@ -528,7 +604,7 @@ function App() {
               } 
             />
             
-            {/* ✅ SYSTEM SETTINGS */}
+            {/* System Settings */}
             <Route 
               path="/admin/settings" 
               element={
@@ -817,37 +893,40 @@ function App() {
           </button>
         )}
         
-        {/* Quick Login Buttons (for testing) */}
+        {/* Quick Login Buttons (for testing) - Only show when not authenticated */}
         {!isAuthenticated && (
-          <div className="fixed top-4 right-4 flex space-x-2">
+          <div className="fixed top-4 right-4 flex space-x-2 z-50">
             <button 
               onClick={() => handleLogin('patient', { 
-                name: 'Patient User', 
-                userId: 'PAT001',
-                email: 'patient@example.com' 
+                name: 'Alex Johnson', 
+                userId: 'PAT-001',
+                email: 'alex.johnson@example.com',
+                phone: '+1 (555) 123-4567'
               })}
-              className="px-4 py-2 bg-teal-600 text-white rounded-lg text-sm"
+              className="px-4 py-2 bg-teal-600 text-white rounded-lg text-sm font-medium hover:bg-teal-700 transition-all shadow-lg"
             >
               Quick Patient
             </button>
             <button 
               onClick={() => handleLogin('doctor', { 
                 name: 'Dr. Sarah Johnson', 
-                userId: 'DOC001',
+                userId: 'DOC-001',
                 email: 'sarah.johnson@healthai.com',
+                phone: '+1 (555) 987-6543',
                 specialization: 'General Physician'
               })}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm"
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-all shadow-lg"
             >
               Quick Doctor
             </button>
             <button 
               onClick={() => handleLogin('admin', { 
                 name: 'Admin User', 
-                userId: 'ADM001',
-                email: 'admin@healthai.com' 
+                userId: 'ADM-001',
+                email: 'admin@healthai.com',
+                phone: '+1 (555) 000-0000'
               })}
-              className="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm"
+              className="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm font-medium hover:bg-purple-700 transition-all shadow-lg"
             >
               Quick Admin
             </button>

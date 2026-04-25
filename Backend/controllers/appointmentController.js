@@ -1145,3 +1145,30 @@ export const linkPrescriptionToAppointment = async (req, res) => {
     });
   }
 };
+// Get all appointments for admin
+export const getAllAppointments = async (req, res) => {
+  try {
+    // Only admin can access all appointments
+    if (req.user.userType !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied. Only admin can view all appointments.'
+      });
+    }
+
+    const appointments = await Appointment.find()
+      .sort({ createdAt: -1 });
+    
+    res.json({
+      success: true,
+      count: appointments.length,
+      data: appointments
+    });
+  } catch (error) {
+    console.error('Error fetching all appointments:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
