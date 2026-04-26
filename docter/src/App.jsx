@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, Link, useNavigate } from 'react-router-dom';
+import { motion, AnimatePresence } from 'framer-motion';
 
 // Auth & Layout
 import Login from './pages/Login';
@@ -66,6 +67,47 @@ function App() {
   const [userData, setUserData] = useState({});
   const [darkMode, setDarkMode] = useState(false);
   const [loading, setLoading] = useState(true);
+  const scrollContainerRef = useRef(null);
+
+  // Auto scroll functionality
+  useEffect(() => {
+    if (isAuthenticated && userType === 'patient' && scrollContainerRef.current) {
+      const container = scrollContainerRef.current;
+      let scrollAmount = 0;
+      let animationId;
+      
+      const autoScroll = () => {
+        if (container) {
+          scrollAmount += 1;
+          if (scrollAmount >= container.scrollWidth - container.clientWidth) {
+            scrollAmount = 0;
+          }
+          container.scrollLeft = scrollAmount;
+          animationId = requestAnimationFrame(autoScroll);
+        }
+      };
+      
+      animationId = requestAnimationFrame(autoScroll);
+      
+      // Pause on hover
+      const pauseScroll = () => {
+        cancelAnimationFrame(animationId);
+      };
+      
+      const resumeScroll = () => {
+        animationId = requestAnimationFrame(autoScroll);
+      };
+      
+      container.addEventListener('mouseenter', pauseScroll);
+      container.addEventListener('mouseleave', resumeScroll);
+      
+      return () => {
+        cancelAnimationFrame(animationId);
+        container.removeEventListener('mouseenter', pauseScroll);
+        container.removeEventListener('mouseleave', resumeScroll);
+      };
+    }
+  }, [isAuthenticated, userType]);
 
   // Load user data from localStorage on app start
   useEffect(() => {
@@ -225,87 +267,307 @@ function App() {
           />
         )}
         
-        {/* Patient Quick Access Bar - Only show for patients */}
+        {/* Patient Quick Access Bar - AUTO SCROLLING WITH NO SCROLLBAR */}
         {isAuthenticated && userType === 'patient' && (
-          <div className={`${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} border-b`}>
-            <div className="max-w-8xl mx-auto px-4 py-1">
-              <div className="flex overflow-x-auto space-x-3 py-2" style={{ scrollbarWidth: 'thin', scrollbarColor: '#0D9488 #f1f1f1' }}>
-                <Link 
-                  to="/ai-recommendation"
-                  className="flex items-center space-x-2 px-4 py-2 rounded-lg bg-gradient-to-r from-teal-500 to-teal-600 text-white text-sm font-medium whitespace-nowrap"
-                >
-                  <FaRobot />
-                  <span>AI Doctor Finder</span>
+          <div className={`${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} border-b relative overflow-hidden`}>
+            {/* Animated Gradient Background */}
+            <motion.div 
+              className="absolute inset-0 bg-gradient-to-r from-teal-500/10 via-transparent to-blue-500/10"
+              animate={{
+                x: ['-100%', '100%'],
+              }}
+              transition={{
+                duration: 12,
+                repeat: Infinity,
+                ease: "linear",
+              }}
+            />
+            
+            <div className="max-w-8xl mx-auto px-4 py-2 relative z-10">
+              {/* Auto scrolling container - NO SCROLLBAR */}
+              <div 
+                ref={scrollContainerRef}
+                className="flex space-x-4 py-2 overflow-x-auto scrollbar-hide"
+                style={{ 
+                  scrollbarWidth: 'none', 
+                  msOverflowStyle: 'none',
+                  WebkitOverflowScrolling: 'touch',
+                  cursor: 'grab'
+                }}
+              >
+                {/* Duplicate buttons for seamless scrolling */}
+                {/* First Set */}
+                <Link to="/ai-recommendation" className="block flex-shrink-0">
+                  <motion.div
+                    className="flex items-center space-x-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-teal-500 to-teal-600 text-white text-sm font-medium whitespace-nowrap shadow-lg cursor-pointer"
+                    whileHover={{ scale: 1.05, y: -2, transition: { duration: 0.2 } }}
+                    whileTap={{ scale: 0.95 }}
+                  >
+                    <FaRobot className="text-white text-base" />
+                    <span className="font-semibold tracking-wide">✨ AI Doctor Finder</span>
+                  </motion.div>
                 </Link>
-                <Link 
-                  to="/chat-system"
-                  className="flex items-center space-x-2 px-4 py-2 rounded-lg bg-gradient-to-r from-indigo-500 to-indigo-600 text-white text-sm font-medium whitespace-nowrap"
-                >
-                  <FaComment />
-                  <span>Chat System</span>
+                
+                <Link to="/chat-system" className="block flex-shrink-0">
+                  <motion.div
+                    className="flex items-center space-x-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-indigo-500 to-indigo-600 text-white text-sm font-medium whitespace-nowrap shadow-lg cursor-pointer"
+                    whileHover={{ scale: 1.05, y: -2, transition: { duration: 0.2 } }}
+                    whileTap={{ scale: 0.95 }}
+                  >
+                    <FaComment className="text-white text-base" />
+                    <span className="font-semibold tracking-wide">💬 Chat System</span>
+                  </motion.div>
                 </Link>
-                <Link 
-                  to="/ai-health-assistant"
-                  className="flex items-center space-x-2 px-4 py-2 rounded-lg bg-gradient-to-r from-purple-500 to-purple-600 text-white text-sm font-medium whitespace-nowrap"
-                >
-                  <FaBrain />
-                  <span>AI Assistant</span>
+                
+                <Link to="/ai-health-assistant" className="block flex-shrink-0">
+                  <motion.div
+                    className="flex items-center space-x-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-purple-500 to-purple-600 text-white text-sm font-medium whitespace-nowrap shadow-lg cursor-pointer"
+                    whileHover={{ scale: 1.05, y: -2, transition: { duration: 0.2 } }}
+                    whileTap={{ scale: 0.95 }}
+                  >
+                    <FaBrain className="text-white text-base" />
+                    <span className="font-semibold tracking-wide">🧠 AI Assistant</span>
+                  </motion.div>
                 </Link>
-                <Link 
-                  to="/mental-health"
-                  className="flex items-center space-x-2 px-4 py-2 rounded-lg bg-gradient-to-r from-pink-500 to-rose-500 text-white text-sm font-medium whitespace-nowrap"
-                >
-                  <FaHeart />
-                  <span>Mental Health</span>
+                
+                <Link to="/mental-health" className="block flex-shrink-0">
+                  <motion.div
+                    className="flex items-center space-x-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-pink-500 to-rose-500 text-white text-sm font-medium whitespace-nowrap shadow-lg cursor-pointer"
+                    whileHover={{ scale: 1.05, y: -2, transition: { duration: 0.2 } }}
+                    whileTap={{ scale: 0.95 }}
+                  >
+                    <motion.div
+                      animate={{ scale: [1, 1.2, 1] }}
+                      transition={{ duration: 0.8, repeat: Infinity }}
+                    >
+                      <FaHeart className="text-white text-base" />
+                    </motion.div>
+                    <span className="font-semibold tracking-wide">💖 Mental Health</span>
+                  </motion.div>
                 </Link>
-                <Link 
-                  to="/family-health"
-                  className="flex items-center space-x-2 px-4 py-2 rounded-lg bg-gradient-to-r from-blue-500 to-cyan-500 text-white text-sm font-medium whitespace-nowrap"
-                >
-                  <FaUsers />
-                  <span>Family Health</span>
+                
+                <Link to="/family-health" className="block flex-shrink-0">
+                  <motion.div
+                    className="flex items-center space-x-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-blue-500 to-cyan-500 text-white text-sm font-medium whitespace-nowrap shadow-lg cursor-pointer"
+                    whileHover={{ scale: 1.05, y: -2, transition: { duration: 0.2 } }}
+                    whileTap={{ scale: 0.95 }}
+                  >
+                    <FaUsers className="text-white text-base" />
+                    <span className="font-semibold tracking-wide">👨‍👩‍👧‍👦 Family Health</span>
+                  </motion.div>
                 </Link>
-                <Link 
-                  to="/health-monitor"
-                  className="flex items-center space-x-2 px-4 py-2 rounded-lg bg-gradient-to-r from-red-500 to-red-600 text-white text-sm font-medium whitespace-nowrap"
-                >
-                  <FaHeartbeat />
-                  <span>Health Monitor</span>
+                
+                <Link to="/health-monitor" className="block flex-shrink-0">
+                  <motion.div
+                    className="flex items-center space-x-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-red-500 to-red-600 text-white text-sm font-medium whitespace-nowrap shadow-lg cursor-pointer"
+                    whileHover={{ scale: 1.05, y: -2, transition: { duration: 0.2 } }}
+                    whileTap={{ scale: 0.95 }}
+                  >
+                    <motion.div
+                      animate={{ scale: [1, 1.15, 1] }}
+                      transition={{ duration: 0.6, repeat: Infinity }}
+                    >
+                      <FaHeartbeat className="text-white text-base" />
+                    </motion.div>
+                    <span className="font-semibold tracking-wide">📊 Health Monitor</span>
+                  </motion.div>
                 </Link>
-                <Link 
-                  to="/emergency-sos"
-                  className="flex items-center space-x-2 px-4 py-2 rounded-lg bg-gradient-to-r from-orange-500 to-orange-600 text-white text-sm font-medium whitespace-nowrap"
-                >
-                  <FaAmbulance />
-                  <span>Emergency SOS</span>
+                
+                <Link to="/emergency-sos" className="block flex-shrink-0">
+                  <motion.div
+                    className="flex items-center space-x-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-orange-500 to-orange-600 text-white text-sm font-medium whitespace-nowrap shadow-lg cursor-pointer"
+                    whileHover={{ scale: 1.05, y: -2, transition: { duration: 0.2 } }}
+                    whileTap={{ scale: 0.95 }}
+                  >
+                    <motion.div
+                      animate={{ y: [0, -3, 0] }}
+                      transition={{ duration: 0.5, repeat: Infinity }}
+                    >
+                      <FaAmbulance className="text-white text-base" />
+                    </motion.div>
+                    <span className="font-semibold tracking-wide">🚨 Emergency SOS</span>
+                  </motion.div>
                 </Link>
-                <Link 
-                  to="/medicine-delivery"
-                  className="flex items-center space-x-2 px-4 py-2 rounded-lg bg-gradient-to-r from-blue-500 to-blue-600 text-white text-sm font-medium whitespace-nowrap"
-                >
-                  <FaPills />
-                  <span>Medicine Delivery</span>
+                
+                <Link to="/medicine-delivery" className="block flex-shrink-0">
+                  <motion.div
+                    className="flex items-center space-x-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-blue-500 to-blue-600 text-white text-sm font-medium whitespace-nowrap shadow-lg cursor-pointer"
+                    whileHover={{ scale: 1.05, y: -2, transition: { duration: 0.2 } }}
+                    whileTap={{ scale: 0.95 }}
+                  >
+                    <FaPills className="text-white text-base" />
+                    <span className="font-semibold tracking-wide">💊 Medicine Delivery</span>
+                  </motion.div>
                 </Link>
-                <Link 
-                  to="/health-insurance"
-                  className="flex items-center space-x-2 px-4 py-2 rounded-lg bg-gradient-to-r from-indigo-500 to-indigo-600 text-white text-sm font-medium whitespace-nowrap"
-                >
-                  <FaShieldAlt />
-                  <span>Health Insurance</span>
+                
+                <Link to="/health-insurance" className="block flex-shrink-0">
+                  <motion.div
+                    className="flex items-center space-x-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-indigo-500 to-indigo-600 text-white text-sm font-medium whitespace-nowrap shadow-lg cursor-pointer"
+                    whileHover={{ scale: 1.05, y: -2, transition: { duration: 0.2 } }}
+                    whileTap={{ scale: 0.95 }}
+                  >
+                    <FaShieldAlt className="text-white text-base" />
+                    <span className="font-semibold tracking-wide">🛡️ Health Insurance</span>
+                  </motion.div>
                 </Link>
-                <Link 
-                  to="/nutrition"
-                  className="flex items-center space-x-2 px-4 py-2 rounded-lg bg-gradient-to-r from-green-500 to-green-600 text-white text-sm font-medium whitespace-nowrap"
-                >
-                  <FaAppleAlt />
-                  <span>Nutrition Planner</span>
+                
+                <Link to="/nutrition" className="block flex-shrink-0">
+                  <motion.div
+                    className="flex items-center space-x-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-green-500 to-green-600 text-white text-sm font-medium whitespace-nowrap shadow-lg cursor-pointer"
+                    whileHover={{ scale: 1.05, y: -2, transition: { duration: 0.2 } }}
+                    whileTap={{ scale: 0.95 }}
+                  >
+                    <FaAppleAlt className="text-white text-base" />
+                    <span className="font-semibold tracking-wide">🍎 Nutrition Planner</span>
+                  </motion.div>
                 </Link>
-                <Link 
-                  to="/feedback"
-                  className="flex items-center space-x-2 px-4 py-2 rounded-lg bg-gradient-to-r from-amber-500 to-amber-600 text-white text-sm font-medium whitespace-nowrap"
-                >
-                  <FaComment />
-                  <span>Feedback</span>
+                
+                <Link to="/feedback" className="block flex-shrink-0">
+                  <motion.div
+                    className="flex items-center space-x-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 text-white text-sm font-medium whitespace-nowrap shadow-lg cursor-pointer"
+                    whileHover={{ scale: 1.05, y: -2, transition: { duration: 0.2 } }}
+                    whileTap={{ scale: 0.95 }}
+                  >
+                    <FaComment className="text-white text-base" />
+                    <span className="font-semibold tracking-wide">⭐ Feedback</span>
+                  </motion.div>
+                </Link>
+                
+                {/* Duplicate second set for seamless looping */}
+                <Link to="/ai-recommendation" className="block flex-shrink-0">
+                  <motion.div
+                    className="flex items-center space-x-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-teal-500 to-teal-600 text-white text-sm font-medium whitespace-nowrap shadow-lg cursor-pointer"
+                    whileHover={{ scale: 1.05, y: -2, transition: { duration: 0.2 } }}
+                    whileTap={{ scale: 0.95 }}
+                  >
+                    <FaRobot className="text-white text-base" />
+                    <span className="font-semibold tracking-wide">✨ AI Doctor Finder</span>
+                  </motion.div>
+                </Link>
+                
+                <Link to="/chat-system" className="block flex-shrink-0">
+                  <motion.div
+                    className="flex items-center space-x-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-indigo-500 to-indigo-600 text-white text-sm font-medium whitespace-nowrap shadow-lg cursor-pointer"
+                    whileHover={{ scale: 1.05, y: -2, transition: { duration: 0.2 } }}
+                    whileTap={{ scale: 0.95 }}
+                  >
+                    <FaComment className="text-white text-base" />
+                    <span className="font-semibold tracking-wide">💬 Chat System</span>
+                  </motion.div>
+                </Link>
+                
+                <Link to="/ai-health-assistant" className="block flex-shrink-0">
+                  <motion.div
+                    className="flex items-center space-x-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-purple-500 to-purple-600 text-white text-sm font-medium whitespace-nowrap shadow-lg cursor-pointer"
+                    whileHover={{ scale: 1.05, y: -2, transition: { duration: 0.2 } }}
+                    whileTap={{ scale: 0.95 }}
+                  >
+                    <FaBrain className="text-white text-base" />
+                    <span className="font-semibold tracking-wide">🧠 AI Assistant</span>
+                  </motion.div>
+                </Link>
+                
+                <Link to="/mental-health" className="block flex-shrink-0">
+                  <motion.div
+                    className="flex items-center space-x-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-pink-500 to-rose-500 text-white text-sm font-medium whitespace-nowrap shadow-lg cursor-pointer"
+                    whileHover={{ scale: 1.05, y: -2, transition: { duration: 0.2 } }}
+                    whileTap={{ scale: 0.95 }}
+                  >
+                    <motion.div
+                      animate={{ scale: [1, 1.2, 1] }}
+                      transition={{ duration: 0.8, repeat: Infinity }}
+                    >
+                      <FaHeart className="text-white text-base" />
+                    </motion.div>
+                    <span className="font-semibold tracking-wide">💖 Mental Health</span>
+                  </motion.div>
+                </Link>
+                
+                <Link to="/family-health" className="block flex-shrink-0">
+                  <motion.div
+                    className="flex items-center space-x-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-blue-500 to-cyan-500 text-white text-sm font-medium whitespace-nowrap shadow-lg cursor-pointer"
+                    whileHover={{ scale: 1.05, y: -2, transition: { duration: 0.2 } }}
+                    whileTap={{ scale: 0.95 }}
+                  >
+                    <FaUsers className="text-white text-base" />
+                    <span className="font-semibold tracking-wide">👨‍👩‍👧‍👦 Family Health</span>
+                  </motion.div>
+                </Link>
+                
+                <Link to="/health-monitor" className="block flex-shrink-0">
+                  <motion.div
+                    className="flex items-center space-x-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-red-500 to-red-600 text-white text-sm font-medium whitespace-nowrap shadow-lg cursor-pointer"
+                    whileHover={{ scale: 1.05, y: -2, transition: { duration: 0.2 } }}
+                    whileTap={{ scale: 0.95 }}
+                  >
+                    <motion.div
+                      animate={{ scale: [1, 1.15, 1] }}
+                      transition={{ duration: 0.6, repeat: Infinity }}
+                    >
+                      <FaHeartbeat className="text-white text-base" />
+                    </motion.div>
+                    <span className="font-semibold tracking-wide">📊 Health Monitor</span>
+                  </motion.div>
+                </Link>
+                
+                <Link to="/emergency-sos" className="block flex-shrink-0">
+                  <motion.div
+                    className="flex items-center space-x-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-orange-500 to-orange-600 text-white text-sm font-medium whitespace-nowrap shadow-lg cursor-pointer"
+                    whileHover={{ scale: 1.05, y: -2, transition: { duration: 0.2 } }}
+                    whileTap={{ scale: 0.95 }}
+                  >
+                    <motion.div
+                      animate={{ y: [0, -3, 0] }}
+                      transition={{ duration: 0.5, repeat: Infinity }}
+                    >
+                      <FaAmbulance className="text-white text-base" />
+                    </motion.div>
+                    <span className="font-semibold tracking-wide">🚨 Emergency SOS</span>
+                  </motion.div>
+                </Link>
+                
+                <Link to="/medicine-delivery" className="block flex-shrink-0">
+                  <motion.div
+                    className="flex items-center space-x-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-blue-500 to-blue-600 text-white text-sm font-medium whitespace-nowrap shadow-lg cursor-pointer"
+                    whileHover={{ scale: 1.05, y: -2, transition: { duration: 0.2 } }}
+                    whileTap={{ scale: 0.95 }}
+                  >
+                    <FaPills className="text-white text-base" />
+                    <span className="font-semibold tracking-wide">💊 Medicine Delivery</span>
+                  </motion.div>
+                </Link>
+                
+                <Link to="/health-insurance" className="block flex-shrink-0">
+                  <motion.div
+                    className="flex items-center space-x-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-indigo-500 to-indigo-600 text-white text-sm font-medium whitespace-nowrap shadow-lg cursor-pointer"
+                    whileHover={{ scale: 1.05, y: -2, transition: { duration: 0.2 } }}
+                    whileTap={{ scale: 0.95 }}
+                  >
+                    <FaShieldAlt className="text-white text-base" />
+                    <span className="font-semibold tracking-wide">🛡️ Health Insurance</span>
+                  </motion.div>
+                </Link>
+                
+                <Link to="/nutrition" className="block flex-shrink-0">
+                  <motion.div
+                    className="flex items-center space-x-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-green-500 to-green-600 text-white text-sm font-medium whitespace-nowrap shadow-lg cursor-pointer"
+                    whileHover={{ scale: 1.05, y: -2, transition: { duration: 0.2 } }}
+                    whileTap={{ scale: 0.95 }}
+                  >
+                    <FaAppleAlt className="text-white text-base" />
+                    <span className="font-semibold tracking-wide">🍎 Nutrition Planner</span>
+                  </motion.div>
+                </Link>
+                
+                <Link to="/feedback" className="block flex-shrink-0">
+                  <motion.div
+                    className="flex items-center space-x-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 text-white text-sm font-medium whitespace-nowrap shadow-lg cursor-pointer"
+                    whileHover={{ scale: 1.05, y: -2, transition: { duration: 0.2 } }}
+                    whileTap={{ scale: 0.95 }}
+                  >
+                    <FaComment className="text-white text-base" />
+                    <span className="font-semibold tracking-wide">⭐ Feedback</span>
+                  </motion.div>
                 </Link>
               </div>
             </div>
@@ -876,9 +1138,19 @@ function App() {
         
         {/* Voice Assistant Button - Hide for admin */}
         {isAuthenticated && userType !== 'admin' && (
-          <button
-            className="fixed bottom-6 right-6 w-14 h-14 bg-gradient-to-r from-teal-500 to-teal-600 rounded-full shadow-lg flex items-center justify-center text-white hover:scale-110 transition-transform"
+          <motion.button
+            className="fixed bottom-6 right-6 w-14 h-14 bg-gradient-to-r from-teal-500 to-teal-600 rounded-full shadow-lg flex items-center justify-center text-white"
             title="Voice Assistant"
+            whileHover={{ scale: 1.1 }}
+            whileTap={{ scale: 0.9 }}
+            animate={{ 
+              y: [0, -8, 0],
+            }}
+            transition={{
+              duration: 1.5,
+              repeat: Infinity,
+              ease: "easeInOut"
+            }}
             onClick={() => {
               if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
                 alert('Voice assistant activated. Say "book appointment", "emergency", "my prescriptions", or "open chat"');
@@ -890,13 +1162,20 @@ function App() {
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
             </svg>
-          </button>
+          </motion.button>
         )}
         
         {/* Quick Login Buttons (for testing) - Only show when not authenticated */}
         {!isAuthenticated && (
-          <div className="fixed top-4 right-4 flex space-x-2 z-50">
-            <button 
+          <motion.div 
+            className="fixed top-4 right-4 flex space-x-2 z-50"
+            initial={{ opacity: 0, x: 100 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.5 }}
+          >
+            <motion.button 
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
               onClick={() => handleLogin('patient', { 
                 name: 'Alex Johnson', 
                 userId: 'PAT-001',
@@ -906,8 +1185,10 @@ function App() {
               className="px-4 py-2 bg-teal-600 text-white rounded-lg text-sm font-medium hover:bg-teal-700 transition-all shadow-lg"
             >
               Quick Patient
-            </button>
-            <button 
+            </motion.button>
+            <motion.button 
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
               onClick={() => handleLogin('doctor', { 
                 name: 'Dr. Sarah Johnson', 
                 userId: 'DOC-001',
@@ -918,8 +1199,10 @@ function App() {
               className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-all shadow-lg"
             >
               Quick Doctor
-            </button>
-            <button 
+            </motion.button>
+            <motion.button 
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
               onClick={() => handleLogin('admin', { 
                 name: 'Admin User', 
                 userId: 'ADM-001',
@@ -929,8 +1212,8 @@ function App() {
               className="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm font-medium hover:bg-purple-700 transition-all shadow-lg"
             >
               Quick Admin
-            </button>
-          </div>
+            </motion.button>
+          </motion.div>
         )}
       </div>
     </Router>
