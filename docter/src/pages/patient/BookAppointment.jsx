@@ -1,10 +1,12 @@
-// BookAppointment.jsx - Using ONLY MongoDB (no localStorage)
+// BookAppointment.jsx - Updated with Header Description
+
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { 
   Calendar, Clock, Video, Hospital, ArrowLeft, 
   MapPin, Stethoscope, DollarSign, AlertCircle,
-  Clock as ClockIcon
+  Clock as ClockIcon, CheckCircle, Shield, Bell, 
+  Sparkles, Search, UserCheck, Heart
 } from 'lucide-react';
 import { doctorScheduleService } from '../../services/doctorScheduleService';
 import { doctorAPI } from '../../services/api';
@@ -41,7 +43,6 @@ const BookAppointment = () => {
     try {
       console.log('🔍 Loading doctor with ID:', doctorId);
       
-      // Load doctor details from API
       const doctorResponse = await doctorAPI.getDoctorById(doctorId);
       
       let doctorData = null;
@@ -90,7 +91,6 @@ const BookAppointment = () => {
         throw new Error(doctorResponse.message || 'Doctor not found');
       }
       
-      // Load available slots from API
       await refreshSlots();
       
     } catch (error) {
@@ -106,7 +106,6 @@ const BookAppointment = () => {
     try {
       console.log('🔄 Refreshing available slots from MongoDB...');
       
-      // Get slots from API only (no localStorage)
       const slotsResponse = await doctorScheduleService.getAvailableSlots(doctorId);
       
       let slots = [];
@@ -118,13 +117,11 @@ const BookAppointment = () => {
         slots = slotsResponse.data;
       }
       
-      // Filter for future slots only and available status
       const today = new Date().toISOString().split('T')[0];
       const available = slots.filter(slot => 
         slot.date >= today && slot.status === 'available'
       );
       
-      // Sort by date
       available.sort((a, b) => a.date.localeCompare(b.date));
       
       console.log('✅ Available slots from MongoDB:', available.length);
@@ -134,7 +131,6 @@ const BookAppointment = () => {
         setSelectedDate(available[0].date);
       }
       
-      // Clear selected slot if it's no longer available
       if (selectedSlot) {
         const stillAvailable = available.find(s => 
           s.date === selectedSlot.date && s.time === selectedSlot.time
@@ -153,7 +149,6 @@ const BookAppointment = () => {
     }
   };
 
-  // Verify slot is still available before booking
   const verifySlotBeforeBooking = async () => {
     if (!selectedSlot) return false;
     
@@ -194,7 +189,6 @@ const BookAppointment = () => {
       return;
     }
 
-    // Verify slot is still available
     const isValid = await verifySlotBeforeBooking();
     if (!isValid) return;
 
@@ -213,7 +207,6 @@ const BookAppointment = () => {
     const patientEmail = currentUser.email || '';
     const patientPhone = currentUser.phone || currentUser.mobile || currentUser.contactNumber || 'Not provided';
 
-    // Create appointment object matching controller expectations
     const appointmentData = {
       doctorId: doctorId,
       doctorName: doctor.name,
@@ -240,7 +233,6 @@ const BookAppointment = () => {
         setBooking(response.data);
         setBookingSuccess(true);
         
-        // Refresh slots to update availability
         await refreshSlots();
       } else {
         throw new Error(response.message || 'Failed to book appointment');
@@ -248,10 +240,8 @@ const BookAppointment = () => {
     } catch (error) {
       console.error('❌ Booking failed:', error);
       
-      // Handle 409 conflict (slot already booked)
       if (error.response?.status === 409) {
         setBookingError(error.response?.data?.message || 'This time slot is no longer available. Please select another slot.');
-        // Refresh slots to remove the booked slot
         await refreshSlots();
         setSelectedSlot(null);
       } else {
@@ -308,40 +298,112 @@ const BookAppointment = () => {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white pb-24">
-      {/* Header */}
-      <div className="bg-[#0f172a] pt-24 pb-16 px-6 relative overflow-hidden">
-        <div className="max-w-4xl mx-auto">
-          <div className="flex justify-between items-center mb-6">
+      {/* Header with Description */}
+      <div className="bg-gradient-to-br from-teal-900 via-[#0f172a] to-slate-900 pt-24 pb-20 px-6 relative overflow-hidden">
+        {/* Background Pattern */}
+        <div className="absolute inset-0 opacity-10">
+          <div className="absolute top-10 left-10 w-72 h-72 bg-teal-400 rounded-full blur-3xl"></div>
+          <div className="absolute bottom-10 right-10 w-96 h-96 bg-blue-400 rounded-full blur-3xl"></div>
+        </div>
+        
+        <div className="max-w-7xl mx-auto relative z-10">
+          <div className="flex justify-between items-center mb-8">
             <button 
               onClick={() => navigate('/doctors')}
-              className="text-white/70 hover:text-white transition-colors flex items-center gap-2"
+              className="text-white/70 hover:text-white transition-colors flex items-center gap-2 bg-white/10 backdrop-blur-sm px-4 py-2 rounded-xl"
             >
-              <ArrowLeft size={20} />
+              <ArrowLeft size={18} />
               <span className="text-sm font-medium">Back to Doctors</span>
             </button>
             
             <button 
               onClick={() => navigate('/appointments')}
-              className="bg-teal-500/20 hover:bg-teal-500/30 text-white px-4 py-2 rounded-xl text-sm font-bold transition-all flex items-center gap-2"
+              className="bg-teal-500/20 hover:bg-teal-500/30 backdrop-blur-sm text-white px-4 py-2 rounded-xl text-sm font-bold transition-all flex items-center gap-2"
             >
               <Calendar size={16} />
               My Appointments
             </button>
           </div>
           
-          <div className="text-center">
-            <h1 className="text-4xl font-black text-white mb-4">Book Appointment</h1>
-            <p className="text-slate-400">Schedule your consultation with Dr. {doctor.name}</p>
+          {/* Main Header Content */}
+          <div className="text-center max-w-4xl mx-auto">
+            {/* Animated Icon */}
+            <div className="inline-flex items-center justify-center mb-6">
+              <div className="bg-gradient-to-r from-teal-400 to-emerald-400 p-3 rounded-2xl shadow-lg animate-pulse">
+                <Heart size={32} className="text-white" />
+              </div>
+            </div>
+            
+            <h1 className="text-5xl md:text-6xl font-black text-white mb-6 tracking-tight">
+              Book Your Appointment
+            </h1>
+            
+            {/* Description Card */}
+            <div className="bg-white/10 backdrop-blur-md rounded-2xl p-6 mb-6 border border-white/20">
+              <div className="flex flex-col md:flex-row gap-6 items-center justify-center">
+                <div className="flex items-center gap-3">
+                  <div className="bg-teal-500/30 p-2 rounded-full">
+                    <Search size={20} className="text-teal-300" />
+                  </div>
+                  <div>
+                    <p className="text-white font-bold text-sm">Step 1</p>
+                    <p className="text-teal-200 text-sm">Share Your Symptoms</p>
+                  </div>
+                </div>
+                
+                <div className="hidden md:block text-white/30 text-2xl">→</div>
+                
+                <div className="flex items-center gap-3">
+                  <div className="bg-teal-500/30 p-2 rounded-full">
+                    <Sparkles size={20} className="text-teal-300" />
+                  </div>
+                  <div>
+                    <p className="text-white font-bold text-sm">Step 2</p>
+                    <p className="text-teal-200 text-sm">Perfect Doctor Match</p>
+                  </div>
+                </div>
+                
+                <div className="hidden md:block text-white/30 text-2xl">→</div>
+                
+                <div className="flex items-center gap-3">
+                  <div className="bg-teal-500/30 p-2 rounded-full">
+                    <UserCheck size={20} className="text-teal-300" />
+                  </div>
+                  <div>
+                    <p className="text-white font-bold text-sm">Step 3</p>
+                    <p className="text-teal-200 text-sm">Doctor Confirms</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <p className="text-slate-300 text-lg md:text-xl leading-relaxed">
+              <span className="font-bold text-teal-300">✨ Find your perfect doctor match based on your symptoms!</span>
+              <br />
+              Request an appointment and it will appear in <span className="font-semibold text-white">"My Appointments"</span> 
+              once the <span className="font-semibold text-teal-300">doctor confirms</span> your request.
+            </p>
+            
+            <div className="flex flex-wrap gap-3 justify-center mt-6">
+              <div className="bg-amber-500/20 backdrop-blur-sm rounded-full px-4 py-1.5 inline-flex items-center gap-2">
+                <ClockIcon size={14} className="text-amber-300" />
+                <span className="text-amber-200 text-xs font-medium">Pending until doctor confirms</span>
+              </div>
+              <div className="bg-emerald-500/20 backdrop-blur-sm rounded-full px-4 py-1.5 inline-flex items-center gap-2">
+                <Bell size={14} className="text-emerald-300" />
+                <span className="text-emerald-200 text-xs font-medium">Get notification on confirmation</span>
+              </div>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Main Content */}
-      <div className="max-w-4xl mx-auto px-6 mt-12">
+      {/* Main Content - Wider w-9xl */}
+      <div className="max-w-7xl mx-auto px-6 mt-12">
         {/* Doctor Info Card */}
-        <div className="bg-white rounded-3xl shadow-xl p-6 mb-8">
+        <div className="bg-white rounded-3xl shadow-xl p-6 mb-8 transform transition-all hover:shadow-2xl">
           <div className="flex flex-col md:flex-row gap-6 items-start">
-            <div className="w-24 h-24 rounded-2xl overflow-hidden bg-teal-100 flex-shrink-0">
+            <div className="w-24 h-24 rounded-2xl overflow-hidden bg-gradient-to-br from-teal-100 to-emerald-100 flex-shrink-0 shadow-md">
               <img 
                 src={doctor.image || `https://ui-avatars.com/api/?name=${doctor.name?.charAt(0)}&background=0D9488&color=fff&size=100`}
                 alt={doctor.name}
@@ -352,6 +414,10 @@ const BookAppointment = () => {
               />
             </div>
             <div className="flex-1">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="bg-teal-100 text-teal-700 text-xs font-bold px-2 py-1 rounded-full">⭐ {doctor.rating || 4.5}</span>
+                <span className="bg-slate-100 text-slate-600 text-xs font-bold px-2 py-1 rounded-full">{doctor.experience}</span>
+              </div>
               <h2 className="text-2xl font-black text-slate-800 mb-2">Dr. {doctor.name}</h2>
               <p className="text-teal-600 font-semibold mb-3">{doctor.specialization}</p>
               <div className="flex flex-wrap gap-4 text-sm text-slate-500">
@@ -376,7 +442,7 @@ const BookAppointment = () => {
           </div>
         </div>
 
-        {/* Booking Form */}
+        {/* Booking Form - Wider card */}
         <div className="bg-white rounded-3xl shadow-xl p-8">
           <div className="flex items-center justify-between mb-6">
             <h3 className="text-xl font-black text-slate-800 flex items-center gap-2">
@@ -401,34 +467,60 @@ const BookAppointment = () => {
           )}
 
           {bookingSuccess && (
-            <div className="mb-6 p-6 bg-amber-50 border border-amber-200 rounded-2xl">
-              <div className="flex items-start gap-3">
-                <ClockIcon size={24} className="text-amber-600 flex-shrink-0 mt-1" />
+            <div className="mb-6 p-6 bg-gradient-to-r from-amber-50 to-orange-50 border-2 border-amber-300 rounded-2xl shadow-lg">
+              <div className="flex items-start gap-4">
+                <div className="w-12 h-12 bg-amber-100 rounded-full flex items-center justify-center flex-shrink-0 animate-bounce">
+                  <ClockIcon size={24} className="text-amber-600" />
+                </div>
                 <div className="flex-1">
-                  <h4 className="font-black text-amber-800 text-lg mb-2">Appointment Request Sent! ⏳</h4>
-                  <p className="text-amber-700 text-sm mb-2">
-                    Your appointment request with Dr. {doctor.name} has been submitted for {new Date(selectedSlot?.date).toLocaleDateString('en-US', { 
-                      weekday: 'long', 
-                      month: 'long', 
-                      day: 'numeric' 
-                    })} at {selectedSlot?.time}.
-                  </p>
-                  <div className="bg-amber-100 p-3 rounded-xl mb-4">
-                    <p className="text-amber-800 text-xs flex items-center gap-2">
-                      <AlertCircle size={14} />
-                      <span className="font-bold">Status: PENDING</span> - Waiting for doctor's confirmation
+                  <h4 className="font-black text-amber-800 text-xl mb-2 flex items-center gap-2">
+                    ⏳ Appointment Request Submitted!
+                  </h4>
+                  
+                  <div className="bg-white/60 rounded-xl p-4 mb-4">
+                    <p className="text-amber-800 font-medium mb-2">
+                      📅 Your appointment with <span className="font-bold">Dr. {doctor.name}</span> has been requested for:
+                    </p>
+                    <p className="text-amber-900 font-bold text-lg">
+                      {new Date(selectedSlot?.date).toLocaleDateString('en-US', { 
+                        weekday: 'long', 
+                        month: 'long', 
+                        day: 'numeric' 
+                      })} at {selectedSlot?.time}
                     </p>
                   </div>
-                  <p className="text-amber-600 text-xs mb-4">
-                    You will receive a notification once the doctor confirms your appointment.
-                  </p>
-                  <div className="flex gap-3">
+                  
+                  <div className="bg-amber-100 p-4 rounded-xl mb-4">
+                    <div className="flex items-start gap-3">
+                      <div className="w-8 h-8 bg-amber-200 rounded-full flex items-center justify-center">
+                        <UserCheck size={16} className="text-amber-700" />
+                      </div>
+                      <div>
+                        <p className="text-amber-800 font-bold text-sm mb-1">🟡 Status: PENDING CONFIRMATION</p>
+                        <p className="text-amber-700 text-sm">
+                          Your appointment request has been sent to Dr. {doctor.name}. 
+                          <span className="font-bold block mt-1">
+                            Once the doctor confirms, this appointment will appear in "My Appointments" section!
+                          </span>
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-blue-50 p-3 rounded-xl mb-4">
+                    <p className="text-blue-700 text-sm flex items-start gap-2">
+                      <Bell size={16} className="flex-shrink-0 mt-0.5" />
+                      <span>You will receive a notification when the doctor confirms your appointment.</span>
+                    </p>
+                  </div>
+
+                  <div className="flex flex-wrap gap-3 mt-4">
                     <button
                       onClick={() => navigate('/appointments')}
-                      className="px-6 py-2 bg-amber-600 text-white rounded-xl text-sm font-bold hover:bg-amber-700 transition flex items-center gap-2"
+                      className="px-6 py-2.5 bg-amber-600 text-white rounded-xl text-sm font-bold hover:bg-amber-700 transition flex items-center gap-2 shadow-md"
                     >
                       <Calendar size={16} />
-                      View My Appointments
+                      Check My Appointments
                     </button>
                     <button
                       onClick={() => {
@@ -437,9 +529,9 @@ const BookAppointment = () => {
                         setSymptoms('');
                         refreshSlots();
                       }}
-                      className="px-6 py-2 bg-gray-100 text-gray-700 rounded-xl text-sm font-bold hover:bg-gray-200 transition"
+                      className="px-6 py-2.5 bg-white border-2 border-amber-300 text-amber-700 rounded-xl text-sm font-bold hover:bg-amber-50 transition"
                     >
-                      Book Another
+                      Book Another Appointment
                     </button>
                   </div>
                 </div>
@@ -453,7 +545,7 @@ const BookAppointment = () => {
                 <>
                   <div className="mb-8">
                     <label className="block text-sm font-bold text-slate-600 mb-3">Select Date</label>
-                    <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-3">
+                    <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 lg:grid-cols-10 gap-3">
                       {availableDates.map(date => {
                         const dateSlots = availableSlots.filter(s => s.date === date);
                         const availableCount = dateSlots.filter(s => s.status === 'available').length;
@@ -493,7 +585,7 @@ const BookAppointment = () => {
                     <div className="mb-8">
                       <label className="block text-sm font-bold text-slate-600 mb-3">Select Time Slot</label>
                       {slotsForSelectedDate.filter(s => s.status === 'available').length > 0 ? (
-                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
                           {slotsForSelectedDate.map(slot => {
                             const available = slot.status === 'available';
                             
@@ -532,8 +624,8 @@ const BookAppointment = () => {
                   )}
 
                   {selectedSlot && selectedSlot.status === 'available' && (
-                    <div className="mb-8 p-4 bg-teal-50 rounded-2xl border border-teal-200">
-                      <h4 className="font-bold text-teal-800 mb-2">Selected Appointment Details</h4>
+                    <div className="mb-8 p-4 bg-gradient-to-r from-teal-50 to-emerald-50 rounded-2xl border border-teal-200">
+                      <h4 className="font-bold text-teal-800 mb-2">✓ Selected Appointment Details</h4>
                       <div className="space-y-2 text-sm text-teal-700">
                         <p className="flex items-center gap-2">
                           <Calendar size={14} />
@@ -563,16 +655,20 @@ const BookAppointment = () => {
                   )}
 
                   <div className="mb-8">
-                    <label className="block text-sm font-bold text-slate-600 mb-3">
-                      Symptoms / Reason for Visit
+                    <label className="block text-sm font-bold text-slate-600 mb-3 flex items-center gap-2">
+                      <Search size={16} className="text-teal-500" />
+                      Describe Your Symptoms / Reason for Visit
                     </label>
                     <textarea
                       value={symptoms}
                       onChange={(e) => setSymptoms(e.target.value)}
                       rows="3"
                       className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-teal-500 focus:border-transparent outline-none"
-                      placeholder="Please describe your symptoms or reason for consultation..."
+                      placeholder="Example: Fever, headache, cold for 3 days, etc. This helps the doctor understand your condition better..."
                     />
+                    <p className="text-xs text-slate-400 mt-2">
+                      💡 Tip: Be specific about your symptoms for better diagnosis
+                    </p>
                   </div>
 
                   <div className="flex justify-between items-center p-4 bg-slate-50 rounded-2xl mb-6">
@@ -580,12 +676,22 @@ const BookAppointment = () => {
                     <span className="text-2xl font-black text-teal-600">LKR {doctor.fees}</span>
                   </div>
 
-                  <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-xl">
-                    <div className="flex items-start gap-2">
-                      <AlertCircle size={16} className="text-amber-600 mt-0.5 flex-shrink-0" />
-                      <div className="text-xs text-amber-700">
-                        <p className="font-bold mb-1">⏳ Pending Confirmation</p>
-                        <p>Your appointment request will be pending until confirmed by the doctor. You'll receive a notification once confirmed.</p>
+                  {/* Pending Info Box - Enhanced */}
+                  <div className="mb-6 p-4 bg-gradient-to-r from-amber-50 to-yellow-50 border-l-4 border-amber-500 rounded-xl">
+                    <div className="flex items-start gap-3">
+                      <div className="w-8 h-8 bg-amber-100 rounded-full flex items-center justify-center flex-shrink-0">
+                        <ClockIcon size={16} className="text-amber-600" />
+                      </div>
+                      <div>
+                        <p className="font-bold text-amber-800 text-sm mb-1">⏳ Doctor Confirmation Required</p>
+                        <p className="text-amber-700 text-xs leading-relaxed">
+                          Your appointment request will be sent to the doctor for confirmation. 
+                          The appointment status will remain <span className="font-bold">"PENDING"</span> 
+                          until the doctor approves it. 
+                          <span className="block mt-1 text-amber-800 font-medium">
+                            ✅ Once confirmed, it will appear in your "My Appointments" section!
+                          </span>
+                        </p>
                       </div>
                     </div>
                   </div>
@@ -595,7 +701,7 @@ const BookAppointment = () => {
                     disabled={!selectedSlot || isBooking || selectedSlot.status !== 'available'}
                     className={`w-full py-4 rounded-2xl font-black text-white transition-all ${
                       selectedSlot && selectedSlot.status === 'available' && !isBooking
-                        ? 'bg-amber-500 hover:bg-amber-600 shadow-lg shadow-amber-500/30'
+                        ? 'bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 shadow-lg shadow-amber-500/30 transform hover:scale-[1.02] duration-200'
                         : 'bg-slate-300 cursor-not-allowed'
                     }`}
                   >
@@ -605,7 +711,10 @@ const BookAppointment = () => {
                         Submitting Request...
                       </span>
                     ) : (
-                      'Request Appointment (Pending Confirmation)'
+                      <span className="flex items-center justify-center gap-2">
+                        <Sparkles size={18} />
+                        Request Appointment (Pending Doctor Confirmation)
+                      </span>
                     )}
                   </button>
                 </>
@@ -638,9 +747,12 @@ const BookAppointment = () => {
                 <ArrowLeft size={14} />
                 View My Appointments
               </button>
-              <p className="text-xs text-slate-400">
-                By confirming, you agree to our terms and conditions
-              </p>
+              <div className="flex items-center gap-2">
+                <Shield size={12} className="text-slate-300" />
+                <p className="text-xs text-slate-400">
+                  By confirming, you agree to our terms and conditions
+                </p>
+              </div>
             </div>
           )}
         </div>

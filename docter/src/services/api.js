@@ -143,6 +143,48 @@ const doctorAPI = {
     }
   },
 
+  // ✅ NEW FAST PAGINATION METHOD - Uses /paginated-fast endpoint
+  getPaginatedDoctorsFast: async (page = 1, limit = 8) => {
+    try {
+      const response = await axiosInstance.get(`/doctors/paginated-fast?page=${page}&limit=${limit}`);
+      
+      if (response.data && response.data.success) {
+        return {
+          success: true,
+          data: {
+            doctors: response.data.doctors || [],
+            total: response.data.total || 0,
+            page: response.data.page || page,
+            limit: response.data.limit || limit,
+            totalPages: response.data.totalPages || 1,
+            hasMore: response.data.hasMore || false
+          },
+          message: 'Doctors fetched successfully'
+        };
+      } else {
+        return {
+          success: true,
+          data: {
+            doctors: response.data.doctors || response.data || [],
+            total: response.data.total || 0,
+            page: page,
+            limit: limit,
+            totalPages: 1,
+            hasMore: false
+          },
+          message: 'Doctors fetched successfully'
+        };
+      }
+    } catch (error) {
+      console.error('Error fetching fast paginated doctors:', error);
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Failed to fetch doctors',
+        error: error.response?.data || error.message
+      };
+    }
+  },
+
   // GET single doctor by ID
   getDoctorById: async (id) => {
     try {

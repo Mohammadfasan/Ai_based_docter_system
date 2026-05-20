@@ -51,7 +51,6 @@ connectDB().catch(err => {
   process.exit(1);
 });
 
-// ✅ Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/doctors', doctorRoutes);
 app.use('/api/doctor-schedule', doctorScheduleRoutes);

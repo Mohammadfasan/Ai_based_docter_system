@@ -7,7 +7,8 @@ import {
   updateDoctor,
   deleteDoctor,
   searchDoctors,
-  checkEmail
+  checkEmail,
+  getDoctorsWithPagination  // ✅ ADD THIS NEW IMPORT
 } from "../controllers/doctorController.js";
 import { uploadDoctorImage } from "../controllers/uploadController.js";
 import { upload } from "../middleware/uploadMiddleware.js";
@@ -21,6 +22,7 @@ const router = express.Router();
 // Public routes
 router.get('/', getAllDoctors);
 router.get('/paginated', getPaginatedDoctors);
+router.get('/paginated-fast', getDoctorsWithPagination);  // ✅ ADD THIS NEW FAST PAGINATION ROUTE
 router.get('/search', searchDoctors);
 router.get('/:id', getDoctorById);
 

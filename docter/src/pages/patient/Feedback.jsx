@@ -1,10 +1,12 @@
+// Feedback.jsx - Without Images, Pure Icons & Same Appointments Style
 import React, { useState } from 'react';
 import axios from 'axios';
 import { 
   FaStar, FaPaperPlane, FaComment, FaHeart, 
   FaCheckCircle, FaLightbulb, FaBug, FaRocket,
   FaSpinner, FaUserMd, FaEdit, FaArrowLeft,
-  FaTimes
+  FaTimes, FaSmile, FaThumbsUp, FaQuoteLeft,
+  FaShieldAlt, FaClock, FaLock, FaChartLine
 } from 'react-icons/fa';
 import { motion, AnimatePresence } from 'framer-motion';
 import FeedbackDoctorSelector from '../../components/FeedbackDoctorSelector';
@@ -31,11 +33,19 @@ const Feedback = ({ initialDoctorId, initialDoctorName, appointmentId, onClose }
 
   const API_URL = 'http://localhost:5000/api';
 
+  // Features for hero section - Icons only
+  const features = [
+    { icon: FaShieldAlt, title: "100% Confidential", description: "Your privacy matters", color: "text-teal-400" },
+    { icon: FaClock, title: "Quick Response", description: "Reviewed promptly", color: "text-blue-400" },
+    { icon: FaLock, title: "Secure Platform", description: "Encrypted data", color: "text-purple-400" },
+    { icon: FaChartLine, title: "Helps Improve", description: "Better healthcare", color: "text-emerald-400" }
+  ];
+
   const feedbackTypes = [
-    { id: 'general', label: 'General', icon: <FaComment />, color: 'from-cyan-400 to-blue-500' },
-    { id: 'suggestion', label: 'Idea', icon: <FaLightbulb />, color: 'from-yellow-400 to-orange-500' },
-    { id: 'bug', label: 'Bug', icon: <FaBug />, color: 'from-rose-400 to-red-600' },
-    { id: 'compliment', label: 'Love it', icon: <FaHeart />, color: 'from-pink-400 to-rose-600' }
+    { id: 'general', label: 'General', icon: <FaComment />, color: 'teal', gradient: 'from-teal-500 to-cyan-500' },
+    { id: 'suggestion', label: 'Suggestion', icon: <FaLightbulb />, color: 'amber', gradient: 'from-amber-500 to-orange-500' },
+    { id: 'bug', label: 'Bug Report', icon: <FaBug />, color: 'rose', gradient: 'from-rose-500 to-red-600' },
+    { id: 'compliment', label: 'Compliment', icon: <FaHeart />, color: 'pink', gradient: 'from-pink-400 to-rose-600' }
   ];
 
   const getToken = () => {
@@ -123,7 +133,6 @@ const Feedback = ({ initialDoctorId, initialDoctorName, appointmentId, onClose }
 
       if (response.data.success) {
         setSubmitted(true);
-        // ✅ REMOVED: No auto-redirect, just stay on success page
       }
     } catch (err) {
       console.error('Error submitting feedback:', err);
@@ -133,7 +142,6 @@ const Feedback = ({ initialDoctorId, initialDoctorName, appointmentId, onClose }
     }
   };
 
-  // ✅ Add function to submit another feedback
   const handleSubmitAnother = () => {
     setSubmitted(false);
     setRating(0);
@@ -141,244 +149,269 @@ const Feedback = ({ initialDoctorId, initialDoctorName, appointmentId, onClose }
     setMessage('');
     setTitle('');
     setAnonymous(false);
-    setShowDoctorSelector(true); // Show doctor selector for new feedback
+    setShowDoctorSelector(true);
   };
 
   return (
-    <>
-      {/* Main Feedback Form */}
-      <div className="min-h-screen bg-gray-50 py-8 px-4">
-        <div className="max-w-4xl w-full mx-auto">
-          
-          {/* Change Doctor button */}
-          <div className="flex justify-between items-center mb-4">
-            <button
-              onClick={handleChangeDoctor}
-              className="bg-white rounded-full px-4 py-2 shadow-lg hover:bg-gray-100 transition-colors flex items-center gap-2"
-            >
-              <FaEdit size={16} className="text-gray-600" />
-              <span className="text-sm font-medium">Change Doctor</span>
-            </button>
-            
-            {onClose && (
-              <button
-                onClick={handleClose}
-                className="bg-white rounded-full p-2 shadow-lg hover:bg-gray-100 transition-colors"
-              >
-                <FaTimes size={18} className="text-gray-600" />
-              </button>
-            )}
-          </div>
+    <div className="min-h-screen bg-[#f8fafc] font-['Plus_Jakarta_Sans']">
+      
+      {/* Hero Section - Same as Appointments Page, No Images */}
+      <section className="relative overflow-hidden bg-gradient-to-br from-[#0f172a] via-[#1e293b] to-[#0f172a]">
+        <div className="absolute top-20 right-20 w-64 h-64 bg-teal-500/20 rounded-full blur-3xl"></div>
+        <div className="absolute bottom-20 left-20 w-80 h-80 bg-blue-500/10 rounded-full blur-3xl"></div>
+        
+        <div className="max-w-7xl mx-auto px-6 lg:px-20 py-16 lg:py-20 relative z-10">
+          <div className="text-center">
+            <div className="inline-flex items-center gap-2 bg-white/10 backdrop-blur-md rounded-full px-5 py-2 mb-6 border border-white/20">
+              <FaRocket size={14} className="text-teal-400" />
+              <span className="text-white text-sm font-medium">Share Your Experience</span>
+            </div>
 
-          <AnimatePresence mode="wait">
-            {!submitted ? (
-              <motion.div 
-                key="feedback-form"
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.9 }}
-                className="bg-white rounded-[3rem] shadow-2xl shadow-slate-200/60 overflow-hidden border border-white"
-              >
-                <div className="grid md:grid-cols-2">
+            <h1 className="text-5xl md:text-6xl lg:text-7xl font-black text-white tracking-tighter mb-5">
+              Your 
+              <span className="block text-transparent bg-clip-text bg-gradient-to-r from-teal-400 to-blue-400">
+                Feedback Matters
+              </span>
+            </h1>
+            
+            <p className="text-lg text-slate-300 max-w-2xl mx-auto mb-12 leading-relaxed">
+              Help us improve our healthcare services by sharing your honest feedback. 
+              Your opinion helps us serve you better and provide quality medical care.
+            </p>
+
+            
+          </div>
+        </div>
+
+        <div className="absolute bottom-0 left-0 right-0">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 120" fill="none" className="w-full h-auto" preserveAspectRatio="none">
+            <path d="M0,64L80,69.3C160,75,320,85,480,80C640,75,800,53,960,48C1120,43,1280,53,1360,58.7L1440,64L1440,120L1360,120C1280,120,1120,120,960,120C800,120,640,120,480,120C320,120,160,120,80,120L0,120Z" fill="#f8fafc"/>
+          </svg>
+        </div>
+      </section>
+
+      {/* Main Content */}
+      <main className="max-w-7xl mx-auto px-6 lg:px-20 -mt-24 relative z-20">
+        
+        <AnimatePresence mode="wait">
+          {!submitted ? (
+            <motion.div 
+              key="feedback-form"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-[2.5rem] shadow-xl border border-slate-100 overflow-hidden"
+            >
+              {/* Change Doctor & Close Buttons */}
+              <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+                <button
+                  onClick={handleChangeDoctor}
+                  className="bg-white border border-slate-200 rounded-xl px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-50 transition-all flex items-center gap-2 shadow-sm"
+                >
+                  <FaEdit size={14} />
+                  Change Doctor
+                </button>
+                
+                {onClose && (
+                  <button
+                    onClick={handleClose}
+                    className="bg-white border border-slate-200 rounded-xl p-2 hover:bg-slate-50 transition-all"
+                  >
+                    <FaTimes size={16} className="text-slate-500" />
+                  </button>
+                )}
+              </div>
+
+              <div className="p-8 md:p-10">
+                {error && (
+                  <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl text-red-600 text-sm flex items-center gap-2">
+                    <FaTimes size={14} />
+                    {error}
+                  </div>
+                )}
+                
+                <form onSubmit={handleSubmit} className="space-y-8">
                   
-                  {/* Left Side: Visual Content */}
-                  <div className="bg-[#0f172a] p-12 flex flex-col justify-center relative overflow-hidden text-white">
-                    <div className="absolute top-0 right-0 w-64 h-64 bg-teal-500/20 rounded-full blur-3xl -mr-32 -mt-32"></div>
-                    <div className="relative z-10">
-                      <h2 className="text-4xl font-black mb-6 leading-tight">
-                        Share Your <br/>
-                        <span className="text-teal-400">Experience!</span>
-                      </h2>
-                      <p className="text-slate-400 font-medium mb-8">
-                        Your feedback helps us improve our service and provide better healthcare!
-                      </p>
-                      
-                      <div className="space-y-4">
-                        <div className="flex items-center gap-4 bg-white/5 p-4 rounded-2xl border border-white/10">
-                          <div className="w-10 h-10 bg-teal-500/20 rounded-xl flex items-center justify-center text-teal-400">
-                            <FaRocket />
-                          </div>
-                          <p className="text-sm font-bold">We value your opinion</p>
+                  {/* Selected Doctor Display - Same style as Appointments doctor card */}
+                  {selectedDoctor.id ? (
+                    <div className="bg-gradient-to-r from-teal-50 to-blue-50 p-5 rounded-2xl border border-teal-100">
+                      <div className="flex items-center gap-4">
+                        <div className="w-14 h-14 bg-gradient-to-br from-teal-500 to-cyan-500 rounded-xl flex items-center justify-center shadow-lg">
+                          <FaUserMd size={28} className="text-white" />
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-black text-teal-600 uppercase tracking-wider">Providing feedback for</p>
+                          <p className="text-xl font-black text-slate-800">Dr. {selectedDoctor.name}</p>
+                          {selectedDoctor.specialization && (
+                            <p className="text-xs text-slate-500 mt-1">{selectedDoctor.specialization} | {selectedDoctor.hospital || 'Healthcare Center'}</p>
+                          )}
                         </div>
                       </div>
                     </div>
-                  </div>
-
-                  {/* Right Side: Form */}
-                  <div className="p-8 md:p-12">
-                    {error && (
-                      <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl text-red-600 text-sm">
-                        {error}
-                      </div>
-                    )}
-                    
-                    <form onSubmit={handleSubmit} className="space-y-8">
-                      
-                      {/* Selected Doctor Display */}
-                      {selectedDoctor.id ? (
-                        <div className="bg-gradient-to-r from-teal-50 to-blue-50 p-4 rounded-2xl">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-3">
-                              <div className="w-12 h-12 bg-teal-600 rounded-xl flex items-center justify-center text-white">
-                                <FaUserMd size={24} />
-                              </div>
-                              <div>
-                                <p className="text-xs text-gray-500">Providing feedback for:</p>
-                                <p className="font-bold text-gray-900">Dr. {selectedDoctor.name}</p>
-                                {selectedDoctor.specialization && (
-                                  <p className="text-xs text-gray-600">{selectedDoctor.specialization} | {selectedDoctor.hospital}</p>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="bg-yellow-50 p-4 rounded-2xl text-center">
-                          <p className="text-yellow-800">Please select a doctor to provide feedback</p>
-                          <button
-                            type="button"
-                            onClick={handleChangeDoctor}
-                            className="mt-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700"
-                          >
-                            Select Doctor
-                          </button>
-                        </div>
-                      )}
-                      
-                      {/* Feedback Type Selection */}
-                      <div>
-                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-4">Feedback Category</p>
-                        <div className="grid grid-cols-2 gap-3">
-                          {feedbackTypes.map((type) => (
-                            <button
-                              key={type.id}
-                              type="button"
-                              onClick={() => setFeedbackType(type.id)}
-                              className={`p-4 rounded-2xl border-2 transition-all flex items-center gap-3 font-bold text-sm ${
-                                feedbackType === type.id 
-                                  ? `bg-gradient-to-r ${type.color} text-white border-transparent shadow-lg` 
-                                  : 'border-slate-100 text-slate-500 hover:border-teal-200'
-                              }`}
-                            >
-                              {type.icon} {type.label}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-
-                      {/* Star Rating */}
-                      <div className="text-center bg-slate-50 p-6 rounded-[2rem]">
-                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-4">
-                          Rate your experience {selectedDoctor.name ? `with Dr. ${selectedDoctor.name}` : ''}
-                        </p>
-                        <div className="flex justify-center gap-2">
-                          {[1, 2, 3, 4, 5].map((star) => (
-                            <button
-                              key={star}
-                              type="button"
-                              onMouseEnter={() => setHoverRating(star)}
-                              onMouseLeave={() => setHoverRating(0)}
-                              onClick={() => setRating(star)}
-                              className="transition-transform active:scale-90"
-                            >
-                              <FaStar 
-                                size={32} 
-                                className={`transition-colors duration-200 ${
-                                  star <= (hoverRating || rating) ? 'text-yellow-400 drop-shadow-md' : 'text-slate-200'
-                                }`}
-                              />
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-
-                      {/* Title Input */}
-                      <div>
-                        <input
-                          type="text"
-                          placeholder="Feedback Title (Optional)"
-                          className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 outline-none focus:border-teal-400 transition-all font-medium text-slate-700"
-                          value={title}
-                          onChange={(e) => setTitle(e.target.value)}
-                        />
-                      </div>
-
-                      {/* Message Box */}
-                      <div className="relative">
-                        <textarea
-                          rows="4"
-                          placeholder="Write your thoughts here..."
-                          className="w-full bg-slate-50 border-2 border-slate-100 rounded-[2rem] p-6 outline-none focus:border-teal-400 transition-all font-medium text-slate-700"
-                          value={message}
-                          onChange={(e) => setMessage(e.target.value)}
-                        ></textarea>
-                      </div>
-
-                      {/* Anonymous Option */}
-                      <div className="flex items-center gap-3">
-                        <input
-                          type="checkbox"
-                          id="anonymous"
-                          checked={anonymous}
-                          onChange={(e) => setAnonymous(e.target.checked)}
-                          className="w-5 h-5 text-teal-600 rounded focus:ring-teal-500"
-                        />
-                        <label htmlFor="anonymous" className="text-sm text-gray-600">
-                          Submit anonymously (Your name won't be shared with the doctor)
-                        </label>
-                      </div>
-
+                  ) : (
+                    <div className="bg-amber-50 p-6 rounded-2xl text-center border border-amber-200">
+                      <p className="text-amber-800 font-bold mb-3">Please select a doctor to provide feedback</p>
                       <button
-                        type="submit"
-                        disabled={loading || !selectedDoctor.id}
-                        className="w-full py-5 bg-[#0f172a] hover:bg-teal-500 text-white hover:text-[#0f172a] rounded-[2rem] font-black text-sm transition-all shadow-xl flex items-center justify-center gap-3 group disabled:opacity-50 disabled:cursor-not-allowed"
+                        type="button"
+                        onClick={handleChangeDoctor}
+                        className="px-6 py-3 bg-teal-500 text-white rounded-xl font-bold text-sm hover:bg-teal-600 transition-all shadow-md"
                       >
-                        {loading ? (
-                          <>
-                            <FaSpinner className="animate-spin" />
-                            SUBMITTING...
-                          </>
-                        ) : (
-                          <>
-                            SEND FEEDBACK
-                            <FaPaperPlane className="group-hover:translate-x-1 group-hover:-translate-y-1 transition-transform" />
-                          </>
-                        )}
+                        Select Doctor
                       </button>
-                    </form>
+                    </div>
+                  )}
+                  
+                  {/* Feedback Type Selection - Same as Appointments filter tabs */}
+                  <div>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-4 flex items-center gap-2">
+                      <FaQuoteLeft size={10} /> Feedback Category
+                    </p>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                      {feedbackTypes.map((type) => (
+                        <button
+                          key={type.id}
+                          type="button"
+                          onClick={() => setFeedbackType(type.id)}
+                          className={`p-4 rounded-xl border-2 transition-all flex flex-col items-center gap-2 font-bold text-sm ${
+                            feedbackType === type.id 
+                              ? `bg-gradient-to-r ${type.gradient} text-white border-transparent shadow-lg scale-105` 
+                              : 'bg-white border-slate-200 text-slate-600 hover:border-teal-300 hover:shadow-md'
+                          }`}
+                        >
+                          <div className={`text-xl ${feedbackType === type.id ? 'text-white' : `text-${type.color}-500`}`}>
+                            {type.icon}
+                          </div>
+                          <span className="text-[11px]">{type.label}</span>
+                        </button>
+                      ))}
+                    </div>
                   </div>
 
-                </div>
-              </motion.div>
-            ) : (
-              /* Success State - NO AUTO REDIRECT */
-              <motion.div 
-                key="success-screen"
-                initial={{ scale: 0.8, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                className="bg-white rounded-[4rem] p-16 text-center shadow-2xl border border-teal-100"
-              >
-                <div className="w-24 h-24 bg-teal-100 text-teal-600 rounded-full flex items-center justify-center mx-auto mb-8">
-                  <FaCheckCircle size={48} />
-                </div>
-                <h2 className="text-4xl font-black text-[#0f172a] mb-4">Thank You!</h2>
-                <p className="text-slate-500 font-bold mb-8 max-w-sm mx-auto leading-relaxed">
-                  Your feedback for Dr. {selectedDoctor.name} has been submitted successfully!
-                </p>
-                
-                {/* ✅ Button to submit another feedback */}
+                  {/* Star Rating - Enhanced */}
+                  <div className="text-center bg-slate-50 p-8 rounded-2xl border border-slate-100">
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-4">
+                      Rate your experience {selectedDoctor.name ? `with Dr. ${selectedDoctor.name}` : ''}
+                    </p>
+                    <div className="flex justify-center gap-3">
+                      {[1, 2, 3, 4, 5].map((star) => (
+                        <button
+                          key={star}
+                          type="button"
+                          onMouseEnter={() => setHoverRating(star)}
+                          onMouseLeave={() => setHoverRating(0)}
+                          onClick={() => setRating(star)}
+                          className="transition-transform active:scale-90"
+                        >
+                          <FaStar 
+                            size={40} 
+                            className={`transition-all duration-200 ${
+                              star <= (hoverRating || rating) ? 'text-yellow-400 drop-shadow-lg scale-110' : 'text-slate-200'
+                            }`}
+                          />
+                        </button>
+                      ))}
+                    </div>
+                    {rating > 0 && (
+                      <p className="text-xs text-teal-600 mt-3 font-bold">
+                        {rating === 5 ? 'Excellent! 🌟' : rating === 4 ? 'Very Good! 👍' : rating === 3 ? 'Good 😊' : rating === 2 ? 'Could be better 🤔' : 'Sorry to hear that 😟'}
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Title Input */}
+                  <div>
+                    <input
+                      type="text"
+                      placeholder="Feedback Title (Optional)"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 outline-none focus:border-teal-400 focus:bg-white transition-all font-medium text-slate-700"
+                      value={title}
+                      onChange={(e) => setTitle(e.target.value)}
+                    />
+                  </div>
+
+                  {/* Message Box */}
+                  <div>
+                    <textarea
+                      rows="5"
+                      placeholder="Write your thoughts here... Tell us about your experience, what went well, or what could be improved."
+                      className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-5 outline-none focus:border-teal-400 focus:bg-white transition-all font-medium text-slate-700 resize-none"
+                      value={message}
+                      onChange={(e) => setMessage(e.target.value)}
+                    />
+                  </div>
+
+                  {/* Anonymous Option */}
+                  <div className="flex items-center gap-3 p-4 bg-slate-50 rounded-xl">
+                    <input
+                      type="checkbox"
+                      id="anonymous"
+                      checked={anonymous}
+                      onChange={(e) => setAnonymous(e.target.checked)}
+                      className="w-5 h-5 text-teal-600 rounded focus:ring-teal-500 border-slate-300"
+                    />
+                    <label htmlFor="anonymous" className="text-sm text-slate-600 font-medium">
+                      Submit anonymously (Your name won't be shared with the doctor)
+                    </label>
+                  </div>
+
+                  {/* Submit Button - Same style as Appointments */}
+                  <button
+                    type="submit"
+                    disabled={loading || !selectedDoctor.id}
+                    className="w-full py-5 bg-[#0f172a] hover:bg-teal-500 text-white hover:text-[#0f172a] rounded-2xl font-black text-sm transition-all shadow-xl flex items-center justify-center gap-3 group disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {loading ? (
+                      <>
+                        <FaSpinner className="animate-spin" />
+                        SUBMITTING...
+                      </>
+                    ) : (
+                      <>
+                        SEND FEEDBACK
+                        <FaPaperPlane className="group-hover:translate-x-1 group-hover:-translate-y-1 transition-transform" />
+                      </>
+                    )}
+                  </button>
+                </form>
+              </div>
+            </motion.div>
+          ) : (
+            /* Success State - Same style as appointments */
+            <motion.div 
+              key="success-screen"
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              className="bg-white rounded-[2.5rem] p-16 text-center shadow-xl border border-slate-100"
+            >
+              <div className="w-24 h-24 bg-gradient-to-br from-teal-500 to-emerald-500 rounded-full flex items-center justify-center mx-auto mb-6 shadow-lg">
+                <FaCheckCircle size={48} className="text-white" />
+              </div>
+              <h2 className="text-3xl font-black text-slate-800 mb-3">Thank You!</h2>
+              <p className="text-slate-500 font-medium mb-6 max-w-md mx-auto">
+                Your feedback for <span className="font-bold text-teal-600">Dr. {selectedDoctor.name}</span> has been submitted successfully!
+              </p>
+              <div className="flex flex-col sm:flex-row gap-4 justify-center">
                 <button 
                   onClick={handleSubmitAnother}
-                  className="px-8 py-4 bg-teal-500 text-white rounded-full font-bold hover:bg-teal-600 transition-all shadow-lg"
+                  className="px-8 py-4 bg-teal-500 text-white rounded-xl font-bold text-sm hover:bg-teal-600 transition-all shadow-md flex items-center justify-center gap-2"
                 >
+                  <FaThumbsUp size={14} />
                   SUBMIT ANOTHER FEEDBACK
                 </button>
-              </motion.div>
-            )}
-          </AnimatePresence>
+                {onClose && (
+                  <button 
+                    onClick={handleClose}
+                    className="px-8 py-4 bg-slate-100 text-slate-600 rounded-xl font-bold text-sm hover:bg-slate-200 transition-all"
+                  >
+                    CLOSE
+                  </button>
+                )}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
-        </div>
-      </div>
+      </main>
 
       {/* Doctor Selector Modal */}
       {showDoctorSelector && (
@@ -387,7 +420,7 @@ const Feedback = ({ initialDoctorId, initialDoctorName, appointmentId, onClose }
           onClose={handleCloseSelector}
         />
       )}
-    </>
+    </div>
   );
 };
 

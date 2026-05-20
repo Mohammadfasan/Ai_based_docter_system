@@ -49,7 +49,56 @@ export const getAllDoctors = async (req, res) => {
   }
 };
 
-// GET doctors with pagination and search
+// ✅ NEW FUNCTION - GET doctors with pagination (FASTER LOADING)
+export const getDoctorsWithPagination = async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 8; // Load 8 doctors at a time
+    const skip = (page - 1) * limit;
+    const search = req.query.search || '';
+    
+    let query = {};
+    if (search) {
+      query = {
+        $or: [
+          { name: { $regex: search, $options: 'i' } },
+          { specialization: { $regex: search, $options: 'i' } },
+          { hospital: { $regex: search, $options: 'i' } }
+        ]
+      };
+    }
+    
+    // Run both queries in parallel for better performance
+    const [doctors, total] = await Promise.all([
+      Doctor.find(query)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      Doctor.countDocuments(query)
+    ]);
+    
+    res.json({
+      success: true,
+      doctors: doctors,
+      total: total,
+      page: page,
+      limit: limit,
+      totalPages: Math.ceil(total / limit),
+      hasMore: doctors.length === limit
+    });
+    
+  } catch (error) {
+    console.error('Error in paginated doctors:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching doctors',
+      error: error.message
+    });
+  }
+};
+
+// GET doctors with pagination and search (existing function - keep as is)
 export const getPaginatedDoctors = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
@@ -228,7 +277,7 @@ export const createDoctor = async (req, res) => {
     const doctorData = {
       name: req.body.name.trim(),
       email: req.body.email.toLowerCase().trim(),
-      password: plainPassword, // Store plain password in Doctor model
+      password: plainPassword,
       phone: req.body.phone.trim(),
       specialization: req.body.specialization,
       qualifications: req.body.qualifications.trim(),
@@ -258,11 +307,11 @@ export const createDoctor = async (req, res) => {
     
     console.log(`✅ New doctor created with ID: ${doctor.doctorId}`);
     
-    // Create User record for authentication with hashed password
+    // Create User record for authentication
     const userData = {
       name: doctor.name,
       email: doctor.email,
-      password: hashedPassword, // Store hashed password here
+      password: hashedPassword,
       userId: doctor.doctorId,
       userType: 'doctor',
       phone: doctor.phone,

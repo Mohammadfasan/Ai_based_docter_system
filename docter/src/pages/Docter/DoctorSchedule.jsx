@@ -1,13 +1,14 @@
-// DoctorSchedule.jsx - Fixed version with proper doctor info sync
+// DoctorSchedule.jsx - Enhanced version with doctor details, workflow guide, and time validation
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
-  FaVideo, FaLink, FaTimes, FaWallet, FaEnvelope, FaIdCard
+  FaVideo, FaLink, FaTimes, FaWallet, FaEnvelope, FaIdCard, FaCalendarAlt, FaCheckCircle, FaClock
 } from 'react-icons/fa';
 import { 
   Stethoscope, Calendar as LucideCalendar, 
-  Clock, ShieldCheck, Activity, PlusCircle, Trash2, MapPin, User
+  Clock, ShieldCheck, Activity, PlusCircle, Trash2, MapPin, User,
+  AlertCircle, Info, ChevronRight, FileText, Award, Phone, Mail, Building
 } from 'lucide-react';
 import { doctorScheduleService } from '../../services/doctorScheduleService';
 import { doctorAPI } from '../../services/api';
@@ -26,7 +27,9 @@ const DoctorSchedule = ({ userData }) => {
     hospital: '',
     phone: '',
     rating: 4.5,
-    status: 'active'
+    status: 'active',
+    about: '',
+    languages: []
   });
 
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
@@ -36,6 +39,7 @@ const DoctorSchedule = ({ userData }) => {
   const [syncStatus, setSyncStatus] = useState('');
   const [loading, setLoading] = useState(true);
   const [authError, setAuthError] = useState(false);
+  const [workflowStep, setWorkflowStep] = useState(1);
   const [stats, setStats] = useState({
     totalSlots: 0,
     bookedSlots: 0,
@@ -43,17 +47,42 @@ const DoctorSchedule = ({ userData }) => {
     upcomingSlots: 0
   });
 
+  // Check if a time is in the past for today's date
+  const isTimeInPast = (time, date) => {
+    const today = new Date().toISOString().split('T')[0];
+    if (date !== today) return false;
+    
+    const now = new Date();
+    const [hours, minutes] = time.split(':').map(Number);
+    const slotTime = new Date();
+    slotTime.setHours(hours, minutes, 0, 0);
+    
+    return slotTime < now;
+  };
+
+  // Get available time slots (only future times for today)
+  const getAvailableTimes = () => {
+    const times = [];
+    for (let hour = 8; hour <= 20; hour++) {
+      for (let minute = 0; minute < 60; minute += 30) {
+        const time = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+        if (!isTimeInPast(time, selectedDate)) {
+          times.push(time);
+        }
+      }
+    }
+    return times;
+  };
+
   // Fetch complete doctor profile from API using email or userId
   const fetchDoctorProfile = async (email, userId) => {
     try {
       console.log('🔍 Fetching doctor profile for:', email || userId);
       
-      // First try to get all doctors and find by email or ID
       const response = await doctorAPI.getAllDoctors();
       console.log('📋 All doctors response:', response);
       
       if (response.success && response.data) {
-        // Handle different response structures
         let doctors = [];
         if (Array.isArray(response.data)) {
           doctors = response.data;
@@ -63,9 +92,6 @@ const DoctorSchedule = ({ userData }) => {
           doctors = response.data.data;
         }
         
-        console.log('📋 Doctors list:', doctors);
-        
-        // Find doctor by email or userId
         let doctor = doctors.find(d => 
           d.email?.toLowerCase() === email?.toLowerCase() || 
           d.doctorId === userId || 
@@ -73,7 +99,6 @@ const DoctorSchedule = ({ userData }) => {
           d.email === email
         );
         
-        // If still not found and we have userData, try that
         if (!doctor && userData) {
           doctor = doctors.find(d => 
             d.email?.toLowerCase() === userData.email?.toLowerCase() ||
@@ -85,7 +110,6 @@ const DoctorSchedule = ({ userData }) => {
         if (doctor) {
           console.log('✅ Found doctor profile:', doctor);
           
-          // Parse fees if it's a string with LKR
           let feeAmount = 2500;
           if (doctor.fees) {
             const feeStr = doctor.fees.toString();
@@ -107,12 +131,13 @@ const DoctorSchedule = ({ userData }) => {
             phone: doctor.phone || '',
             rating: doctor.rating || 4.5,
             status: doctor.status || 'active',
-            image: doctor.image || ''
+            image: doctor.image || '',
+            about: doctor.about || `Dr. ${doctor.name} is a highly experienced ${doctor.specialization} specialist dedicated to providing quality healthcare.`,
+            languages: doctor.languages || ['English', 'Sinhala']
           };
         }
       }
       
-      // Try to get doctor by ID directly
       if (userId) {
         try {
           const doctorById = await doctorAPI.getDoctorById(userId);
@@ -138,7 +163,9 @@ const DoctorSchedule = ({ userData }) => {
               phone: doctor.phone || '',
               rating: doctor.rating || 4.5,
               status: doctor.status || 'active',
-              image: doctor.image || ''
+              image: doctor.image || '',
+              about: doctor.about || `Dr. ${doctor.name} is a dedicated ${doctor.specialization} professional.`,
+              languages: doctor.languages || ['English', 'Sinhala']
             };
           }
         } catch (err) {
@@ -158,23 +185,17 @@ const DoctorSchedule = ({ userData }) => {
     const token = localStorage.getItem('token');
     const storedUser = localStorage.getItem('currentUser');
     
-    console.log('🔐 Auth Check - Token:', token ? 'Present' : 'Missing');
-    console.log('📦 Stored User:', storedUser);
-    
     if (!token || !storedUser) {
       setAuthError(true);
       setLoading(false);
       return;
     }
     
-    // Update doctor info from stored user
     const loadDoctorData = async () => {
       try {
         const user = JSON.parse(storedUser);
-        console.log('👨‍⚕️ User from storage:', user);
         
         if (user.userType === 'doctor') {
-          // Set initial doctor info from stored user
           let doctorInfo = {
             id: user.userId || user._id || '',
             name: user.name || 'Loading...',
@@ -188,16 +209,16 @@ const DoctorSchedule = ({ userData }) => {
             hospital: user.hospital || '',
             phone: user.phone || '',
             rating: user.rating || 4.5,
-            status: user.status || 'active'
+            status: user.status || 'active',
+            about: user.about || '',
+            languages: user.languages || ['English', 'Sinhala']
           };
           
-          // Fetch complete profile from API
           const fullProfile = await fetchDoctorProfile(user.email, user.userId || user._id);
           if (fullProfile) {
             doctorInfo = { ...doctorInfo, ...fullProfile };
           }
           
-          console.log('✅ Final doctor info:', doctorInfo);
           setCurrentDoctor(doctorInfo);
         } else {
           setAuthError(true);
@@ -216,7 +237,6 @@ const DoctorSchedule = ({ userData }) => {
   // Load schedule after doctor info is set
   useEffect(() => {
     if (!authError && localStorage.getItem('token') && currentDoctor.name !== 'Loading...' && currentDoctor.doctorId) {
-      console.log('🔄 Loading schedule for doctor:', currentDoctor.doctorId);
       loadDoctorSlots();
       loadScheduleStats();
     }
@@ -225,20 +245,10 @@ const DoctorSchedule = ({ userData }) => {
   const loadDoctorSlots = async () => {
     setLoading(true);
     try {
-      const token = localStorage.getItem('token');
-      
-      if (!token) {
-        throw new Error('No authentication token found');
-      }
-      
-      // Use the 'me' endpoint for logged-in doctor
       const response = await doctorScheduleService.getMySchedule();
-      
-      console.log('📥 Schedule response:', response);
       
       if (response.success) {
         const slotsData = response.data.slots || [];
-        console.log('📋 Loaded slots:', slotsData.length);
         setSlots(slotsData);
         setSyncStatus(`✅ Loaded ${slotsData.length} schedule slots`);
         setTimeout(() => setSyncStatus(''), 3000);
@@ -262,11 +272,7 @@ const DoctorSchedule = ({ userData }) => {
 
   const loadScheduleStats = async () => {
     try {
-      const token = localStorage.getItem('token');
-      if (!token) return;
-      
       const response = await doctorScheduleService.getMyStats();
-      console.log('📊 Stats response:', response);
       
       if (response.success) {
         setStats(response.data);
@@ -277,6 +283,12 @@ const DoctorSchedule = ({ userData }) => {
   };
 
   const handleAddSlot = async () => {
+    // Validate time is not in past for today
+    if (isTimeInPast(newSlot.time, selectedDate)) {
+      alert("❌ Cannot add slot for a time that has already passed today!");
+      return;
+    }
+    
     if (newSlot.type === 'clinic' && !newSlot.location) {
       alert("Please enter clinic location");
       return;
@@ -303,12 +315,7 @@ const DoctorSchedule = ({ userData }) => {
         fee: currentDoctor.fee
       };
       
-      console.log('📝 Adding slot:', slotData);
-      console.log('👨‍⚕️ Current doctor:', currentDoctor);
-      
       const response = await doctorScheduleService.addMySlot(slotData);
-      
-      console.log('📥 Add slot response:', response);
       
       if (response.success) {
         setSyncStatus('✅ Slot added successfully');
@@ -319,7 +326,7 @@ const DoctorSchedule = ({ userData }) => {
         
         setNewSlot(prev => ({ 
           ...prev, 
-          time: getNextTime(prev.time),
+          time: getNextAvailableTime(prev.time),
           location: '',
           videoLink: ''
         }));
@@ -364,20 +371,33 @@ const DoctorSchedule = ({ userData }) => {
     }
   };
 
-  const getNextTime = (currentTime) => {
+  const getNextAvailableTime = (currentTime) => {
     const [hours, minutes] = currentTime.split(':').map(Number);
     let date = new Date();
     date.setHours(hours);
     date.setMinutes(minutes + 30);
-    return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+    let newTime = `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+    
+    // Skip past times for today
+    while (isTimeInPast(newTime, selectedDate)) {
+      date.setMinutes(date.getMinutes() + 30);
+      newTime = `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+    }
+    
+    return newTime;
   };
 
-  const filteredSlots = useMemo(() => 
-    slots.filter(s => s.date === selectedDate).sort((a,b) => a.time.localeCompare(b.time))
-  , [slots, selectedDate]);
+  const filteredSlots = useMemo(() => {
+    const filtered = slots.filter(s => s.date === selectedDate).sort((a,b) => a.time.localeCompare(b.time));
+    // Add validation for past slots (mark them visually)
+    return filtered.map(slot => ({
+      ...slot,
+      isExpired: isTimeInPast(slot.time, slot.date)
+    }));
+  }, [slots, selectedDate]);
 
   const getDailyRevenue = () => {
-    return filteredSlots.filter(s => s.status !== 'booked').length * (currentDoctor.fee || 2500);
+    return filteredSlots.filter(s => s.status !== 'booked' && !s.isExpired).length * (currentDoctor.fee || 2500);
   };
 
   // Show login required message
@@ -424,76 +444,132 @@ const DoctorSchedule = ({ userData }) => {
         </div>
       )}
       
-      {/* HERO DASHBOARD */}
-      <div className="bg-[#001b38] pt-24 pb-40 px-6 relative">
-        <div className="max-w-7xl mx-auto relative z-10 flex flex-col md:flex-row justify-between items-center gap-8">
-          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="flex-1">
+      {/* HERO DASHBOARD with Doctor Details */}
+      <div className="bg-gradient-to-br from-[#001b38] via-[#002a4d] to-[#001b38] pt-24 pb-32 px-6 relative">
+        <div className="max-w-7xl mx-auto relative z-10">
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
             <div className="flex items-center gap-3 mb-4">
               <span className="bg-cyan-500/20 text-cyan-400 px-3 py-1 rounded-full text-[10px] font-bold tracking-widest uppercase border border-cyan-500/30">
                 Active Portal
               </span>
             </div>
-            <h1 className="text-5xl md:text-6xl font-black text-white tracking-tighter uppercase leading-none mb-4" style={{ fontFamily: '"Montserrat", sans-serif' }}>
-              Dr. {currentDoctor.name}
-            </h1>
             
-            {/* Doctor ID Badge */}
-            <div className="inline-flex items-center gap-2 bg-white/10 backdrop-blur-sm px-4 py-2 rounded-full mb-4">
-              <FaIdCard className="text-cyan-400" size={16} />
-              <span className="text-cyan-300 text-sm font-mono font-bold">
-                ID: {currentDoctor.doctorIdDisplay}
-              </span>
+            {/* Doctor Header */}
+            <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6 mb-8">
+              <div>
+                <h1 className="text-5xl md:text-6xl font-black text-white tracking-tighter uppercase leading-none mb-4" style={{ fontFamily: '"Montserrat", sans-serif' }}>
+                  Dr. {currentDoctor.name}
+                </h1>
+                
+                <div className="flex flex-wrap gap-3">
+                  <div className="inline-flex items-center gap-2 bg-white/10 backdrop-blur-sm px-4 py-2 rounded-full">
+                    <FaIdCard className="text-cyan-400" size={16} />
+                    <span className="text-cyan-300 text-sm font-mono font-bold">
+                      ID: {currentDoctor.doctorIdDisplay}
+                    </span>
+                  </div>
+                  <div className="inline-flex items-center gap-2 bg-teal-500/20 backdrop-blur-sm px-4 py-2 rounded-full">
+                    <FaWallet className="text-teal-400" size={16} />
+                    <span className="text-teal-300 text-sm font-bold">
+                      Fee: LKR {currentDoctor.fee.toLocaleString()}
+                    </span>
+                  </div>
+                  <div className="inline-flex items-center gap-2 bg-purple-500/20 backdrop-blur-sm px-4 py-2 rounded-full">
+                    <Award className="text-purple-400" size={16} />
+                    <span className="text-purple-300 text-sm font-bold">
+                      Rating: {currentDoctor.rating} ★
+                    </span>
+                  </div>
+                </div>
+              </div>
+              
+              <motion.button 
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={() => setShowAddModal(true)}
+                className="bg-white text-[#001b38] px-8 py-4 rounded-2xl shadow-xl font-black text-sm tracking-widest uppercase flex items-center gap-3 hover:bg-cyan-500 hover:text-white transition-all"
+                style={{ fontFamily: '"Montserrat", sans-serif' }}
+              >
+                <PlusCircle size={20}/> Add New Slot
+              </motion.button>
             </div>
             
-            <div className="flex flex-wrap gap-6 text-slate-400 font-medium">
-              <span className="flex items-center gap-2">
-                <Stethoscope size={18} className="text-cyan-500"/> 
-                {currentDoctor.specialization}
-              </span>
-              <span className="flex items-center gap-2">
-                <FaEnvelope size={16} className="text-cyan-500"/> 
-                {currentDoctor.email}
-              </span>
-              <span className="flex items-center gap-2">
-                <FaWallet size={16} className="text-cyan-500"/> 
-                LKR {currentDoctor.fee.toLocaleString()}
-              </span>
-            </div>
-            
-            {/* Additional Info */}
-            <div className="mt-3 flex flex-wrap gap-3">
-              {currentDoctor.qualifications && (
-                <span className="text-xs text-cyan-300 bg-cyan-500/10 px-3 py-1 rounded-full">
-                  📚 {currentDoctor.qualifications}
-                </span>
-              )}
-              {currentDoctor.experience && (
-                <span className="text-xs text-cyan-300 bg-cyan-500/10 px-3 py-1 rounded-full">
-                  ⏱️ {currentDoctor.experience}
-                </span>
-              )}
-              {currentDoctor.hospital && (
-                <span className="text-xs text-cyan-300 bg-cyan-500/10 px-3 py-1 rounded-full">
-                  🏥 {currentDoctor.hospital}
-                </span>
-              )}
-              {currentDoctor.phone && (
-                <span className="text-xs text-cyan-300 bg-cyan-500/10 px-3 py-1 rounded-full">
-                  📞 {currentDoctor.phone}
-                </span>
-              )}
+            {/* Doctor Details Card */}
+            <div className="bg-white/10 backdrop-blur-md rounded-3xl p-6 border border-white/20">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <div className="flex items-start gap-3">
+                  <div className="bg-cyan-500/20 p-2 rounded-xl">
+                    <Stethoscope className="text-cyan-400" size={20} />
+                  </div>
+                  <div>
+                    <p className="text-cyan-300 text-xs font-bold uppercase tracking-wider">Specialization</p>
+                    <p className="text-white font-semibold">{currentDoctor.specialization}</p>
+                  </div>
+                </div>
+                
+                <div className="flex items-start gap-3">
+                  <div className="bg-cyan-500/20 p-2 rounded-xl">
+                    <Building className="text-cyan-400" size={20} />
+                  </div>
+                  <div>
+                    <p className="text-cyan-300 text-xs font-bold uppercase tracking-wider">Hospital / Clinic</p>
+                    <p className="text-white font-semibold">{currentDoctor.hospital || 'Not specified'}</p>
+                  </div>
+                </div>
+                
+                <div className="flex items-start gap-3">
+                  <div className="bg-cyan-500/20 p-2 rounded-xl">
+                    <Award className="text-cyan-400" size={20} />
+                  </div>
+                  <div>
+                    <p className="text-cyan-300 text-xs font-bold uppercase tracking-wider">Qualifications</p>
+                    <p className="text-white font-semibold text-sm">{currentDoctor.qualifications || 'MBBS'}</p>
+                  </div>
+                </div>
+                
+                <div className="flex items-start gap-3">
+                  <div className="bg-cyan-500/20 p-2 rounded-xl">
+                    <Clock className="text-cyan-400" size={20} />
+                  </div>
+                  <div>
+                    <p className="text-cyan-300 text-xs font-bold uppercase tracking-wider">Experience</p>
+                    <p className="text-white font-semibold">{currentDoctor.experience || '5+ years'}</p>
+                  </div>
+                </div>
+              </div>
+              
+              {/* About Section */}
+              <div className="mt-6 pt-6 border-t border-white/20">
+                <div className="flex items-start gap-3">
+                  <div className="bg-cyan-500/20 p-2 rounded-xl">
+                    <FileText className="text-cyan-400" size={20} />
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-cyan-300 text-xs font-bold uppercase tracking-wider mb-2">About</p>
+                    <p className="text-gray-200 text-sm leading-relaxed">
+                      {currentDoctor.about || `Dr. ${currentDoctor.name} is a dedicated ${currentDoctor.specialization} with extensive experience in providing quality healthcare. Committed to patient well-being and using the latest medical practices.`}
+                    </p>
+                  </div>
+                </div>
+              </div>
+              
+              {/* Contact Info */}
+              <div className="mt-6 pt-6 border-t border-white/20 flex flex-wrap gap-4">
+                {currentDoctor.email && (
+                  <div className="flex items-center gap-2 text-gray-300 text-sm">
+                    <Mail size={14} className="text-cyan-400" />
+                    <span>{currentDoctor.email}</span>
+                  </div>
+                )}
+                {currentDoctor.phone && (
+                  <div className="flex items-center gap-2 text-gray-300 text-sm">
+                    <Phone size={14} className="text-cyan-400" />
+                    <span>{currentDoctor.phone}</span>
+                  </div>
+                )}
+              </div>
             </div>
           </motion.div>
-
-          <motion.button 
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            onClick={() => setShowAddModal(true)}
-            className="bg-white text-[#001b38] px-10 py-5 rounded-full shadow-[0_20px_50px_rgba(0,0,0,0.3)] font-black text-xs tracking-widest uppercase flex items-center gap-3 hover:bg-cyan-500 transition-all"
-            style={{ fontFamily: '"Montserrat", sans-serif' }}
-          >
-            <PlusCircle size={20}/> Build Schedule
-          </motion.button>
         </div>
         
         {/* Background Decor */}
@@ -501,38 +577,79 @@ const DoctorSchedule = ({ userData }) => {
         <Activity className="absolute -bottom-20 -left-10 text-white/5 w-96 h-96" />
       </div>
 
-      {/* STATS OVERLAY */}
-      <div className="max-w-7xl mx-auto px-6 -mt-20 relative z-20 grid grid-cols-1 md:grid-cols-4 gap-6">
-        {[
-          { label: "Daily Slots", val: filteredSlots.filter(s => s.status !== 'booked').length, icon: <LucideCalendar className="text-white" />, bg: "bg-blue-600" },
-          { label: "Daily Revenue", val: `LKR ${getDailyRevenue().toLocaleString()}`, icon: <FaWallet className="text-white" />, bg: "bg-emerald-500" },
-          { label: "Total Slots", val: stats.totalSlots, icon: <Clock className="text-white" />, bg: "bg-purple-500" },
-          { label: "Available", val: stats.availableSlots, icon: <ShieldCheck className="text-white" />, bg: "bg-amber-500" }
-        ].map((item, i) => (
-          <motion.div key={i} whileHover={{ y: -5 }} className="bg-white p-6 rounded-2xl shadow-xl flex items-center gap-5 border border-slate-100">
-            <div className={`${item.bg} p-4 rounded-xl shadow-lg`}>{item.icon}</div>
-            <div>
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{item.label}</p>
-              <p className="text-xl font-black text-[#001b38]" style={{ fontFamily: '"Montserrat", sans-serif' }}>{item.val}</p>
+      {/* WORKFLOW GUIDE */}
+      <div className="max-w-7xl mx-auto px-6 -mt-16 relative z-20">
+        <motion.div 
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-white rounded-3xl shadow-xl p-6 mb-8 border border-cyan-100"
+        >
+          <h3 className="text-lg font-black text-[#001b38] mb-4 flex items-center gap-2">
+            <Info size={20} className="text-cyan-500" />
+            How to Add Slots - Quick Guide
+          </h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className={`flex items-start gap-3 p-4 rounded-2xl transition-all ${workflowStep === 1 ? 'bg-cyan-50 border-2 border-cyan-500' : 'bg-gray-50'}`}>
+              <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm ${workflowStep === 1 ? 'bg-cyan-500 text-white' : 'bg-gray-300 text-gray-600'}`}>1</div>
+              <div>
+                <p className="font-bold text-[#001b38] flex items-center gap-2">
+                  <FaCalendarAlt size={14} className="text-cyan-500" />
+                  Select Date
+                </p>
+                <p className="text-xs text-gray-500 mt-1">Choose a date from the calendar picker below</p>
+              </div>
             </div>
-          </motion.div>
-        ))}
+            
+            <div className={`flex items-start gap-3 p-4 rounded-2xl transition-all ${workflowStep === 2 ? 'bg-cyan-50 border-2 border-cyan-500' : 'bg-gray-50'}`}>
+              <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm ${workflowStep === 2 ? 'bg-cyan-500 text-white' : 'bg-gray-300 text-gray-600'}`}>2</div>
+              <div>
+                <p className="font-bold text-[#001b38] flex items-center gap-2">
+                  <Clock size={14} className="text-cyan-500" />
+                  Add Time & Location
+                </p>
+                <p className="text-xs text-gray-500 mt-1">Set time, choose clinic/video, add location/meeting link</p>
+              </div>
+            </div>
+            
+            <div className={`flex items-start gap-3 p-4 rounded-2xl transition-all ${workflowStep === 3 ? 'bg-cyan-50 border-2 border-cyan-500' : 'bg-gray-50'}`}>
+              <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm ${workflowStep === 3 ? 'bg-cyan-500 text-white' : 'bg-gray-300 text-gray-600'}`}>3</div>
+              <div>
+                <p className="font-bold text-[#001b38] flex items-center gap-2">
+                  <FaCheckCircle size={14} className="text-cyan-500" />
+                  Verify & Confirm
+                </p>
+                <p className="text-xs text-gray-500 mt-1">Check schedule page to verify your added slots</p>
+              </div>
+            </div>
+          </div>
+        </motion.div>
       </div>
+
+    
 
       {/* MAIN SCHEDULE AREA */}
       <div className="max-w-7xl mx-auto px-6 mt-16 grid grid-cols-1 lg:grid-cols-12 gap-10">
         {/* Sidebar Date Picker */}
         <div className="lg:col-span-3">
-          <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200">
-            <h3 className="text-xs font-black uppercase tracking-widest text-[#001b38] mb-6 border-b pb-4">Select Date</h3>
+          <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 sticky top-24">
+            <h3 className="text-xs font-black uppercase tracking-widest text-[#001b38] mb-6 border-b pb-4 flex items-center gap-2">
+              <FaCalendarAlt size={14} className="text-cyan-500" />
+              Step 1: Select Date
+            </h3>
             <div className="flex flex-col gap-4">
               <input 
                 type="date" 
                 value={selectedDate} 
-                onChange={(e) => setSelectedDate(e.target.value)}
-                className="w-full p-4 bg-slate-50 border-none rounded-2xl font-bold text-[#001b38] focus:ring-2 focus:ring-cyan-500 outline-none"
+                onChange={(e) => {
+                  setSelectedDate(e.target.value);
+                  setWorkflowStep(2);
+                }}
+                min={new Date().toISOString().split('T')[0]}
+                className="w-full p-4 bg-slate-50 border-none rounded-2xl font-bold text-[#001b38] focus:ring-2 focus:ring-cyan-500 outline-none cursor-pointer"
               />
-              <p className="text-[11px] text-slate-400 font-medium px-2 italic text-center">Manage slots for the selected date above.</p>
+              <p className="text-[11px] text-slate-400 font-medium px-2 italic text-center">
+                💡 Tip: Past dates are blocked. Select today or future dates.
+              </p>
               
               <div className="mt-6 pt-6 border-t border-slate-100">
                 <h4 className="text-xs font-bold text-slate-500 mb-3">Quick Stats</h4>
@@ -551,6 +668,16 @@ const DoctorSchedule = ({ userData }) => {
                   </div>
                 </div>
               </div>
+              
+              {/* Info Box */}
+              <div className="mt-4 p-3 bg-amber-50 rounded-xl border border-amber-200">
+                <div className="flex items-start gap-2">
+                  <AlertCircle size={14} className="text-amber-500 mt-0.5" />
+                  <p className="text-xs text-amber-700">
+                    Past time slots for today cannot be booked or added.
+                  </p>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -562,7 +689,7 @@ const DoctorSchedule = ({ userData }) => {
               Day Timeline <span className="text-cyan-500 ml-2">//</span>
             </h2>
             <div className="text-xs text-slate-400">
-              Showing slots for {new Date(selectedDate).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+              {new Date(selectedDate).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
             </div>
           </div>
 
@@ -576,16 +703,17 @@ const DoctorSchedule = ({ userData }) => {
                   exit={{ opacity: 0, scale: 0.9 }}
                   key={slot.id} 
                   className={`bg-white p-5 rounded-2xl shadow-sm border flex justify-between items-center group hover:shadow-md transition-all border-l-8 ${
-                    slot.status === 'booked' ? 'border-l-red-500 opacity-60' : 'border-l-[#001b38]'
+                    slot.status === 'booked' ? 'border-l-red-500 opacity-60' : 
+                    slot.isExpired ? 'border-l-gray-400 opacity-50' : 'border-l-[#001b38]'
                   }`}
                 >
                   <div className="flex items-center gap-5">
-                    <div className="p-3 bg-slate-50 rounded-xl">
-                      <Clock size={20} className="text-cyan-500" />
+                    <div className={`p-3 rounded-xl ${slot.isExpired ? 'bg-gray-100' : 'bg-slate-50'}`}>
+                      <Clock size={20} className={slot.isExpired ? 'text-gray-400' : 'text-cyan-500'} />
                     </div>
                     <div>
                       <div className="flex items-center gap-2">
-                        <span className="text-lg font-black text-[#001b38]">{slot.time}</span>
+                        <span className={`text-lg font-black ${slot.isExpired ? 'text-gray-400' : 'text-[#001b38]'}`}>{slot.time}</span>
                         <span className={`text-[9px] font-bold px-2 py-0.5 rounded-md uppercase tracking-tighter ${
                           slot.type === 'video' ? 'bg-purple-100 text-purple-600' : 'bg-cyan-100 text-cyan-600'
                         }`}>
@@ -594,6 +722,11 @@ const DoctorSchedule = ({ userData }) => {
                         {slot.status === 'booked' && (
                           <span className="text-[9px] font-bold px-2 py-0.5 rounded-md bg-red-100 text-red-600">
                             Booked
+                          </span>
+                        )}
+                        {slot.isExpired && (
+                          <span className="text-[9px] font-bold px-2 py-0.5 rounded-md bg-gray-100 text-gray-600">
+                            Expired
                           </span>
                         )}
                       </div>
@@ -606,7 +739,7 @@ const DoctorSchedule = ({ userData }) => {
                       </p>
                     </div>
                   </div>
-                  {slot.status !== 'booked' && (
+                  {slot.status !== 'booked' && !slot.isExpired && (
                     <button 
                       onClick={() => handleDeleteSlot(slot.id)}
                       className="p-3 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all"
@@ -644,24 +777,37 @@ const DoctorSchedule = ({ userData }) => {
               exit={{ opacity: 0, y: 50 }}
               className="bg-white w-full max-w-lg rounded-[40px] overflow-hidden shadow-2xl relative"
             >
-              <div className="bg-[#001b38] p-8 text-white relative overflow-hidden">
-                <h2 className="text-3xl font-black uppercase tracking-tighter relative z-10" style={{ fontFamily: '"Montserrat", sans-serif' }}>Slot Wizard</h2>
-                <p className="text-cyan-400 text-[10px] font-bold tracking-[0.3em] uppercase mt-2 relative z-10">Configure availability</p>
+              <div className="bg-gradient-to-r from-[#001b38] to-[#002a4d] p-8 text-white relative overflow-hidden">
+                <h2 className="text-3xl font-black uppercase tracking-tighter relative z-10" style={{ fontFamily: '"Montserrat", sans-serif' }}>
+                  Step 2: Add Slot
+                </h2>
+                <p className="text-cyan-400 text-[10px] font-bold tracking-[0.3em] uppercase mt-2 relative z-10">Configure your availability</p>
                 <button onClick={() => setShowAddModal(false)} className="absolute top-8 right-8 text-white/50 hover:text-white transition-colors z-20"><FaTimes size={24}/></button>
                 <div className="absolute top-0 right-0 w-32 h-32 bg-cyan-500 rounded-full blur-[80px] opacity-20" />
               </div>
 
               <div className="p-10 space-y-8">
+                {/* Date Display */}
+                <div className="bg-cyan-50 p-4 rounded-2xl border border-cyan-100">
+                  <p className="text-[10px] font-black text-cyan-600 uppercase tracking-widest">Selected Date</p>
+                  <p className="text-lg font-black text-[#001b38]">
+                    {new Date(selectedDate).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+                  </p>
+                </div>
+                
                 {/* Time Input */}
                 <div className="flex items-center gap-6">
                   <div className="flex-1">
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-3">Starting Time</label>
-                    <input 
-                      type="time" 
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-3">Step 2a: Starting Time</label>
+                    <select 
                       value={newSlot.time} 
                       onChange={e => setNewSlot({...newSlot, time: e.target.value})} 
-                      className="w-full p-4 bg-slate-50 border-none rounded-2xl font-black text-2xl text-[#001b38] focus:ring-2 focus:ring-cyan-500" 
-                    />
+                      className="w-full p-4 bg-slate-50 border-none rounded-2xl font-black text-lg text-[#001b38] focus:ring-2 focus:ring-cyan-500 cursor-pointer"
+                    >
+                      {getAvailableTimes().map(time => (
+                        <option key={time} value={time}>{time}</option>
+                      ))}
+                    </select>
                   </div>
                   <div className="bg-cyan-50 px-6 py-4 rounded-3xl border border-cyan-100 text-center">
                     <p className="text-[9px] font-black text-cyan-600 uppercase tracking-widest mb-1">Duration</p>
@@ -671,7 +817,7 @@ const DoctorSchedule = ({ userData }) => {
 
                 {/* Type Selection */}
                 <div>
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-4">Consultation Mode</label>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-4">Step 2b: Consultation Mode</label>
                   <div className="grid grid-cols-2 gap-4">
                     <button 
                       onClick={() => setNewSlot({...newSlot, type: 'clinic'})} 
@@ -698,7 +844,7 @@ const DoctorSchedule = ({ userData }) => {
                 <AnimatePresence mode="wait">
                   {newSlot.type === 'clinic' ? (
                     <motion.div key="c" initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }}>
-                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-3">Hospital/Clinic Location</label>
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-3">Step 2c: Hospital/Clinic Location</label>
                       <input 
                         type="text" 
                         placeholder="e.g. Apollo Hospital, Wing A" 
@@ -709,7 +855,7 @@ const DoctorSchedule = ({ userData }) => {
                     </motion.div>
                   ) : (
                     <motion.div key="v" initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }}>
-                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-3">Meeting Link</label>
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-3">Step 2c: Meeting Link</label>
                       <input 
                         type="text" 
                         placeholder="e.g. zoom.us/j/meetingid" 
@@ -724,17 +870,21 @@ const DoctorSchedule = ({ userData }) => {
                 <div className="flex gap-4 pt-4">
                   <button 
                     onClick={handleAddSlot} 
-                    className="flex-[2] bg-[#001b38] text-white py-6 rounded-3xl font-black text-xs tracking-[0.2em] uppercase shadow-2xl shadow-blue-900/40 hover:bg-slate-800 transition-all"
+                    className="flex-[2] bg-[#001b38] text-white py-6 rounded-3xl font-black text-xs tracking-[0.2em] uppercase shadow-2xl shadow-blue-900/40 hover:bg-slate-800 transition-all flex items-center justify-center gap-2"
                   >
-                    Add & Next Slot (+30m)
+                    <FaCheckCircle size={16}/> Step 3: Add Slot
                   </button>
                   <button 
                     onClick={() => setShowAddModal(false)} 
                     className="flex-1 bg-slate-100 text-slate-400 py-6 rounded-3xl font-black text-xs uppercase hover:bg-slate-200 transition-all"
                   >
-                    Done
+                    Cancel
                   </button>
                 </div>
+                
+                <p className="text-center text-[10px] text-slate-400 mt-4">
+                  ⏰ Past times for today are automatically blocked
+                </p>
               </div>
             </motion.div>
           </div>

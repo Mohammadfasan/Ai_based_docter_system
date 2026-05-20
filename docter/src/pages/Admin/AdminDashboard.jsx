@@ -1,5 +1,5 @@
 // src/pages/Admin/AdminDashboard.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, lazy, Suspense ,memo } from 'react';
 import axios from 'axios';
 import { 
   FaUsers, FaUserMd, FaCalendarCheck, FaDollarSign,
@@ -22,35 +22,149 @@ import {
   RefreshCw, Bell, Settings, LogOut, UserCheck
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import {
-  Chart as ChartJS,
-  CategoryScale,
-  LinearScale,
-  PointElement,
-  LineElement,
-  BarElement,
-  ArcElement,
-  Title,
-  Tooltip,
-  Legend,
-  Filler
-} from 'chart.js';
-import { Line, Bar, Pie } from 'react-chartjs-2';
 
-ChartJS.register(
-  CategoryScale,
-  LinearScale,
-  PointElement,
-  LineElement,
-  BarElement,
-  ArcElement,
-  Title,
-  Tooltip,
-  Legend,
-  Filler
-);
+// Lazy load heavy components
+const Line = lazy(() => import('react-chartjs-2').then(module => ({ default: module.Line })));
+const Bar = lazy(() => import('react-chartjs-2').then(module => ({ default: module.Bar })));
+const Pie = lazy(() => import('react-chartjs-2').then(module => ({ default: module.Pie })));
+
+// Chart.js registration moved to separate file
+import './chart-config'; // Create this file with ChartJS registration
 
 const API_URL = 'http://localhost:5000/api';
+
+// ========== MEMOIZED SUB-COMPONENTS ==========
+
+// KPI Card Component
+const KPICard = memo(({ title, value, change, icon: Icon, iconBg, iconColor, changeColor }) => (
+  <motion.div whileHover={{ y: -5 }} className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-6">
+    <div className="flex justify-between items-start">
+      <div>
+        <p className="text-xs font-black text-slate-400 uppercase tracking-widest">{title}</p>
+        <p className="text-3xl font-black text-[#0f172a] dark:text-white mt-2">{value}</p>
+        {change !== undefined && (
+          <div className="flex items-center gap-2 mt-2">
+            <span className={`text-xs font-bold ${changeColor} bg-opacity-10 px-2 py-1 rounded-lg flex items-center gap-1`}>
+              <TrendingUp size={12} /> {change}
+            </span>
+          </div>
+        )}
+      </div>
+      <div className={`p-4 ${iconBg} rounded-xl`}>
+        <Icon className={`${iconColor} text-2xl`} />
+      </div>
+    </div>
+  </motion.div>
+));
+
+// Stat Card Component
+const StatCard = memo(({ title, value, darkMode }) => (
+  <div className={`${darkMode ? 'bg-gray-800' : 'bg-white'} rounded-xl shadow p-4`}>
+    <p className="text-xs text-slate-500">{title}</p>
+    <p className="text-2xl font-black text-[#0f172a] dark:text-white">{value}</p>
+  </div>
+));
+
+// Activity Item Component
+const ActivityItem = memo(({ activity }) => {
+  const getIcon = () => {
+    switch(activity.type) {
+      case 'doctor': return FaUserMd;
+      case 'patient': return FaUsers;
+      case 'appointment': return FaCalendarCheck;
+      default: return FaFileMedical;
+    }
+  };
+  const Icon = getIcon();
+  const getBgColor = () => {
+    switch(activity.type) {
+      case 'doctor': return 'bg-blue-100 text-blue-600';
+      case 'patient': return 'bg-green-100 text-green-600';
+      case 'appointment': return 'bg-purple-100 text-purple-600';
+      default: return 'bg-slate-100 text-slate-600';
+    }
+  };
+  
+  return (
+    <div className="flex items-start gap-4 p-4 hover:bg-slate-50 dark:hover:bg-gray-700 rounded-xl transition-colors">
+      <div className={`p-2 rounded-lg ${getBgColor()}`}>
+        <Icon size={16} />
+      </div>
+      <div className="flex-1">
+        <p className="font-bold text-[#0f172a] dark:text-white">{activity.action}</p>
+        <p className="text-sm text-slate-500">{activity.user}</p>
+      </div>
+      <span className="text-xs text-slate-400">{activity.time}</span>
+    </div>
+  );
+});
+
+// Loading Skeleton
+const LoadingSkeleton = memo(({ darkMode }) => (
+  <div className={`min-h-screen ${darkMode ? 'bg-gray-900' : 'bg-[#f8fafc]'} p-8`}>
+    <div className="max-w-7xl mx-auto">
+      {/* Header Skeleton */}
+      <div className="h-32 bg-gradient-to-r from-slate-800 to-slate-700 rounded-2xl mb-8 animate-pulse" />
+      
+      {/* KPI Cards Skeleton */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+        {[...Array(4)].map((_, i) => (
+          <div key={i} className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-6 animate-pulse">
+            <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-24 mb-4" />
+            <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded w-16 mb-2" />
+            <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-20" />
+          </div>
+        ))}
+      </div>
+      
+      {/* Content Skeleton */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-2 bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-6 animate-pulse">
+          <div className="h-6 bg-gray-200 dark:bg-gray-700 rounded w-48 mb-6" />
+          <div className="space-y-4">
+            {[...Array(5)].map((_, i) => (
+              <div key={i} className="flex items-start gap-4">
+                <div className="w-10 h-10 bg-gray-200 dark:bg-gray-700 rounded-lg" />
+                <div className="flex-1">
+                  <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-32 mb-2" />
+                  <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-48" />
+                </div>
+                <div className="w-16 h-3 bg-gray-200 dark:bg-gray-700 rounded" />
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-6 animate-pulse">
+          <div className="h-6 bg-gray-200 dark:bg-gray-700 rounded w-32 mb-6" />
+          <div className="space-y-4">
+            {[...Array(3)].map((_, i) => (
+              <div key={i} className="p-4 bg-gray-50 dark:bg-gray-700 rounded-xl">
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="w-10 h-10 bg-gray-200 dark:bg-gray-600 rounded-full" />
+                  <div>
+                    <div className="h-4 bg-gray-200 dark:bg-gray-600 rounded w-24 mb-1" />
+                    <div className="h-3 bg-gray-200 dark:bg-gray-600 rounded w-16" />
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <div className="flex-1 h-8 bg-gray-200 dark:bg-gray-600 rounded" />
+                  <div className="flex-1 h-8 bg-gray-200 dark:bg-gray-600 rounded" />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+));
+
+// Lazy loaded chart wrapper
+const ChartWrapper = memo(({ children, fallback }) => (
+  <Suspense fallback={fallback}>
+    {children}
+  </Suspense>
+));
 
 const AdminDashboard = ({ userData, darkMode }) => {
   // ========== STATE MANAGEMENT ==========
@@ -94,20 +208,127 @@ const AdminDashboard = ({ userData, darkMode }) => {
     systemHealth: 99.9
   });
 
-  // ========== HELPER FUNCTIONS ==========
-  const getToken = () => {
-    return localStorage.getItem('token') || sessionStorage.getItem('token');
-  };
+  // ========== OPTIMIZED: Memoized filtered data ==========
+  const filteredDoctors = useMemo(() => 
+    doctors.filter(d => 
+      d.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      d.specialization?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      d.doctorId?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      d.email?.toLowerCase().includes(searchTerm.toLowerCase())
+    ), [doctors, searchTerm]
+  );
 
-  const showNotificationMsg = (msg, type = 'success') => {
+  const filteredPatients = useMemo(() => 
+    patients.filter(p => 
+      p.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      p.userId?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      p.email?.toLowerCase().includes(searchTerm.toLowerCase())
+    ), [patients, searchTerm]
+  );
+
+  // ========== OPTIMIZED: Memoized chart data ==========
+  const weeklyAppointmentData = useMemo(() => {
+    const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    const counts = [0, 0, 0, 0, 0, 0, 0];
+    
+    appointments.forEach(apt => {
+      try {
+        const day = new Date(apt.date).getDay();
+        const adjustedDay = day === 0 ? 6 : day - 1;
+        if (adjustedDay >= 0 && adjustedDay < 7) {
+          counts[adjustedDay]++;
+        }
+      } catch (e) {}
+    });
+    
+    return { labels: days, data: counts };
+  }, [appointments]);
+
+  const specializationData = useMemo(() => {
+    const specializations = {};
+    doctors.forEach(doc => {
+      const spec = doc.specialization || 'General';
+      specializations[spec] = (specializations[spec] || 0) + 1;
+    });
+    
+    const labels = Object.keys(specializations).slice(0, 6);
+    const data = labels.map(label => specializations[label]);
+    return { labels, data };
+  }, [doctors]);
+
+  // ========== OPTIMIZED: Memoized chart configs ==========
+  const appointmentTrends = useMemo(() => ({
+    labels: weeklyAppointmentData.labels,
+    datasets: [{
+      label: 'Appointments',
+      data: weeklyAppointmentData.data,
+      borderColor: 'rgb(20, 184, 166)',
+      backgroundColor: 'rgba(20, 184, 166, 0.1)',
+      tension: 0.4,
+      fill: true
+    }]
+  }), [weeklyAppointmentData]);
+
+  const pieChartData = useMemo(() => ({
+    labels: specializationData.labels,
+    datasets: [{
+      data: specializationData.data,
+      backgroundColor: [
+        'rgba(20, 184, 166, 0.8)',
+        'rgba(59, 130, 246, 0.8)',
+        'rgba(168, 85, 247, 0.8)',
+        'rgba(236, 72, 153, 0.8)',
+        'rgba(249, 115, 22, 0.8)',
+        'rgba(34, 197, 94, 0.8)'
+      ]
+    }]
+  }), [specializationData]);
+
+  const chartOptions = useMemo(() => ({
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: { legend: { display: false } },
+    scales: { y: { beginAtZero: true, grid: { color: 'rgba(0,0,0,0.05)' } } }
+  }), []);
+
+  const pieChartOptions = useMemo(() => ({
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: { legend: { position: 'bottom' } }
+  }), []);
+
+  // ========== HELPER FUNCTIONS ==========
+  const getToken = useCallback(() => {
+    return localStorage.getItem('token') || sessionStorage.getItem('token');
+  }, []);
+
+  const showNotificationMsg = useCallback((msg, type = 'success') => {
     setNotificationMessage(msg);
     setNotificationType(type);
     setShowNotification(true);
     setTimeout(() => setShowNotification(false), 3000);
-  };
+  }, []);
 
-  // ========== FETCH ALL DATA FROM MONGODB ==========
-  const fetchAllData = async () => {
+  const getTimeAgo = useCallback((dateString) => {
+    if (!dateString) return 'Just now';
+    try {
+      const date = new Date(dateString);
+      const now = new Date();
+      const seconds = Math.floor((now - date) / 1000);
+      if (seconds < 60) return 'Just now';
+      const minutes = Math.floor(seconds / 60);
+      if (minutes < 60) return `${minutes} mins ago`;
+      const hours = Math.floor(minutes / 60);
+      if (hours < 24) return `${hours} hours ago`;
+      const days = Math.floor(hours / 24);
+      return `${days} days ago`;
+    } catch {
+      return 'Just now';
+    }
+  }, []);
+
+  // ========== OPTIMIZED: Parallel API fetching ==========
+  const fetchAllData = useCallback(async () => {
     setLoading(true);
     const token = getToken();
 
@@ -120,116 +341,112 @@ const AdminDashboard = ({ userData, darkMode }) => {
     const headers = { 'Authorization': `Bearer ${token}` };
 
     try {
-      // 1. Fetch all users (patients)
+      // Fetch all data in parallel for better performance
+      const [usersRes, doctorsRes, appointmentsRes] = await Promise.allSettled([
+        axios.get(`${API_URL}/users/patients-list`, { headers }),
+        axios.get(`${API_URL}/doctors`, { headers }),
+        axios.get(`${API_URL}/appointments/admin/all`, { headers })
+      ]);
+
+      // Process users
       let allUsers = [];
       let patientUsers = [];
-      
-      try {
-        const usersRes = await axios.get(`${API_URL}/users/patients-list`, { headers });
-        if (usersRes.data.success) {
-          allUsers = usersRes.data.data || [];
-          patientUsers = allUsers.filter(u => u.userType === 'patient');
-          setUsers(allUsers);
-          setPatients(patientUsers);
-          console.log('✅ Loaded users:', allUsers.length);
-        }
-      } catch (err) {
-        console.error('Error fetching users:', err);
+      if (usersRes.status === 'fulfilled' && usersRes.value.data.success) {
+        allUsers = usersRes.value.data.data || [];
+        patientUsers = allUsers.filter(u => u.userType === 'patient');
+        setUsers(allUsers);
+        setPatients(patientUsers);
       }
 
-      // 2. Fetch all doctors
+      // Process doctors
       let allDoctors = [];
-      try {
-        const doctorsRes = await axios.get(`${API_URL}/doctors`, { headers });
-        if (doctorsRes.data.success) {
-          allDoctors = doctorsRes.data.doctors || [];
-          setDoctors(allDoctors);
-          
-          // Pending approvals
-          const pending = allDoctors.filter(d => d.status === 'pending' || !d.isVerified);
-          setPendingApprovals(pending);
-          console.log('✅ Loaded doctors:', allDoctors.length);
-        }
-      } catch (err) {
-        console.error('Error fetching doctors:', err);
+      if (doctorsRes.status === 'fulfilled' && doctorsRes.value.data.success) {
+        allDoctors = doctorsRes.value.data.doctors || [];
+        setDoctors(allDoctors);
+        const pending = allDoctors.filter(d => d.status === 'pending' || !d.isVerified);
+        setPendingApprovals(pending);
       }
 
-      // 3. Fetch all appointments
+      // Process appointments
       let allAppointments = [];
-      try {
-        const appointmentsRes = await axios.get(`${API_URL}/appointments/admin/all`, { headers });
-        if (appointmentsRes.data.success) {
-          allAppointments = appointmentsRes.data.data || [];
-          setAppointments(allAppointments);
-          console.log('✅ Loaded appointments:', allAppointments.length);
-        }
-      } catch (err) {
-        console.error('Error fetching appointments:', err);
+      if (appointmentsRes.status === 'fulfilled' && appointmentsRes.value.data.success) {
+        allAppointments = appointmentsRes.value.data.data || [];
+        setAppointments(allAppointments);
       }
 
-      // 4. Fetch prescriptions (via patients)
-      let allPrescriptions = [];
-      if (patientUsers.length > 0) {
-        for (const patient of patientUsers.slice(0, 20)) {
-          try {
-            const presRes = await axios.get(`${API_URL}/prescriptions/patient/${patient.userId || patient._id}`, { headers });
-            if (presRes.data.success && presRes.data.data) {
-              allPrescriptions = [...allPrescriptions, ...presRes.data.data];
+      // Fetch prescriptions and medical records in background (don't block UI)
+      setTimeout(async () => {
+        let allPrescriptions = [];
+        let allMedicalRecords = [];
+        
+        if (patientUsers.length > 0) {
+          const limitedPatients = patientUsers.slice(0, 20);
+          
+          // Use Promise.all for parallel fetching
+          const prescriptionPromises = limitedPatients.map(patient =>
+            axios.get(`${API_URL}/prescriptions/patient/${patient.userId || patient._id}`, { headers })
+              .catch(() => ({ data: { success: false, data: [] } }))
+          );
+          
+          const medicalRecordPromises = limitedPatients.map(patient =>
+            axios.get(`${API_URL}/medical-records/${patient.userId || patient._id}`, { headers })
+              .catch(() => ({ data: { success: false, data: [] } }))
+          );
+          
+          const [presResults, medResults] = await Promise.all([
+            Promise.all(prescriptionPromises),
+            Promise.all(medicalRecordPromises)
+          ]);
+          
+          presResults.forEach(res => {
+            if (res.data.success && res.data.data) {
+              allPrescriptions = [...allPrescriptions, ...res.data.data];
             }
-          } catch (err) {
-            // No prescriptions for this patient, continue
-          }
-        }
-      }
-      setPrescriptions(allPrescriptions);
-      console.log('✅ Loaded prescriptions:', allPrescriptions.length);
-
-      // 5. Fetch medical records
-      let allMedicalRecords = [];
-      if (patientUsers.length > 0) {
-        for (const patient of patientUsers.slice(0, 20)) {
-          try {
-            const medRes = await axios.get(`${API_URL}/medical-records/${patient.userId || patient._id}`, { headers });
-            if (medRes.data.success && medRes.data.data) {
-              allMedicalRecords = [...allMedicalRecords, ...medRes.data.data];
+          });
+          
+          medResults.forEach(res => {
+            if (res.data.success && res.data.data) {
+              allMedicalRecords = [...allMedicalRecords, ...res.data.data];
             }
-          } catch (err) {
-            // No medical records for this patient, continue
-          }
+          });
         }
-      }
-      setMedicalRecords(allMedicalRecords);
-      console.log('✅ Loaded medical records:', allMedicalRecords.length);
-
-      // 6. Fetch feedbacks
-      let allFeedbacks = [];
-      if (allDoctors.length > 0) {
-        for (const doctor of allDoctors.slice(0, 10)) {
-          try {
-            const fbRes = await axios.get(`${API_URL}/feedback/doctor/${doctor.doctorId || doctor._id}`, { headers });
-            if (fbRes.data.success && fbRes.data.feedbacks) {
-              allFeedbacks = [...allFeedbacks, ...fbRes.data.feedbacks];
+        
+        setPrescriptions(allPrescriptions);
+        setMedicalRecords(allMedicalRecords);
+        
+        // Fetch feedbacks
+        let allFeedbacks = [];
+        if (allDoctors.length > 0) {
+          const feedbackPromises = allDoctors.slice(0, 10).map(doctor =>
+            axios.get(`${API_URL}/feedback/doctor/${doctor.doctorId || doctor._id}`, { headers })
+              .catch(() => ({ data: { success: false, feedbacks: [] } }))
+          );
+          
+          const fbResults = await Promise.all(feedbackPromises);
+          fbResults.forEach(res => {
+            if (res.data.success && res.data.feedbacks) {
+              allFeedbacks = [...allFeedbacks, ...res.data.feedbacks];
             }
-          } catch (err) {
-            // No feedback for this doctor, continue
-          }
+          });
+          setFeedbacks(allFeedbacks);
         }
-      }
-      setFeedbacks(allFeedbacks);
-      console.log('✅ Loaded feedbacks:', allFeedbacks.length);
+        
+        // Calculate stats with all data
+        calculateStats(
+          patientUsers,
+          allDoctors,
+          allAppointments,
+          allPrescriptions,
+          allMedicalRecords,
+          allFeedbacks
+        );
+        
+        // Generate activities
+        generateActivities(allAppointments, allPrescriptions, allDoctors, patientUsers, allMedicalRecords);
+      }, 0);
 
-      // 7. Calculate stats
-      calculateStats(
-        patientUsers,
-        allDoctors,
-        allAppointments,
-        allPrescriptions,
-        allMedicalRecords,
-        allFeedbacks
-      );
-
-      // 8. Generate activities
-      generateActivities(allAppointments, allPrescriptions, allDoctors, patientUsers, allMedicalRecords);
+      // Initial stats with available data
+      calculateStats(patientUsers, allDoctors, allAppointments, [], [], []);
 
     } catch (error) {
       console.error('Error fetching data:', error);
@@ -237,10 +454,10 @@ const AdminDashboard = ({ userData, darkMode }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [getToken, showNotificationMsg]);
 
   // ========== CALCULATE STATS ==========
-  const calculateStats = (patientsData, doctorsData, appointmentsData, prescriptionsData, medicalRecordsData, feedbacksData) => {
+  const calculateStats = useCallback((patientsData, doctorsData, appointmentsData, prescriptionsData, medicalRecordsData, feedbacksData) => {
     const totalPatients = patientsData.length;
     const totalDoctors = doctorsData.length;
     const totalAppointments = appointmentsData.length;
@@ -312,10 +529,10 @@ const AdminDashboard = ({ userData, darkMode }) => {
       aiSuccessRate: 92,
       systemHealth: 99.9
     });
-  };
+  }, []);
 
   // ========== GENERATE ACTIVITIES ==========
-  const generateActivities = (appointmentsData, prescriptionsData, doctorsData, patientsData, medicalRecordsData) => {
+  const generateActivities = useCallback((appointmentsData, prescriptionsData, doctorsData, patientsData, medicalRecordsData) => {
     const activitiesList = [];
 
     // Recent appointments
@@ -359,28 +576,10 @@ const AdminDashboard = ({ userData, darkMode }) => {
     });
 
     setActivities(activitiesList.slice(0, 10));
-  };
-
-  const getTimeAgo = (dateString) => {
-    if (!dateString) return 'Just now';
-    try {
-      const date = new Date(dateString);
-      const now = new Date();
-      const seconds = Math.floor((now - date) / 1000);
-      if (seconds < 60) return 'Just now';
-      const minutes = Math.floor(seconds / 60);
-      if (minutes < 60) return `${minutes} mins ago`;
-      const hours = Math.floor(minutes / 60);
-      if (hours < 24) return `${hours} hours ago`;
-      const days = Math.floor(hours / 24);
-      return `${days} days ago`;
-    } catch {
-      return 'Just now';
-    }
-  };
+  }, [getTimeAgo]);
 
   // ========== HANDLE ACTIONS ==========
-  const handleApproveDoctor = async (doctor) => {
+  const handleApproveDoctor = useCallback(async (doctor) => {
     try {
       const token = getToken();
       await axios.put(
@@ -393,9 +592,9 @@ const AdminDashboard = ({ userData, darkMode }) => {
     } catch (error) {
       showNotificationMsg('Failed to approve doctor', 'error');
     }
-  };
+  }, [getToken, showNotificationMsg, fetchAllData]);
 
-  const handleRejectDoctor = async (doctor) => {
+  const handleRejectDoctor = useCallback(async (doctor) => {
     if (!window.confirm(`Reject doctor ${doctor.name}?`)) return;
     try {
       const token = getToken();
@@ -407,9 +606,9 @@ const AdminDashboard = ({ userData, darkMode }) => {
     } catch (error) {
       showNotificationMsg('Failed to reject doctor', 'error');
     }
-  };
+  }, [getToken, showNotificationMsg, fetchAllData]);
 
-  const handleBlockUser = async (user) => {
+  const handleBlockUser = useCallback(async (user) => {
     if (!window.confirm(`Block user ${user.name}?`)) return;
     try {
       const token = getToken();
@@ -423,9 +622,9 @@ const AdminDashboard = ({ userData, darkMode }) => {
     } catch (error) {
       showNotificationMsg('Failed to update user status', 'error');
     }
-  };
+  }, [getToken, showNotificationMsg, fetchAllData]);
 
-  const handleDeleteUser = async (user) => {
+  const handleDeleteUser = useCallback(async (user) => {
     if (!window.confirm(`Permanently delete user ${user.name}? This action cannot be undone.`)) return;
     try {
       const token = getToken();
@@ -437,114 +636,21 @@ const AdminDashboard = ({ userData, darkMode }) => {
     } catch (error) {
       showNotificationMsg('Failed to delete user', 'error');
     }
-  };
+  }, [getToken, showNotificationMsg, fetchAllData]);
 
-  // ========== CHART DATA ==========
-  const getWeeklyAppointmentData = () => {
-    const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-    const counts = [0, 0, 0, 0, 0, 0, 0];
-    
-    appointments.forEach(apt => {
-      try {
-        const day = new Date(apt.date).getDay();
-        const adjustedDay = day === 0 ? 6 : day - 1;
-        if (adjustedDay >= 0 && adjustedDay < 7) {
-          counts[adjustedDay]++;
-        }
-      } catch (e) {}
-    });
-    
-    return counts;
-  };
-
-  const getSpecializationData = () => {
-    const specializations = {};
-    doctors.forEach(doc => {
-      const spec = doc.specialization || 'General';
-      specializations[spec] = (specializations[spec] || 0) + 1;
-    });
-    
-    const labels = Object.keys(specializations).slice(0, 6);
-    const data = labels.map(label => specializations[label]);
-    return { labels, data };
-  };
-
-  const specData = getSpecializationData();
-
-  const appointmentTrends = {
-    labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
-    datasets: [{
-      label: 'Appointments',
-      data: getWeeklyAppointmentData(),
-      borderColor: 'rgb(20, 184, 166)',
-      backgroundColor: 'rgba(20, 184, 166, 0.1)',
-      tension: 0.4,
-      fill: true
-    }]
-  };
-
-  const specializationData = {
-    labels: specData.labels,
-    datasets: [{
-      data: specData.data,
-      backgroundColor: [
-        'rgba(20, 184, 166, 0.8)',
-        'rgba(59, 130, 246, 0.8)',
-        'rgba(168, 85, 247, 0.8)',
-        'rgba(236, 72, 153, 0.8)',
-        'rgba(249, 115, 22, 0.8)',
-        'rgba(34, 197, 94, 0.8)'
-      ]
-    }]
-  };
-
-  const chartOptions = {
-    responsive: true,
-    maintainAspectRatio: false,
-    plugins: { legend: { display: false } },
-    scales: { y: { beginAtZero: true, grid: { color: 'rgba(0,0,0,0.05)' } } }
-  };
-
-  const pieChartOptions = {
-    responsive: true,
-    maintainAspectRatio: false,
-    plugins: { legend: { position: 'bottom' } }
-  };
-
-  // ========== FILTERED DATA ==========
-  const filteredDoctors = doctors.filter(d => 
-    d.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    d.specialization?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    d.doctorId?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    d.email?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
-
-  const filteredPatients = patients.filter(p => 
-    p.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    p.userId?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    p.email?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const refreshData = useCallback(() => {
+    setRefreshTrigger(prev => prev + 1);
+    showNotificationMsg('Dashboard refreshed');
+  }, [showNotificationMsg]);
 
   // ========== EFFECTS ==========
   useEffect(() => {
     fetchAllData();
-  }, [refreshTrigger]);
+  }, [fetchAllData, refreshTrigger]);
 
-  const refreshData = () => {
-    setRefreshTrigger(prev => prev + 1);
-    showNotificationMsg('Dashboard refreshed');
-  };
-
-  // ========== LOADING STATE ==========
+  // ========== EARLY RETURN ==========
   if (loading) {
-    return (
-      <div className={`min-h-screen ${darkMode ? 'bg-gray-900' : 'bg-[#f8fafc]'} flex items-center justify-center`}>
-        <div className="text-center">
-          <FaSpinner className="animate-spin text-4xl text-teal-500 mx-auto mb-4" />
-          <p className={`${darkMode ? 'text-gray-400' : 'text-slate-600'} font-bold`}>Loading Dashboard...</p>
-        </div>
-      </div>
-    );
+    return <LoadingSkeleton darkMode={darkMode} />;
   }
 
   return (
@@ -602,93 +708,50 @@ const AdminDashboard = ({ userData, darkMode }) => {
         
         {/* KPI Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-          <motion.div whileHover={{ y: -5 }} className={`${darkMode ? 'bg-gray-800' : 'bg-white'} rounded-2xl shadow-xl p-6`}>
-            <div className="flex justify-between items-start">
-              <div>
-                <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Total Patients</p>
-                <p className="text-3xl font-black text-[#0f172a] dark:text-white mt-2">{stats.totalPatients}</p>
-                <div className="flex items-center gap-2 mt-2">
-                  <span className="text-xs font-bold text-green-600 bg-green-50 px-2 py-1 rounded-lg flex items-center gap-1">
-                    <TrendingUp size={12} /> +{stats.userGrowth}%
-                  </span>
-                </div>
-              </div>
-              <div className="p-4 bg-blue-100 rounded-xl">
-                <FaUsers className="text-blue-600 text-2xl" />
-              </div>
-            </div>
-          </motion.div>
-
-          <motion.div whileHover={{ y: -5 }} className={`${darkMode ? 'bg-gray-800' : 'bg-white'} rounded-2xl shadow-xl p-6`}>
-            <div className="flex justify-between items-start">
-              <div>
-                <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Total Doctors</p>
-                <p className="text-3xl font-black text-[#0f172a] dark:text-white mt-2">{stats.totalDoctors}</p>
-                <div className="flex items-center gap-2 mt-2">
-                  <span className="text-xs font-bold text-amber-600 bg-amber-50 px-2 py-1 rounded-lg flex items-center gap-1">
-                    <AlertCircle size={12} /> {stats.pendingApprovals} pending
-                  </span>
-                </div>
-              </div>
-              <div className="p-4 bg-green-100 rounded-xl">
-                <FaUserMd className="text-green-600 text-2xl" />
-              </div>
-            </div>
-          </motion.div>
-
-          <motion.div whileHover={{ y: -5 }} className={`${darkMode ? 'bg-gray-800' : 'bg-white'} rounded-2xl shadow-xl p-6`}>
-            <div className="flex justify-between items-start">
-              <div>
-                <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Total Revenue</p>
-                <p className="text-3xl font-black text-[#0f172a] dark:text-white mt-2">LKR {stats.totalRevenue.toLocaleString()}</p>
-                <div className="flex items-center gap-2 mt-2">
-                  <span className="text-xs font-bold text-green-600 bg-green-50 px-2 py-1 rounded-lg flex items-center gap-1">
-                    <TrendingUp size={12} /> +{stats.revenueChange}%
-                  </span>
-                </div>
-              </div>
-              <div className="p-4 bg-emerald-100 rounded-xl">
-                <FaDollarSign className="text-emerald-600 text-2xl" />
-              </div>
-            </div>
-          </motion.div>
-
-          <motion.div whileHover={{ y: -5 }} className={`${darkMode ? 'bg-gray-800' : 'bg-white'} rounded-2xl shadow-xl p-6`}>
-            <div className="flex justify-between items-start">
-              <div>
-                <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Appointments</p>
-                <p className="text-3xl font-black text-[#0f172a] dark:text-white mt-2">{stats.totalAppointments}</p>
-                <div className="flex items-center gap-2 mt-2">
-                  <span className="text-xs font-bold text-purple-600 bg-purple-50 px-2 py-1 rounded-lg flex items-center gap-1">
-                    <FaCalendarCheck size={12} /> Total Bookings
-                  </span>
-                </div>
-              </div>
-              <div className="p-4 bg-purple-100 rounded-xl">
-                <FaCalendarCheck className="text-purple-600 text-2xl" />
-              </div>
-            </div>
-          </motion.div>
+          <KPICard 
+            title="Total Patients" 
+            value={stats.totalPatients} 
+            change={`+${stats.userGrowth}%`}
+            icon={FaUsers}
+            iconBg="bg-blue-100"
+            iconColor="text-blue-600"
+            changeColor="text-green-600 bg-green-50"
+          />
+          <KPICard 
+            title="Total Doctors" 
+            value={stats.totalDoctors} 
+            change={`${stats.pendingApprovals} pending`}
+            icon={FaUserMd}
+            iconBg="bg-green-100"
+            iconColor="text-green-600"
+            changeColor="text-amber-600 bg-amber-50"
+          />
+          <KPICard 
+            title="Total Revenue" 
+            value={`LKR ${stats.totalRevenue.toLocaleString()}`} 
+            change={`+${stats.revenueChange}%`}
+            icon={FaDollarSign}
+            iconBg="bg-emerald-100"
+            iconColor="text-emerald-600"
+            changeColor="text-green-600 bg-green-50"
+          />
+          <KPICard 
+            title="Appointments" 
+            value={stats.totalAppointments} 
+            change="Total Bookings"
+            icon={FaCalendarCheck}
+            iconBg="bg-purple-100"
+            iconColor="text-purple-600"
+            changeColor="text-purple-600 bg-purple-50"
+          />
         </div>
 
         {/* Additional Stats Row */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-          <div className={`${darkMode ? 'bg-gray-800' : 'bg-white'} rounded-xl shadow p-4`}>
-            <p className="text-xs text-slate-500">Prescriptions</p>
-            <p className="text-2xl font-black text-[#0f172a] dark:text-white">{stats.totalPrescriptions}</p>
-          </div>
-          <div className={`${darkMode ? 'bg-gray-800' : 'bg-white'} rounded-xl shadow p-4`}>
-            <p className="text-xs text-slate-500">Medical Records</p>
-            <p className="text-2xl font-black text-[#0f172a] dark:text-white">{stats.totalMedicalRecords}</p>
-          </div>
-          <div className={`${darkMode ? 'bg-gray-800' : 'bg-white'} rounded-xl shadow p-4`}>
-            <p className="text-xs text-slate-500">Feedbacks</p>
-            <p className="text-2xl font-black text-[#0f172a] dark:text-white">{stats.totalFeedbacks}</p>
-          </div>
-          <div className={`${darkMode ? 'bg-gray-800' : 'bg-white'} rounded-xl shadow p-4`}>
-            <p className="text-xs text-slate-500">Avg Rating</p>
-            <p className="text-2xl font-black text-[#0f172a] dark:text-white">{stats.avgRating} ⭐</p>
-          </div>
+          <StatCard title="Prescriptions" value={stats.totalPrescriptions} darkMode={darkMode} />
+          <StatCard title="Medical Records" value={stats.totalMedicalRecords} darkMode={darkMode} />
+          <StatCard title="Feedbacks" value={stats.totalFeedbacks} darkMode={darkMode} />
+          <StatCard title="Avg Rating" value={`${stats.avgRating} ⭐`} darkMode={darkMode} />
         </div>
 
         {/* Tabs Navigation */}
@@ -754,24 +817,7 @@ const AdminDashboard = ({ userData, darkMode }) => {
               <div className="space-y-4 max-h-96 overflow-y-auto">
                 {activities.length > 0 ? (
                   activities.map((activity) => (
-                    <div key={activity.id} className="flex items-start gap-4 p-4 hover:bg-slate-50 dark:hover:bg-gray-700 rounded-xl transition-colors">
-                      <div className={`p-2 rounded-lg ${
-                        activity.type === 'doctor' ? 'bg-blue-100 text-blue-600' :
-                        activity.type === 'patient' ? 'bg-green-100 text-green-600' :
-                        activity.type === 'appointment' ? 'bg-purple-100 text-purple-600' :
-                        'bg-slate-100 text-slate-600'
-                      }`}>
-                        {activity.type === 'doctor' ? <FaUserMd size={16} /> :
-                         activity.type === 'patient' ? <FaUsers size={16} /> :
-                         activity.type === 'appointment' ? <FaCalendarCheck size={16} /> :
-                         <FaFileMedical size={16} />}
-                      </div>
-                      <div className="flex-1">
-                        <p className="font-bold text-[#0f172a] dark:text-white">{activity.action}</p>
-                        <p className="text-sm text-slate-500">{activity.user}</p>
-                      </div>
-                      <span className="text-xs text-slate-400">{activity.time}</span>
-                    </div>
+                    <ActivityItem key={activity.id} activity={activity} />
                   ))
                 ) : (
                   <p className="text-center text-slate-400 py-8">No recent activities</p>
@@ -1046,7 +1092,9 @@ const AdminDashboard = ({ userData, darkMode }) => {
               </div>
             </div>
             <div className="h-64">
-              <Line data={appointmentTrends} options={chartOptions} />
+              <ChartWrapper fallback={<div className="h-full flex items-center justify-center"><FaSpinner className="animate-spin text-teal-500" size={32} /></div>}>
+                <Line data={appointmentTrends} options={chartOptions} />
+              </ChartWrapper>
             </div>
           </div>
 
@@ -1056,8 +1104,10 @@ const AdminDashboard = ({ userData, darkMode }) => {
               Doctor Specializations
             </h3>
             <div className="h-64">
-              {specData.labels.length > 0 ? (
-                <Pie data={specializationData} options={pieChartOptions} />
+              {specializationData.labels.length > 0 ? (
+                <ChartWrapper fallback={<div className="h-full flex items-center justify-center"><FaSpinner className="animate-spin text-teal-500" size={32} /></div>}>
+                  <Pie data={pieChartData} options={pieChartOptions} />
+                </ChartWrapper>
               ) : (
                 <div className="flex items-center justify-center h-full text-slate-400">
                   No specialization data
@@ -1105,4 +1155,5 @@ const AdminDashboard = ({ userData, darkMode }) => {
   );
 };
 
-export default AdminDashboard;
+// Add memo at component level
+export default React.memo(AdminDashboard);
