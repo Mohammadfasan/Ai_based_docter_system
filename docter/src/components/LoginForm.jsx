@@ -1,4 +1,4 @@
-// LoginForm.jsx (Updated with localStorage and MongoDB)
+// LoginForm.jsx (Fixed - Ensuring POST requests)
 import React, { useState } from 'react';
 import { 
   FaEnvelope, FaLock, FaUser, 
@@ -10,15 +10,52 @@ import GoogleAuth from './GoogleAuth';
 import ForgotPasswordModal from './ForgotPasswordModal';
 import ResetPasswordModal from './ResetPasswordModal';
 
-const API_URL = 'http://localhost:5000/api/auth';
+// ✅ API URL - points to the base API
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
-// Create axios instance
+// Create axios instance with debug logging
 const api = axios.create({
-  baseURL: API_URL,
+  baseURL: API_BASE_URL,
   headers: {
     'Content-Type': 'application/json',
   },
+  // Ensure POST requests don't get redirected to GET
+  maxRedirects: 0,
+  validateStatus: function (status) {
+    return status >= 200 && status < 400;
+  }
 });
+
+// Add request interceptor for debugging
+api.interceptors.request.use(
+  (config) => {
+    console.log(`📤 ${config.method.toUpperCase()} request to: ${config.baseURL}${config.url}`);
+    console.log('📦 Request data:', config.data);
+    return config;
+  },
+  (error) => {
+    console.error('❌ Request error:', error);
+    return Promise.reject(error);
+  }
+);
+
+// Add response interceptor for debugging
+api.interceptors.response.use(
+  (response) => {
+    console.log(`📥 Response from ${response.config.url}:`, response.status, response.data);
+    return response;
+  },
+  (error) => {
+    if (error.response) {
+      console.error(`❌ API Error ${error.response.status}:`, error.response.data);
+    } else if (error.request) {
+      console.error('❌ No response received:', error.request);
+    } else {
+      console.error('❌ Error:', error.message);
+    }
+    return Promise.reject(error);
+  }
+);
 
 const LoginForm = ({ onLogin }) => {
   const [isLogin, setIsLogin] = useState(true);
@@ -74,12 +111,12 @@ const LoginForm = ({ onLogin }) => {
 
   const handleLogin = async () => {
     try {
-      console.log('🔐 Attempting login:', { 
-        email: formData.email, 
-        userType: formData.userType 
-      });
+      console.log('🔐 Attempting login POST to:', `${API_BASE_URL}/auth/login`);
+      console.log('📧 Email:', formData.email);
+      console.log('👤 User Type:', formData.userType);
       
-      const response = await api.post('/login', {
+      // ✅ POST request to /auth/login
+      const response = await api.post('/auth/login', {
         email: formData.email,
         password: formData.password,
         userType: formData.userType
@@ -88,26 +125,35 @@ const LoginForm = ({ onLogin }) => {
       console.log('📥 Login response:', response.data);
 
       if (response.data.success) {
-        // ✅ Using localStorage
+        // Save to localStorage
         localStorage.setItem('token', response.data.token);
         localStorage.setItem('currentUser', JSON.stringify(response.data.user));
         localStorage.setItem('userType', formData.userType);
         
-        console.log('✅ Token saved to localStorage');
-        console.log('✅ User saved to localStorage:', response.data.user);
+        console.log('✅ Login successful!');
+        console.log('✅ User:', response.data.user);
         
         setServerMessage({ type: 'success', text: 'Login successful!' });
         
-        // Small delay to show success message
         setTimeout(() => {
           onLogin(formData.userType, response.data.user);
         }, 500);
+      } else {
+        throw new Error(response.data.message || 'Login failed');
       }
     } catch (error) {
-      console.error('Login error:', error);
+      console.error('❌ Login error:', error);
+      
+      let errorMessage = 'Login failed. Please try again.';
+      if (error.response?.data?.message) {
+        errorMessage = error.response.data.message;
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
       setServerMessage({ 
         type: 'error', 
-        text: error.response?.data?.message || 'Login failed. Please try again.' 
+        text: errorMessage
       });
     }
   };
@@ -122,29 +168,42 @@ const LoginForm = ({ onLogin }) => {
         phone: formData.phone
       };
 
-      const response = await api.post('/signup', signupData);
+      console.log('📝 Attempting signup POST to:', `${API_BASE_URL}/auth/signup`);
+      console.log('📦 Signup data:', { ...signupData, password: '***' });
+
+      // ✅ POST request to /auth/signup
+      const response = await api.post('/auth/signup', signupData);
+
+      console.log('📥 Signup response:', response.data);
 
       if (response.data.success) {
-        // ✅ Using localStorage
         localStorage.setItem('token', response.data.token);
         localStorage.setItem('currentUser', JSON.stringify(response.data.user));
         localStorage.setItem('userType', formData.userType);
         
         setServerMessage({ type: 'success', text: 'Account created successfully!' });
         
-        // Show user ID in alert
         alert(`✅ Account created!\nYour ID: ${response.data.user.userId}\nYou are now logged in.`);
         
-        // Call onLogin to redirect
         setTimeout(() => {
           onLogin(formData.userType, response.data.user);
         }, 500);
+      } else {
+        throw new Error(response.data.message || 'Signup failed');
       }
     } catch (error) {
-      console.error('Signup error:', error);
+      console.error('❌ Signup error:', error);
+      
+      let errorMessage = 'Signup failed. Please try again.';
+      if (error.response?.data?.message) {
+        errorMessage = error.response.data.message;
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
       setServerMessage({ 
         type: 'error', 
-        text: error.response?.data?.message || 'Signup failed. Please try again.' 
+        text: errorMessage
       });
     }
   };
@@ -204,10 +263,8 @@ const LoginForm = ({ onLogin }) => {
     setServerMessage('');
   };
 
-  // Handle Google Sign-In Success
   const handleGoogleSuccess = (user) => {
     console.log('Google sign-in success:', user);
-    // ✅ Save to localStorage
     if (user.token) {
       localStorage.setItem('token', user.token);
     }
@@ -218,13 +275,11 @@ const LoginForm = ({ onLogin }) => {
     onLogin(user.userType || 'patient', user);
   };
 
-  // Handle Google Sign-In Error
   const handleGoogleError = (error) => {
     console.error('Google sign-in error:', error);
     setServerMessage({ type: 'error', text: error });
   };
 
-  // Handle Forgot Password
   const handleForgotPassword = () => {
     if (!formData.email) {
       setServerMessage({ type: 'error', text: 'Please enter your email address first' });
@@ -234,25 +289,21 @@ const LoginForm = ({ onLogin }) => {
     setShowForgotPassword(true);
   };
 
-  // Handle Forgot Password Success
   const handleForgotPasswordSuccess = (message, email) => {
     setShowForgotPassword(false);
     setServerMessage({ type: 'success', text: message });
     setResetEmail(email);
   };
 
-  // Handle Reset Password
   const handleResetPassword = (token) => {
     setShowForgotPassword(false);
     setResetToken(token);
     setShowResetPassword(true);
   };
 
-  // Handle Reset Password Success
   const handleResetSuccess = () => {
     setShowResetPassword(false);
     setServerMessage({ type: 'success', text: 'Password reset successful! Please login with your new password.' });
-    // Clear password fields
     setFormData({
       ...formData,
       password: '',
@@ -260,7 +311,6 @@ const LoginForm = ({ onLogin }) => {
     });
   };
 
-  // User type selector
   const UserTypeSelector = () => (
     <div className="flex justify-center space-x-2 mb-6">
       <button
@@ -305,7 +355,6 @@ const LoginForm = ({ onLogin }) => {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100 p-4">
       <div className="max-w-md w-full">
-        {/* Logo/Brand */}
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-16 h-16 bg-white rounded-full shadow-xl mb-4">
             <FaHospital className="text-teal-500 text-3xl" />
@@ -314,9 +363,7 @@ const LoginForm = ({ onLogin }) => {
           <p className="text-gray-600 mt-2">Your Personal Health Assistant</p>
         </div>
 
-        {/* Main Card */}
         <div className="bg-white rounded-2xl shadow-xl p-8 border border-gray-200">
-          {/* Header */}
           <div className="text-center mb-6">
             <h2 className="text-2xl font-bold text-gray-900">
               {isLogin ? 'Sign in' : 'Create account'}
@@ -328,10 +375,8 @@ const LoginForm = ({ onLogin }) => {
             </p>
           </div>
 
-          {/* User Type Selector */}
           <UserTypeSelector />
 
-          {/* Doctor Login Hint */}
           {formData.userType === 'doctor' && isLogin && (
             <div className="mb-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
               <p className="text-xs text-blue-700">
@@ -340,7 +385,6 @@ const LoginForm = ({ onLogin }) => {
             </div>
           )}
 
-          {/* Admin Login Hint */}
           {formData.userType === 'admin' && isLogin && (
             <div className="mb-4 p-3 bg-purple-50 rounded-lg border border-purple-200">
               <p className="text-xs text-purple-700">
@@ -356,7 +400,6 @@ const LoginForm = ({ onLogin }) => {
             userType={formData.userType}
           />
 
-          {/* Divider */}
           <div className="relative my-6">
             <div className="absolute inset-0 flex items-center">
               <div className="w-full border-t border-gray-300"></div>
@@ -366,9 +409,7 @@ const LoginForm = ({ onLogin }) => {
             </div>
           </div>
 
-          {/* Form */}
           <form onSubmit={handleSubmit} className="space-y-4">
-            {/* Name Field - Only for Signup */}
             {!isLogin && (
               <div>
                 <div className="relative">
@@ -389,7 +430,6 @@ const LoginForm = ({ onLogin }) => {
               </div>
             )}
 
-            {/* Email Field */}
             <div>
               <div className="relative">
                 <FaEnvelope className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
@@ -408,7 +448,6 @@ const LoginForm = ({ onLogin }) => {
               {errors.email && <p className="mt-1 text-xs text-red-600">{errors.email}</p>}
             </div>
 
-            {/* Phone Field - Only for Signup */}
             {!isLogin && (
               <div>
                 <div className="relative">
@@ -429,7 +468,6 @@ const LoginForm = ({ onLogin }) => {
               </div>
             )}
 
-            {/* Password Field */}
             <div>
               <div className="relative">
                 <FaLock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
@@ -448,7 +486,6 @@ const LoginForm = ({ onLogin }) => {
               {errors.password && <p className="mt-1 text-xs text-red-600">{errors.password}</p>}
             </div>
 
-            {/* Confirm Password - Only for Signup */}
             {!isLogin && (
               <div>
                 <div className="relative">
@@ -469,7 +506,6 @@ const LoginForm = ({ onLogin }) => {
               </div>
             )}
 
-            {/* Forgot Password - Only for Login */}
             {isLogin && (
               <div className="text-right">
                 <button
@@ -482,7 +518,6 @@ const LoginForm = ({ onLogin }) => {
               </div>
             )}
 
-            {/* Server Message */}
             {serverMessage && (
               <div className={`p-3 rounded-lg text-sm ${
                 serverMessage.type === 'success' 
@@ -495,7 +530,6 @@ const LoginForm = ({ onLogin }) => {
               </div>
             )}
 
-            {/* Submit Button */}
             <button
               type="submit"
               disabled={isLoading}
@@ -517,7 +551,6 @@ const LoginForm = ({ onLogin }) => {
             </button>
           </form>
 
-          {/* Toggle between Login and Signup */}
           {formData.userType !== 'admin' && (
             <div className="mt-6 text-center">
               <button
@@ -532,7 +565,6 @@ const LoginForm = ({ onLogin }) => {
             </div>
           )}
 
-          {/* Admin Note */}
           {formData.userType === 'admin' && (
             <div className="mt-6 text-center">
               <p className="text-xs text-gray-500">
@@ -541,7 +573,6 @@ const LoginForm = ({ onLogin }) => {
             </div>
           )}
 
-          {/* Terms and Privacy */}
           <div className="mt-6 text-center text-xs text-gray-500">
             By continuing, you agree to HealthAI's{' '}
             <button className="text-blue-600 hover:text-blue-700">Terms of Service</button>
@@ -550,7 +581,6 @@ const LoginForm = ({ onLogin }) => {
           </div>
         </div>
 
-        {/* Test Credentials */}
         <div className="mt-6 bg-white rounded-xl shadow-md p-4 border border-gray-200">
           <p className="text-xs font-semibold text-gray-500 mb-2">🔐 Test Credentials</p>
           <div className="space-y-2 text-xs">
@@ -570,7 +600,6 @@ const LoginForm = ({ onLogin }) => {
         </div>
       </div>
 
-      {/* Modals */}
       {showForgotPassword && (
         <ForgotPasswordModal
           email={resetEmail}

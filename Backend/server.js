@@ -52,7 +52,20 @@ connectDB().catch(err => {
 });
 
 // ============================================
-// ✅ ROOT ROUTE - Fixes "Route not found: GET /"
+// ✅ ROUTE VALIDATION - Check if routes loaded properly
+// ============================================
+console.log('\n🔍 Checking route imports...');
+console.log('✅ authRoutes:', !!authRoutes);
+console.log('✅ doctorRoutes:', !!doctorRoutes);
+console.log('✅ doctorScheduleRoutes:', !!doctorScheduleRoutes);
+console.log('✅ appointmentRoutes:', !!appointmentRoutes);
+console.log('✅ medicalRecordRoutes:', !!medicalRecordRoutes);
+console.log('✅ prescriptionRoutes:', !!prescriptionRoutes);
+console.log('✅ userRoutes:', !!userRoutes);
+console.log('✅ feedbackRoutes:', !!feedbackRoutes);
+
+// ============================================
+// ✅ ROOT ROUTE
 // ============================================
 app.get('/', (req, res) => {
   res.json({
@@ -89,10 +102,14 @@ app.get('/', (req, res) => {
         complete: 'PATCH /api/appointments/:id/complete'
       },
       medicalRecords: {
-        list: 'GET /api/medical-records',
-        create: 'POST /api/medical-records',
-        update: 'PUT /api/medical-records/:id',
-        delete: 'DELETE /api/medical-records/:id'
+        list: 'GET /api/medical-records/:userId',
+        upload: 'POST /api/medical-records/upload',
+        getById: 'GET /api/medical-records/cloudinary/:id',
+        delete: 'DELETE /api/medical-records/cloudinary/:id',
+        stats: 'GET /api/medical-records/stats/:userId',
+        search: 'GET /api/medical-records/search/:userId',
+        byType: 'GET /api/medical-records/type/:userId/:type',
+        byDateRange: 'GET /api/medical-records/date-range/:userId'
       },
       prescriptions: {
         list: 'GET /api/prescriptions',
@@ -117,7 +134,8 @@ app.get('/', (req, res) => {
       },
       system: {
         health: 'GET /api/health',
-        test: 'GET /api/test'
+        test: 'GET /api/test',
+        debug: 'GET /api/debug/routes'
       }
     },
     documentation: 'Use /api/health to check server status',
@@ -126,16 +144,88 @@ app.get('/', (req, res) => {
 });
 
 // ============================================
-// ✅ API Routes
+// ✅ API Routes - WITH ERROR HANDLING
 // ============================================
-app.use('/api/auth', authRoutes);
-app.use('/api/doctors', doctorRoutes);
-app.use('/api/doctor-schedule', doctorScheduleRoutes);
-app.use('/api/appointments', appointmentRoutes);
-app.use('/api/medical-records', medicalRecordRoutes);
-app.use('/api/prescriptions', prescriptionRoutes);
-app.use('/api/users', userRoutes);
-app.use('/api/feedback', feedbackRoutes);
+
+// Helper function to safely mount routes
+const mountRoute = (path, router, routeName) => {
+  if (router && typeof router === 'function') {
+    app.use(path, router);
+    console.log(`✅ Mounted ${routeName} at ${path}`);
+    return true;
+  } else {
+    console.error(`❌ Failed to mount ${routeName} - router is ${typeof router}`);
+    return false;
+  }
+};
+
+// Mount all routes
+mountRoute('/api/auth', authRoutes, 'authRoutes');
+mountRoute('/api/doctors', doctorRoutes, 'doctorRoutes');
+mountRoute('/api/doctor-schedule', doctorScheduleRoutes, 'doctorScheduleRoutes');
+mountRoute('/api/appointments', appointmentRoutes, 'appointmentRoutes');
+mountRoute('/api/medical-records', medicalRecordRoutes, 'medicalRecordRoutes');
+mountRoute('/api/prescriptions', prescriptionRoutes, 'prescriptionRoutes');
+mountRoute('/api/users', userRoutes, 'userRoutes');
+mountRoute('/api/feedback', feedbackRoutes, 'feedbackRoutes');
+
+// ============================================
+// ✅ DIRECT TEST ROUTE FOR MEDICAL RECORDS
+// ============================================
+// This ensures the route exists even if import fails
+app.get('/api/medical-records-test', (req, res) => {
+  res.json({
+    success: true,
+    message: 'Medical records test endpoint is working',
+    note: 'If you see this, the route is accessible',
+    actualMedicalRecordsRoute: medicalRecordRoutes ? 'Loaded' : 'Not loaded'
+  });
+});
+
+// ============================================
+// ✅ DEBUG ROUTES - List all registered routes
+// ============================================
+app.get('/api/debug/routes', (req, res) => {
+  const routes = [];
+  
+  const extractRoutes = (stack, basePath = '') => {
+    if (!stack) return;
+    
+    for (const layer of stack) {
+      if (layer.route) {
+        // Route registered directly
+        const methods = Object.keys(layer.route.methods).join(', ').toUpperCase();
+        routes.push(`${methods.padEnd(7)} ${basePath}${layer.route.path}`);
+      } else if (layer.name === 'router' && layer.handle.stack) {
+        // Router middleware
+        let routerPath = basePath;
+        if (layer.regexp) {
+          const pathPattern = layer.regexp.source
+            .replace(/\\\//g, '/')
+            .replace(/\^/g, '')
+            .replace(/\?/g, '')
+            .replace(/\(\?:\(\[\^\\\/\]\+\?\)\)/g, ':param')
+            .replace(/\/$/g, '');
+          if (pathPattern && pathPattern !== '/') {
+            routerPath = pathPattern;
+          }
+        }
+        extractRoutes(layer.handle.stack, routerPath);
+      }
+    }
+  };
+  
+  if (app._router && app._router.stack) {
+    extractRoutes(app._router.stack);
+  }
+  
+  res.json({
+    success: true,
+    totalRoutes: routes.length,
+    medicalRecordsRouteExists: routes.some(r => r.includes('/api/medical-records')),
+    routes: routes.sort()
+  });
+});
 
 // ============================================
 // ✅ Test Route
@@ -174,9 +264,14 @@ app.use((req, res, next) => {
       root: 'GET /',
       health: 'GET /api/health',
       test: 'GET /api/test',
+      debug: 'GET /api/debug/routes',
       auth: 'POST /api/auth/login, POST /api/auth/signup',
       doctors: 'GET /api/doctors',
-      appointments: 'GET /api/appointments/my-appointments'
+      appointments: 'GET /api/appointments/my-appointments',
+      medicalRecords: 'GET /api/medical-records/:userId',
+      medicalRecordsUpload: 'POST /api/medical-records/upload',
+      prescriptions: 'GET /api/prescriptions',
+      users: 'GET /api/users/profile/me'
     }
   });
 });
@@ -187,7 +282,6 @@ app.use((req, res, next) => {
 app.use((err, req, res, next) => {
   console.error('❌ Server Error:', err.stack);
   
-  // Handle specific error types
   if (err.name === 'ValidationError') {
     return res.status(400).json({
       success: false,
@@ -227,9 +321,11 @@ app.listen(PORT, () => {
   console.log(`✅ Root endpoint: http://localhost:${PORT}/`);
   console.log(`✅ Health check: http://localhost:${PORT}/api/health`);
   console.log(`✅ Test endpoint: http://localhost:${PORT}/api/test`);
+  console.log(`✅ Debug routes: http://localhost:${PORT}/api/debug/routes`);
   console.log(`✅ Auth routes: http://localhost:${PORT}/api/auth`);
   console.log(`✅ Doctor routes: http://localhost:${PORT}/api/doctors`);
   console.log(`✅ Appointment routes: http://localhost:${PORT}/api/appointments`);
+  console.log(`✅ Medical Records routes: http://localhost:${PORT}/api/medical-records`);
   console.log(`✅ Uploads folder: ${path.join(__dirname, 'uploads')}`);
   console.log(`✅ Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log('✅ ==================================\n');

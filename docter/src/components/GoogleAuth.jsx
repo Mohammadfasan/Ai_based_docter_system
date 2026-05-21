@@ -10,7 +10,12 @@ const GoogleAuth = ({ onSuccess, onError, buttonText = "Sign in with Google", us
   const googleClientId = import.meta.env?.VITE_GOOGLE_CLIENT_ID || 
                          '937494578810-5teblcmofdnp7p3el5r9pcg2srt343r8.apps.googleusercontent.com';
   
-  const apiUrl = import.meta.env?.VITE_API_URL || 'http://localhost:5000';
+  // ✅ FIX: Get base URL and remove any trailing /api
+  let apiUrl = import.meta.env?.VITE_API_URL || 'http://localhost:5000';
+  // Remove trailing /api if present (since we'll add it back)
+  apiUrl = apiUrl.replace(/\/api$/, '');
+  
+  console.log('GoogleAuth - API URL:', apiUrl); // Should show: https://ai-based-docter-system-7.onrender.com
 
   useEffect(() => {
     // Check if Google script is already loaded
@@ -94,8 +99,11 @@ const GoogleAuth = ({ onSuccess, onError, buttonText = "Sign in with Google", us
         throw new Error('No credential received from Google');
       }
       
-      // Send credential to backend
-      const apiResponse = await fetch(`${apiUrl}/api/auth/google`, {
+      // ✅ FIX: Construct URL properly - add /api/auth/google
+      const requestUrl = `${apiUrl}/api/auth/google`;
+      console.log('Sending request to:', requestUrl);
+      
+      const apiResponse = await fetch(requestUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -109,10 +117,10 @@ const GoogleAuth = ({ onSuccess, onError, buttonText = "Sign in with Google", us
       const data = await apiResponse.json();
 
       if (data.success) {
-        // Store in sessionStorage
-        sessionStorage.setItem('token', data.token);
-        sessionStorage.setItem('currentUser', JSON.stringify(data.user));
-        sessionStorage.setItem('userType', data.user.userType);
+        // ✅ Use localStorage consistently (not sessionStorage)
+        localStorage.setItem('token', data.token);
+        localStorage.setItem('currentUser', JSON.stringify(data.user));
+        localStorage.setItem('userType', data.user.userType);
         
         console.log('Google login successful:', data.user);
         onSuccess?.(data.user);

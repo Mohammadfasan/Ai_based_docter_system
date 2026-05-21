@@ -17,10 +17,6 @@ const Doctors = () => {
   const [activeFilter, setActiveFilter] = useState("All");
   const [doctors, setDoctors] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [page, setPage] = useState(1);
-  const [hasMore, setHasMore] = useState(true);
-  const observerRef = useRef();
   const navigate = useNavigate();
 
   const filters = useMemo(() => [
@@ -37,23 +33,31 @@ const Doctors = () => {
     { icon: FileText, title: "Get Prescription", description: "Receive e-prescription & medical advice", color: "text-green-500", bgColor: "bg-green-50" }
   ], []);
 
-  // Load doctors with pagination
-  const loadDoctors = useCallback(async (pageNum = 1, isLoadMore = false) => {
-    if (isLoadMore) {
-      setLoadingMore(true);
-    } else {
-      setLoading(true);
-    }
+  // Load doctors using the working getAllDoctors endpoint
+  const loadDoctors = useCallback(async () => {
+    setLoading(true);
     
     try {
-      // Use the new fast paginated endpoint
-      const response = await doctorAPI.getPaginatedDoctorsFast(pageNum, 8);
+      // ✅ Use the working getAllDoctors endpoint instead of paginated-fast
+      const response = await doctorAPI.getAllDoctors();
       
-      if (response.success && response.data.doctors) {
-        const newDoctors = response.data.doctors;
+      console.log('Doctor API Response:', response);
+      
+      if (response.success && response.data) {
+        // Handle different response structures
+        let doctorsArray = [];
+        if (response.data.doctors && Array.isArray(response.data.doctors)) {
+          doctorsArray = response.data.doctors;
+        } else if (Array.isArray(response.data)) {
+          doctorsArray = response.data;
+        } else if (response.data.data && Array.isArray(response.data.data)) {
+          doctorsArray = response.data.data;
+        } else {
+          console.warn('Unexpected response structure:', response.data);
+          doctorsArray = [];
+        }
         
-        // Format doctors with fee and ID
-        const formattedDoctors = newDoctors.map(doctor => {
+        const formattedDoctors = doctorsArray.map(doctor => {
           const doctorId = doctor._id || doctor.id || doctor.doctorId;
           let feeAmount = 2500;
           if (doctor.fees) {
@@ -66,31 +70,27 @@ const Doctors = () => {
             id: doctorId,
             feeAmount: feeAmount,
             feeDisplay: doctor.fees || `LKR ${feeAmount}`,
-            // Default availability - will check later
             hasAvailableSlots: false,
-            availableSlotsCount: 0
+            availableSlotsCount: 0,
+            hasAvailableSlotsChecked: false
           };
         });
         
-        if (isLoadMore) {
-          setDoctors(prev => [...prev, ...formattedDoctors]);
-        } else {
-          setDoctors(formattedDoctors);
-        }
+        setDoctors(formattedDoctors);
         
-        setHasMore(response.data.hasMore === true);
-        setPage(pageNum);
-        
-        // After loading doctors, check availability for visible ones only
+        // Check availability after a short delay
         setTimeout(() => {
           checkAvailabilityForVisibleDoctors();
         }, 100);
+      } else {
+        console.error('Failed to load doctors:', response.message);
+        setDoctors([]);
       }
     } catch (error) {
       console.error('Error loading doctors:', error);
+      setDoctors([]);
     } finally {
       setLoading(false);
-      setLoadingMore(false);
     }
   }, []);
 
@@ -134,8 +134,8 @@ const Doctors = () => {
 
   // Initial load
   useEffect(() => {
-    loadDoctors(1, false);
-  }, []);
+    loadDoctors();
+  }, [loadDoctors]);
 
   // Check availability when doctors change or scroll
   useEffect(() => {
@@ -146,20 +146,6 @@ const Doctors = () => {
       return () => window.removeEventListener('scroll', checkAvailabilityForVisibleDoctors);
     }
   }, [doctors, checkAvailabilityForVisibleDoctors]);
-
-  // Infinite scroll observer
-  const lastDoctorRef = useCallback((node) => {
-    if (loading || loadingMore) return;
-    if (observerRef.current) observerRef.current.disconnect();
-    
-    observerRef.current = new IntersectionObserver(entries => {
-      if (entries[0].isIntersecting && hasMore) {
-        loadDoctors(page + 1, true);
-      }
-    });
-    
-    if (node) observerRef.current.observe(node);
-  }, [loading, loadingMore, hasMore, page, loadDoctors]);
 
   // Filtered doctors
   const filteredDoctors = useMemo(() => {
@@ -227,7 +213,7 @@ const Doctors = () => {
                     <Users size={20} className="text-teal-400" />
                   </div>
                   <div>
-                    <p className="text-white font-black text-2xl">100+</p>
+                    <p className="text-white font-black text-2xl">{doctors.length}+</p>
                     <p className="text-slate-400 text-xs font-medium">Expert Doctors</p>
                   </div>
                 </div>
@@ -355,11 +341,9 @@ const Doctors = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
           {filteredDoctors.length > 0 ? (
             filteredDoctors.map((doctor, index) => {
-              const isLast = index === filteredDoctors.length - 1;
               return (
                 <div 
                   key={getDoctorId(doctor)} 
-                  ref={isLast ? lastDoctorRef : null}
                   data-doctor-id={getDoctorId(doctor)}
                   className="doctor-card group bg-white rounded-[2rem] p-5 border border-slate-100 hover:border-teal-200 transition-all duration-500 hover:shadow-[0_20px_40px_-20px_rgba(15,23,42,0.15)] flex flex-col"
                 >
@@ -435,13 +419,6 @@ const Doctors = () => {
             </div>
           )}
         </div>
-
-        {/* Loading More Indicator */}
-        {loadingMore && (
-          <div className="flex justify-center py-8">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-teal-500"></div>
-          </div>
-        )}
       </main>
 
       {/* Quick Booking Banner */}

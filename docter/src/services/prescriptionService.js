@@ -1,7 +1,7 @@
-// src/services/prescriptionService.js
+// src/services/prescriptionService.js - Updated with consistent localStorage
 import axios from 'axios';
 
-const API_URL = 'http://localhost:5000/api';
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
 // Get auth token from localStorage
 const getAuthToken = () => {
@@ -25,6 +25,23 @@ apiClient.interceptors.request.use((config) => {
   }
   return config;
 });
+
+// Add response interceptor for 401 handling
+apiClient.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      console.error('Authentication error:', error.response?.data?.message);
+      localStorage.removeItem('token');
+      localStorage.removeItem('currentUser');
+      localStorage.removeItem('userType');
+      if (window.location.pathname !== '/login') {
+        window.location.href = '/login';
+      }
+    }
+    return Promise.reject(error);
+  }
+);
 
 // Prescription API calls
 export const prescriptionAPI = {

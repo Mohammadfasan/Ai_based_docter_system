@@ -12,7 +12,9 @@ import { useNavigate } from 'react-router-dom';
 import { appointmentAPI } from '../../services/appointmentAPI';
 
 const APPOINTMENT_HERO_IMAGE = "https://images.unsplash.com/photo-1576091160550-2173dba999ef?w=800&h=600&fit=crop";
-const API_BASE_URL = 'http://localhost:5000/api';
+
+// ✅ FIX: Use environment variable instead of hardcoded localhost
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
 const Appointments = () => {
   const navigate = useNavigate();
@@ -280,6 +282,7 @@ const Appointments = () => {
       console.log('📋 Fetching medical records from backend for patient:', patientId);
       
       try {
+        // ✅ Using environment variable for API URL
         const recordsResponse = await fetch(`${API_BASE_URL}/medical-records/${patientId}`, {
           method: 'GET',
           headers: {

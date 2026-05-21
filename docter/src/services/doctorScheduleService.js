@@ -1,7 +1,7 @@
-// services/doctorScheduleService.js - Updated
+// services/doctorScheduleService.js - Updated with consistent localStorage
 import axios from 'axios';
 
-const API_URL = 'http://localhost:5000/api';
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
 const api = axios.create({
   baseURL: API_URL,
@@ -30,6 +30,8 @@ api.interceptors.response.use(
       if (window.location.pathname !== '/login' && window.location.pathname !== '/') {
         localStorage.removeItem('token');
         localStorage.removeItem('currentUser');
+        localStorage.removeItem('userType');
+        window.location.href = '/login';
       }
     }
     return Promise.reject(error);
@@ -144,3 +146,5 @@ export const doctorScheduleService = {
     }
   }
 };
+
+export default doctorScheduleService;

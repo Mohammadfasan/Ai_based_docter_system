@@ -1,7 +1,7 @@
 // services/appointmentAPI.js
 import axios from 'axios';
 
-const API_URL = 'http://localhost:5000/api';
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
 const api = axios.create({
   baseURL: API_URL,
@@ -25,6 +25,15 @@ api.interceptors.response.use(
   (error) => {
     if (error.response) {
       console.error('API Error:', error.response.status, error.response.data);
+      // Handle 401 Unauthorized
+      if (error.response.status === 401) {
+        localStorage.removeItem('token');
+        localStorage.removeItem('currentUser');
+        localStorage.removeItem('userType');
+        if (window.location.pathname !== '/login') {
+          window.location.href = '/login';
+        }
+      }
     } else if (error.request) {
       console.error('No response received:', error.request);
     } else {
@@ -221,3 +230,5 @@ export const appointmentAPI = {
     }
   }
 };
+
+export default appointmentAPI;

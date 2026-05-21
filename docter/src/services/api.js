@@ -1,7 +1,7 @@
 import axios from 'axios';
 
-// API Base URL
-const API_BASE_URL = 'http://localhost:5000/api';
+// API Base URL - Using environment variable
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
 // Create axios instance with default config
 const axiosInstance = axios.create({
@@ -47,7 +47,8 @@ axiosInstance.interceptors.response.use(
       if (error.response.status === 401) {
         console.log('Unauthorized access - redirect to login');
         localStorage.removeItem('token');
-        localStorage.removeItem('user');
+        localStorage.removeItem('currentUser');
+        localStorage.removeItem('userType');
         window.location.href = '/login';
       }
     } else if (error.request) {
@@ -61,6 +62,31 @@ axiosInstance.interceptors.response.use(
     return Promise.reject(error);
   }
 );
+
+// ============================================
+// HELPER FUNCTIONS
+// ============================================
+
+// Get field name from error message
+const getErrorField = (message) => {
+  if (!message) return null;
+  
+  const lowercaseMsg = message.toLowerCase();
+  
+  if (lowercaseMsg.includes('email')) return 'email';
+  if (lowercaseMsg.includes('license')) return 'license';
+  if (lowercaseMsg.includes('phone')) return 'phone';
+  if (lowercaseMsg.includes('name')) return 'name';
+  if (lowercaseMsg.includes('specialization')) return 'specialization';
+  if (lowercaseMsg.includes('hospital')) return 'hospital';
+  if (lowercaseMsg.includes('location')) return 'location';
+  if (lowercaseMsg.includes('fees')) return 'fees';
+  if (lowercaseMsg.includes('password')) return 'password';
+  if (lowercaseMsg.includes('qualifications')) return 'qualifications';
+  if (lowercaseMsg.includes('experience')) return 'experience';
+  
+  return null;
+};
 
 // ============================================
 // DOCTOR API SERVICES
@@ -496,10 +522,11 @@ const authAPI = {
     try {
       const response = await axiosInstance.post('/auth/login', { email, password });
       
-      // Save token if returned
+      // Save token if returned - Using consistent keys
       if (response.data.token) {
         localStorage.setItem('token', response.data.token);
-        localStorage.setItem('user', JSON.stringify(response.data.user));
+        localStorage.setItem('currentUser', JSON.stringify(response.data.user));
+        localStorage.setItem('userType', response.data.user?.userType || 'patient');
       }
       
       return {
@@ -523,10 +550,11 @@ const authAPI = {
     try {
       const response = await axiosInstance.post('/auth/register', userData);
       
-      // Save token if returned
+      // Save token if returned - Using consistent keys
       if (response.data.token) {
         localStorage.setItem('token', response.data.token);
-        localStorage.setItem('user', JSON.stringify(response.data.user));
+        localStorage.setItem('currentUser', JSON.stringify(response.data.user));
+        localStorage.setItem('userType', response.data.user?.userType || 'patient');
       }
       
       return {
@@ -549,8 +577,10 @@ const authAPI = {
   // LOGOUT
   logout: async () => {
     try {
+      // Clear all localStorage with consistent keys
       localStorage.removeItem('token');
-      localStorage.removeItem('user');
+      localStorage.removeItem('currentUser');
+      localStorage.removeItem('userType');
       
       const response = await axiosInstance.post('/auth/logout');
       return {
@@ -598,10 +628,10 @@ const authAPI = {
     }
   },
 
-  // GET CURRENT USER
+  // GET CURRENT USER - Fixed key
   getCurrentUser: () => {
     try {
-      const userStr = localStorage.getItem('user');
+      const userStr = localStorage.getItem('currentUser');
       if (!userStr) return null;
       return JSON.parse(userStr);
     } catch (error) {
@@ -613,6 +643,11 @@ const authAPI = {
   // CHECK IF LOGGED IN
   isLoggedIn: () => {
     return !!localStorage.getItem('token');
+  },
+  
+  // GET USER TYPE
+  getUserType: () => {
+    return localStorage.getItem('userType');
   }
 };
 
@@ -869,29 +904,8 @@ const appointmentAPI = {
 };
 
 // ============================================
-// HELPER FUNCTIONS
+// FORMATTING FUNCTIONS
 // ============================================
-
-// Get field name from error message
-const getErrorField = (message) => {
-  if (!message) return null;
-  
-  const lowercaseMsg = message.toLowerCase();
-  
-  if (lowercaseMsg.includes('email')) return 'email';
-  if (lowercaseMsg.includes('license')) return 'license';
-  if (lowercaseMsg.includes('phone')) return 'phone';
-  if (lowercaseMsg.includes('name')) return 'name';
-  if (lowercaseMsg.includes('specialization')) return 'specialization';
-  if (lowercaseMsg.includes('hospital')) return 'hospital';
-  if (lowercaseMsg.includes('location')) return 'location';
-  if (lowercaseMsg.includes('fees')) return 'fees';
-  if (lowercaseMsg.includes('password')) return 'password';
-  if (lowercaseMsg.includes('qualifications')) return 'qualifications';
-  if (lowercaseMsg.includes('experience')) return 'experience';
-  
-  return null;
-};
 
 // Format doctor data for API
 export const formatDoctorData = (doctorData) => {

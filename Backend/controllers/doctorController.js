@@ -1,6 +1,7 @@
 import Doctor from "../models/Doctor.js";
 import User from "../models/User.js";
 import bcrypt from "bcryptjs";
+import mongoose from "mongoose"; // ✅ IMPORTANT: Add this for ObjectId validation
 
 // Generate User ID helper function
 const generateUserId = (userType, name, email) => {
@@ -49,11 +50,11 @@ export const getAllDoctors = async (req, res) => {
   }
 };
 
-// ✅ NEW FUNCTION - GET doctors with pagination (FASTER LOADING)
+// GET doctors with pagination (FASTER LOADING)
 export const getDoctorsWithPagination = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 8; // Load 8 doctors at a time
+    const limit = parseInt(req.query.limit) || 8;
     const skip = (page - 1) * limit;
     const search = req.query.search || '';
     
@@ -68,7 +69,6 @@ export const getDoctorsWithPagination = async (req, res) => {
       };
     }
     
-    // Run both queries in parallel for better performance
     const [doctors, total] = await Promise.all([
       Doctor.find(query)
         .sort({ createdAt: -1 })
@@ -98,7 +98,7 @@ export const getDoctorsWithPagination = async (req, res) => {
   }
 };
 
-// GET doctors with pagination and search (existing function - keep as is)
+// GET doctors with pagination and search
 export const getPaginatedDoctors = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
@@ -182,15 +182,24 @@ export const getPaginatedDoctors = async (req, res) => {
   }
 };
 
-// GET doctor by ID
+// ✅ FIXED - GET doctor by ID (handles both MongoDB _id and doctorId without cast errors)
 export const getDoctorById = async (req, res) => {
   try {
-    const doctor = await Doctor.findOne({
-      $or: [
-        { doctorId: req.params.id },
-        { _id: req.params.id }
-      ]
-    }).lean();
+    const id = req.params.id;
+    let doctor = null;
+    
+    // Check if it's a valid MongoDB ObjectId (24 character hex string)
+    const isValidObjectId = mongoose.Types.ObjectId.isValid(id);
+    
+    if (isValidObjectId && /^[0-9a-fA-F]{24}$/.test(id)) {
+      // Try finding by MongoDB _id first
+      doctor = await Doctor.findById(id).lean();
+    }
+    
+    // If not found by _id, try finding by doctorId
+    if (!doctor) {
+      doctor = await Doctor.findOne({ doctorId: id }).lean();
+    }
     
     if (!doctor) {
       return res.status(404).json({
@@ -218,7 +227,6 @@ export const createDoctor = async (req, res) => {
   try {
     console.log('📝 Creating new doctor:', req.body.name);
     
-    // Validate required fields
     const requiredFields = ['name', 'email', 'phone', 'specialization', 'qualifications', 'experience', 'license', 'hospital', 'fees'];
     for (const field of requiredFields) {
       if (!req.body[field]) {
@@ -229,7 +237,6 @@ export const createDoctor = async (req, res) => {
       }
     }
     
-    // Validate email format
     const emailRegex = /^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/;
     if (!emailRegex.test(req.body.email)) {
       return res.status(400).json({
@@ -238,7 +245,6 @@ export const createDoctor = async (req, res) => {
       });
     }
     
-    // Check for existing records
     const [emailExists, licenseExists, userExists] = await Promise.all([
       Doctor.findOne({ email: req.body.email.toLowerCase() }).lean(),
       req.body.license ? Doctor.findOne({ license: req.body.license }).lean() : Promise.resolve(null),
@@ -266,14 +272,10 @@ export const createDoctor = async (req, res) => {
       });
     }
     
-    // Use default password
     const plainPassword = 'doctor123';
-    
-    // Hash password for User record
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(plainPassword, salt);
     
-    // Prepare doctor data
     const doctorData = {
       name: req.body.name.trim(),
       email: req.body.email.toLowerCase().trim(),
@@ -301,13 +303,11 @@ export const createDoctor = async (req, res) => {
       avatarColor: req.body.avatarColor || 'from-teal-500 to-teal-600'
     };
     
-    // Create doctor
     const doctor = new Doctor(doctorData);
     await doctor.save();
     
     console.log(`✅ New doctor created with ID: ${doctor.doctorId}`);
     
-    // Create User record for authentication
     const userData = {
       name: doctor.name,
       email: doctor.email,
@@ -325,7 +325,6 @@ export const createDoctor = async (req, res) => {
     
     console.log(`✅ User record created for doctor with ID: ${newUser.userId}`);
     
-    // Remove password from response
     const doctorResponse = doctor.toObject();
     delete doctorResponse.password;
     
@@ -369,12 +368,19 @@ export const updateDoctor = async (req, res) => {
   try {
     console.log('📝 Updating doctor:', req.params.id);
     
-    const doctor = await Doctor.findOne({
-      $or: [
-        { _id: req.params.id },
-        { doctorId: req.params.id }
-      ]
-    });
+    let doctor = null;
+    const id = req.params.id;
+    
+    // Handle both MongoDB _id and doctorId for update
+    const isValidObjectId = mongoose.Types.ObjectId.isValid(id);
+    
+    if (isValidObjectId && /^[0-9a-fA-F]{24}$/.test(id)) {
+      doctor = await Doctor.findById(id);
+    }
+    
+    if (!doctor) {
+      doctor = await Doctor.findOne({ doctorId: id });
+    }
     
     if (!doctor) {
       return res.status(404).json({
@@ -383,7 +389,6 @@ export const updateDoctor = async (req, res) => {
       });
     }
     
-    // Check email uniqueness if being updated
     let emailChanged = false;
     if (req.body.email && req.body.email.toLowerCase() !== doctor.email) {
       const emailExists = await Doctor.findOne({ 
@@ -400,7 +405,6 @@ export const updateDoctor = async (req, res) => {
       emailChanged = true;
     }
     
-    // Check license uniqueness if being updated
     if (req.body.license && req.body.license !== doctor.license) {
       const licenseExists = await Doctor.findOne({ 
         license: req.body.license,
@@ -415,7 +419,6 @@ export const updateDoctor = async (req, res) => {
       }
     }
     
-    // Update fields
     const updateableFields = [
       'name', 'email', 'phone', 'specialization', 'qualifications', 
       'experience', 'license', 'hospital', 'location', 'fees', 
@@ -440,7 +443,6 @@ export const updateDoctor = async (req, res) => {
     
     await doctor.save();
     
-    // Update User record
     let user = await User.findOne({ 
       $or: [
         { email: doctor.email },
@@ -485,12 +487,19 @@ export const deleteDoctor = async (req, res) => {
   try {
     console.log('🗑️ Deleting doctor:', req.params.id);
     
-    const doctor = await Doctor.findOneAndDelete({
-      $or: [
-        { _id: req.params.id },
-        { doctorId: req.params.id }
-      ]
-    });
+    let doctor = null;
+    const id = req.params.id;
+    
+    // Handle both MongoDB _id and doctorId for delete
+    const isValidObjectId = mongoose.Types.ObjectId.isValid(id);
+    
+    if (isValidObjectId && /^[0-9a-fA-F]{24}$/.test(id)) {
+      doctor = await Doctor.findByIdAndDelete(id);
+    }
+    
+    if (!doctor) {
+      doctor = await Doctor.findOneAndDelete({ doctorId: id });
+    }
     
     if (!doctor) {
       return res.status(404).json({
@@ -499,7 +508,6 @@ export const deleteDoctor = async (req, res) => {
       });
     }
     
-    // Delete User record
     await User.findOneAndDelete({ 
       $or: [
         { email: doctor.email },

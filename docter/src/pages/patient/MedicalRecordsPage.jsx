@@ -1,7 +1,7 @@
-// MedicalRecordsPage.jsx - WITHOUT ATTACH TO APPOINTMENTS (No Icons, Pure Text)
+// MedicalRecordsPage.jsx - COMPLETELY FIXED VERSION
 import React, { useState, useEffect } from 'react';
 
-const API_BASE_URL = 'http://localhost:5000/api';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
 const MedicalRecordsPage = () => {
   // --- STATES ---
@@ -86,21 +86,51 @@ const MedicalRecordsPage = () => {
     }
   };
 
+  // Validate authentication token
+  const validateAuthToken = () => {
+    const token = getAuthToken();
+    const user = JSON.parse(localStorage.getItem('currentUser') || '{}');
+    
+    if (!token || !user?.userId) {
+      console.warn('⚠️ Missing authentication data');
+      return false;
+    }
+    
+    try {
+      const payload = JSON.parse(atob(token.split('.')[1]));
+      if (payload.exp && payload.exp * 1000 < Date.now()) {
+        console.warn('⚠️ Token expired');
+        localStorage.removeItem('token');
+        localStorage.removeItem('currentUser');
+        return false;
+      }
+    } catch (e) {
+      console.error('Error parsing token:', e);
+      return false;
+    }
+    
+    return true;
+  };
+
   // Load data
   useEffect(() => {
     const init = async () => {
       try {
+        setIsLoading(true);
         const user = JSON.parse(localStorage.getItem('currentUser') || '{}');
         setCurrentUser(user);
         
         const userId = user?.userId || user?.id || user?._id;
-        if (userId) {
+        if (userId && validateAuthToken()) {
           await loadMedicalRecords(userId);
+        } else {
+          setError('Please login to view medical records');
+          setMedicalRecords([]);
+          setIsLoading(false);
         }
       } catch (error) {
         console.error('Error initializing:', error);
         setError('Failed to load records');
-      } finally {
         setIsLoading(false);
       }
     };
@@ -113,19 +143,36 @@ const MedicalRecordsPage = () => {
       if (!token) {
         setError('Please login to view records');
         setMedicalRecords([]);
+        setIsLoading(false);
         return;
       }
       
+      console.log('🔍 Fetching records for userId:', userId);
+      
       const response = await fetch(`${API_BASE_URL}/medical-records/${userId}`, {
         method: 'GET',
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: { 
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
       });
+      
+      console.log('📡 Response status:', response.status);
       
       if (response.status === 401) {
         setError('Session expired. Please login again.');
         localStorage.removeItem('token');
         localStorage.removeItem('currentUser');
         setTimeout(() => window.location.href = '/login', 2000);
+        setMedicalRecords([]);
+        return;
+      }
+      
+      if (response.status === 404) {
+        // This is fine - user just has no records yet
+        console.log('No medical records found for user');
+        setMedicalRecords([]);
+        setError(null);
         return;
       }
       
@@ -141,6 +188,8 @@ const MedicalRecordsPage = () => {
       console.error('Error loading records:', error);
       setError('Network error loading records');
       setMedicalRecords([]);
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -160,7 +209,9 @@ const MedicalRecordsPage = () => {
 
     try {
       const formData = new FormData();
-      formData.append('userId', currentUser?.userId || currentUser?.id || currentUser?._id);
+      const userId = currentUser?.userId || currentUser?.id || currentUser?._id;
+      
+      formData.append('userId', userId);
       formData.append('userEmail', currentUser?.email || '');
       formData.append('userName', currentUser?.name || '');
       formData.append('date', recordDate);
@@ -197,6 +248,8 @@ const MedicalRecordsPage = () => {
         resetUploadForm();
         setSuccessMessage('Medical record uploaded successfully!');
         setTimeout(() => setSuccessMessage(null), 3000);
+        // Reload records to ensure consistency
+        await loadMedicalRecords(userId);
       } else {
         setError(`Upload failed: ${result.message}`);
       }
@@ -269,7 +322,10 @@ const MedicalRecordsPage = () => {
       
       const response = await fetch(`${API_BASE_URL}/medical-records/${editingRecord._id}`, {
         method: 'PUT',
-        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        headers: { 
+          'Authorization': `Bearer ${token}`, 
+          'Content-Type': 'application/json' 
+        },
         body: JSON.stringify(updateData),
       });
       
@@ -281,6 +337,8 @@ const MedicalRecordsPage = () => {
         setEditingRecord(null);
         setSuccessMessage('Record updated successfully!');
         setTimeout(() => setSuccessMessage(null), 3000);
+      } else {
+        setError(result.message || 'Failed to update record');
       }
     } catch (error) {
       console.error('Update error:', error);
@@ -320,6 +378,8 @@ const MedicalRecordsPage = () => {
         setMedicalRecords(medicalRecords.filter(r => r._id !== recordId));
         setSuccessMessage('Record deleted successfully');
         setTimeout(() => setSuccessMessage(null), 3000);
+      } else {
+        setError(result.message || 'Failed to delete record');
       }
     } catch (error) {
       console.error('Delete error:', error);
@@ -412,7 +472,7 @@ const MedicalRecordsPage = () => {
         </div>
       )}
 
-      {/* Hero Section - Pure Text */}
+      {/* Hero Section */}
       <div className="bg-slate-900 text-white py-16 px-6">
         <div className="max-w-7xl mx-auto text-center">
           <div className="inline-block bg-white/10 rounded-full px-4 py-1 text-sm font-medium mb-4">
@@ -425,10 +485,32 @@ const MedicalRecordsPage = () => {
             Store, manage, and access all your medical records securely in one place.
             Upload reports, prescriptions, and scan results easily.
           </p>
-          
-       
         </div>
       </div>
+
+      {/* Stats Bar */}
+      {medicalRecords.length > 0 && (
+        <div className="max-w-7xl mx-auto px-6 -mt-8">
+          <div className="bg-white rounded-2xl shadow-md p-6 grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="text-center">
+              <div className="text-2xl font-bold text-teal-600">{totalRecords}</div>
+              <div className="text-xs text-slate-500 uppercase mt-1">Total Records</div>
+            </div>
+            <div className="text-center">
+              <div className="text-2xl font-bold text-teal-600">{labReports}</div>
+              <div className="text-xs text-slate-500 uppercase mt-1">Lab Reports</div>
+            </div>
+            <div className="text-center">
+              <div className="text-2xl font-bold text-teal-600">{scans}</div>
+              <div className="text-xs text-slate-500 uppercase mt-1">Scans</div>
+            </div>
+            <div className="text-center">
+              <div className="text-2xl font-bold text-teal-600">{prescriptions}</div>
+              <div className="text-xs text-slate-500 uppercase mt-1">Prescriptions</div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-6 py-8">
@@ -822,7 +904,7 @@ const MedicalRecordsPage = () => {
         </div>
       )}
 
-      <style jsx>{`
+      <style>{`
         .line-clamp-2 {
           display: -webkit-box;
           -webkit-line-clamp: 2;
