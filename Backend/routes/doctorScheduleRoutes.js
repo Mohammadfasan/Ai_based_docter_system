@@ -17,7 +17,16 @@ import { protect, authorize } from '../middleware/authMiddleware.js';
 
 const router = express.Router();
 
-// Protect all routes
+// ============================================
+// ✅ PUBLIC ROUTES (No authentication required)
+// ============================================
+
+// Get available slots for a doctor (patients can view without login)
+router.get('/:doctorId/available-slots', getAvailableSlots);
+
+// ============================================
+// ✅ PROTECTED ROUTES (Authentication required)
+// ============================================
 router.use(protect);
 
 // ============================================
@@ -29,19 +38,18 @@ router.post('/me/slots', addMySlot);
 router.delete('/me/slots/:slotId', deleteMySlot);
 
 // ============================================
-// PATIENT ROUTES (view only)
+// PATIENT ROUTES (view only - need auth but patient role)
 // ============================================
 router.get('/:doctorId', getDoctorSchedule);
-router.get('/:doctorId/available-slots', getAvailableSlots);
 router.get('/:doctorId/stats', getScheduleStats);
 router.get('/:doctorId/date-range', getSlotsByDateRange);
 
 // ============================================
 // ADMIN/DOCTOR ROUTES (by specific ID)
 // ============================================
-router.post('/:doctorId/slots', addSlot);
-router.post('/:doctorId/slots/batch', addMultipleSlots);
-router.delete('/:doctorId/slots/:slotId', deleteSlot);
-router.patch('/:doctorId/slots/:slotId/status', updateSlotStatus);
+router.post('/:doctorId/slots', authorize('doctor', 'admin'), addSlot);
+router.post('/:doctorId/slots/batch', authorize('doctor', 'admin'), addMultipleSlots);
+router.delete('/:doctorId/slots/:slotId', authorize('doctor', 'admin'), deleteSlot);
+router.patch('/:doctorId/slots/:slotId/status', authorize('doctor', 'admin'), updateSlotStatus);
 
 export default router;

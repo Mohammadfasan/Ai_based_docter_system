@@ -23,11 +23,17 @@ import { protect } from '../middleware/authMiddleware.js';
 
 const router = express.Router();
 
-// All routes require authentication
-router.use(protect);
+// ============================================
+// ✅ PUBLIC ROUTES (No authentication required)
+// ============================================
 
-// Available slots route (patient viewing available slots)
+// Available slots - Move this BEFORE protect middleware
 router.get('/available-slots/:doctorId', getAvailableSlots);
+
+// ============================================
+// ✅ PROTECTED ROUTES (Authentication required)
+// ============================================
+router.use(protect);
 
 // Patient routes
 router.post('/', createAppointment);
@@ -38,6 +44,7 @@ router.get('/stats/patient', getPatientStats);
 // Doctor routes
 router.get('/doctor/:doctorId/appointments', getDoctorAppointments);
 router.get('/stats/doctor/:doctorId', getDoctorStats);
+
 // Admin route - get all appointments
 router.get('/admin/all', getAllAppointments);
 

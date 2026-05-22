@@ -18,11 +18,26 @@ export const protect = async (req, res, next) => {
       });
     }
 
-    // Verify token
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    // Verify token - use fallback secret if env not set
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
 
-    // Get user from database using userId
-    const user = await User.findOne({ userId: decoded.userId }).select('-password');
+    // ✅ FIXED: Try multiple ways to find the user
+    let user = null;
+    
+    // Try to find by _id (from token's 'id' field)
+    if (decoded.id) {
+      user = await User.findById(decoded.id).select('-password');
+    }
+    
+    // If not found, try by userId field
+    if (!user && decoded.userId) {
+      user = await User.findOne({ userId: decoded.userId }).select('-password');
+    }
+    
+    // If still not found, try by email
+    if (!user && decoded.email) {
+      user = await User.findOne({ email: decoded.email }).select('-password');
+    }
     
     if (!user) {
       return res.status(401).json({
@@ -140,7 +155,7 @@ export const isAdmin = (req, res, next) => {
   next();
 };
 
-// Optional: Check if user is accessing their own data or has admin privileges
+// Check if user is accessing their own data or has admin privileges
 export const checkOwnership = (req, res, next) => {
   const userId = req.params.userId || req.params.id;
   
@@ -152,7 +167,7 @@ export const checkOwnership = (req, res, next) => {
   }
   
   // Allow if user is admin or accessing their own data
-  if (req.user.userType === 'admin' || req.user.userId === userId) {
+  if (req.user.userType === 'admin' || req.user.userId === userId || req.user._id.toString() === userId) {
     next();
   } else {
     res.status(403).json({

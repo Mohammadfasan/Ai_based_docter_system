@@ -21,7 +21,7 @@ import { protect } from '../middleware/authMiddleware.js';
 
 const router = express.Router();
 
-// Apply authentication to all routes
+// ✅ All routes require authentication
 router.use(protect);
 
 // ========== CLOUDINARY UPLOAD ROUTES ==========
