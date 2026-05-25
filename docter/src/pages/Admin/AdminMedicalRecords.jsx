@@ -14,7 +14,8 @@ import {
   FaSpinner, FaUserCircle, FaClock, FaUpload
 } from 'react-icons/fa';
 
-const API_URL = 'http://localhost:5000/api';
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+
 
 const AdminMedicalRecords = ({ userType, userData, darkMode }) => {
   const [loading, setLoading] = useState(true);

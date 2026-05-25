@@ -31,7 +31,8 @@ const Pie = lazy(() => import('react-chartjs-2').then(module => ({ default: modu
 // Chart.js registration moved to separate file
 import './chart-config'; // Create this file with ChartJS registration
 
-const API_URL = 'http://localhost:5000/api';
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+
 
 // ========== MEMOIZED SUB-COMPONENTS ==========
 

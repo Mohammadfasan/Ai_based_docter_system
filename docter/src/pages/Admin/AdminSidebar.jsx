@@ -12,11 +12,12 @@ import {
   X,
   Activity
 } from 'lucide-react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 
-const AdminSidebar = ({ children }) => {
+const AdminSidebar = ({ children, onLogout }) => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const location = useLocation();
+  const navigate = useNavigate();
 
   const menuItems = [
     { name: 'Dashboard', icon: <LayoutDashboard size={20} />, path: '/admin/dashboard' },
@@ -24,9 +25,38 @@ const AdminSidebar = ({ children }) => {
     { name: 'Patient List', icon: <UserRound size={20} />, path: '/admin/patients' },
     { name: 'All Appointments', icon: <CalendarCheck size={20} />, path: '/admin/appointments' },
     { name: 'Medical Logs', icon: <FileClock size={20} />, path: '/admin/logs' },
-    {name:"Notifications", icon: <Activity size={20} />, path: '/admin/notifications'},
+    { name: "Notifications", icon: <Activity size={20} />, path: '/admin/notifications' },
     { name: 'System Settings', icon: <Settings size={20} />, path: '/admin/settings' },
   ];
+
+  // Logout function - Force redirect to home page
+  const handleLogout = () => {
+    console.log("Logging out...");
+    
+    // Clear all auth data
+    localStorage.clear(); // Clear everything
+    sessionStorage.clear();
+    
+    // Clear cookies
+    document.cookie.split(";").forEach((c) => {
+      document.cookie = c
+        .replace(/^ +/, "")
+        .replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/");
+    });
+    
+    // Close mobile menu
+    setIsMobileMenuOpen(false);
+    
+    // Call parent onLogout if provided
+    if (onLogout) {
+      onLogout();
+    }
+    
+    // Force navigation to home page
+    window.location.href = '/';
+    // OR use navigate (try this first, if doesn't work, use window.location)
+    // navigate('/', { replace: true });
+  };
 
   return (
     <div className="flex h-screen bg-[#0f172a] text-slate-300">
@@ -49,6 +79,7 @@ const AdminSidebar = ({ children }) => {
               <Link
                 key={item.name}
                 to={item.path}
+                onClick={() => setIsMobileMenuOpen(false)}
                 className={`flex items-center justify-between px-4 py-4 rounded-2xl transition-all duration-200 group ${
                   isActive 
                     ? 'bg-teal-500 text-[#0f172a] font-bold shadow-lg shadow-teal-500/20' 
@@ -76,7 +107,10 @@ const AdminSidebar = ({ children }) => {
               <p className="text-[10px] text-slate-500">admin@healthhub.com</p>
             </div>
           </div>
-          <button className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white transition-all text-xs font-bold">
+          <button 
+            onClick={handleLogout}
+            className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white transition-all text-xs font-bold"
+          >
             <LogOut size={14} /> LOGOUT
           </button>
         </div>
