@@ -14,6 +14,9 @@ import toast, { Toaster } from 'react-hot-toast';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
+// API Base URL from environment variables
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+
 // Prescription Hero Image
 const PRESCRIPTION_HERO_IMAGE = "https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?w=800&h=600&fit=crop";
 
@@ -59,7 +62,7 @@ const PatientPrescriptions = ({ userType, userData }) => {
       
       const token = localStorage.getItem('token');
       if (token) {
-        let url = `http://localhost:5000/api/prescriptions/patient/${patientId}`;
+        let url = `${API_BASE_URL}/api/prescriptions/patient/${patientId}`;
         const params = new URLSearchParams();
         if (filter !== 'all') params.append('status', filter);
         if (searchTerm) params.append('search', searchTerm);
@@ -304,7 +307,7 @@ const PatientPrescriptions = ({ userType, userData }) => {
     try {
       const token = localStorage.getItem('token');
       if (token) {
-        const response = await fetch(`http://localhost:5000/api/prescriptions/${prescriptionId}/status`, {
+        const response = await fetch(`${API_BASE_URL}/api/prescriptions/${prescriptionId}/status`, {
           method: 'PATCH',
           headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({ status: newStatus })
@@ -360,13 +363,6 @@ const PatientPrescriptions = ({ userType, userData }) => {
                 View and manage all your medical prescriptions in one place. Download PDFs, 
                 track medication history, and access your health records anytime, anywhere.
               </p>
-
-             
-
-            
-
-              
-             
             </div>
 
             <div className="flex-1">
@@ -381,14 +377,104 @@ const PatientPrescriptions = ({ userType, userData }) => {
             </div>
           </div>
         </div>
-
-      
       </section>
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-6 lg:px-20 -mt-32 relative z-20">
         
-   
+        {/* Stats Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
+          <div className="bg-gradient-to-br from-teal-500 to-teal-600 rounded-2xl p-6 text-white shadow-xl">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-teal-100 text-sm font-medium">Total Prescriptions</p>
+                <p className="text-4xl font-black mt-2">{stats.total}</p>
+              </div>
+              <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center">
+                <FileText size={24} />
+              </div>
+            </div>
+          </div>
+          
+          <div className="bg-gradient-to-br from-amber-500 to-amber-600 rounded-2xl p-6 text-white shadow-xl">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-amber-100 text-sm font-medium">Active Prescriptions</p>
+                <p className="text-4xl font-black mt-2">{stats.active}</p>
+              </div>
+              <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center">
+                <Activity size={24} />
+              </div>
+            </div>
+          </div>
+          
+          <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-2xl p-6 text-white shadow-xl">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-blue-100 text-sm font-medium">Completed</p>
+                <p className="text-4xl font-black mt-2">{stats.completed}</p>
+              </div>
+              <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center">
+                <CheckCircle size={24} />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Search and Filter Bar */}
+        <div className="bg-white rounded-2xl p-4 shadow-lg mb-8 flex flex-col md:flex-row gap-4">
+          <div className="flex-1 relative">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" size={18} />
+            <input
+              type="text"
+              placeholder="Search by diagnosis or doctor name..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-10 pr-4 py-3 border border-slate-200 rounded-xl focus:outline-none focus:border-teal-400 focus:ring-2 focus:ring-teal-100 transition-all"
+            />
+          </div>
+          
+          <div className="flex gap-2">
+            <button
+              onClick={() => setFilter('all')}
+              className={`px-6 py-3 rounded-xl font-bold text-sm transition-all ${
+                filter === 'all' 
+                  ? 'bg-teal-500 text-white shadow-md' 
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              All
+            </button>
+            <button
+              onClick={() => setFilter('active')}
+              className={`px-6 py-3 rounded-xl font-bold text-sm transition-all ${
+                filter === 'active' 
+                  ? 'bg-amber-500 text-white shadow-md' 
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              Active
+            </button>
+            <button
+              onClick={() => setFilter('completed')}
+              className={`px-6 py-3 rounded-xl font-bold text-sm transition-all ${
+                filter === 'completed' 
+                  ? 'bg-blue-500 text-white shadow-md' 
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              Completed
+            </button>
+            <button
+              onClick={handleRefresh}
+              disabled={refreshing}
+              className="px-4 py-3 bg-slate-100 text-slate-600 rounded-xl hover:bg-slate-200 transition-all flex items-center gap-2"
+            >
+              <RefreshCw size={18} className={refreshing ? 'animate-spin' : ''} />
+            </button>
+          </div>
+        </div>
+
         {/* Prescriptions Grid */}
         {prescriptions.length === 0 ? (
           <div className="bg-white rounded-[2.5rem] p-20 text-center border-2 border-dashed border-slate-200">
